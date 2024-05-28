@@ -12,6 +12,11 @@ namespace btrieve {
 
 class Key {
 public:
+  Key(const Key &key) : segments(key.segments) {}
+
+  Key(const KeyDefinition *segments, size_t numSegments)
+      : segments(segments, segments + numSegments) {}
+
   const KeyDefinition &getPrimarySegment() const { return segments[0]; }
 
   uint16_t getNumber() const { return getPrimarySegment().getNumber(); }
@@ -31,15 +36,7 @@ public:
     return std::any_of(segments.begin(), segments.end(), requiresACS);
   }
 
-  const uint8_t *getACS() const {
-    for (auto it = segments.begin(); it != segments.end(); ++it) {
-      auto acs = it->getACS();
-      if (acs != NULL) {
-        return acs;
-      }
-    }
-    return NULL;
-  }
+  const char *getACS() const { return getPrimarySegment().getACS(); }
 
   unsigned int getLength() const {
     unsigned int length = 0;

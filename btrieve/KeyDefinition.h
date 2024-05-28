@@ -4,12 +4,41 @@
 #include "AttributeMask.h"
 #include "KeyDataType.h"
 #include <cstdint>
+#include <cstring>
 #include <vector>
 
 namespace btrieve {
 
 class KeyDefinition {
 public:
+  KeyDefinition(uint16_t number, uint16_t length, uint16_t offset,
+                KeyDataType dataType, uint16_t attributes, bool segment,
+                uint16_t segmentOf, uint16_t segmentIndex, uint8_t nullValue,
+                const char *acs)
+      : number(number), length(length), offset(offset), dataType(dataType),
+        attributes(attributes), segment(segment), segmentOf(segmentOf),
+        segmentIndex(segmentIndex), nullValue(nullValue) {
+    if (acs != nullptr) {
+      memcpy(this->acs, acs, 256);
+    } else {
+      memset(this->acs, 0, 256);
+    }
+  }
+
+  KeyDefinition(const KeyDefinition &keyDefinition)
+      : number(keyDefinition.number), length(keyDefinition.length),
+        offset(keyDefinition.offset), dataType(keyDefinition.dataType),
+        attributes(keyDefinition.attributes), segment(keyDefinition.segment),
+        segmentOf(keyDefinition.segmentOf),
+        segmentIndex(keyDefinition.segmentIndex),
+        nullValue(keyDefinition.nullValue) {
+    if (keyDefinition.acs != nullptr) {
+      memcpy(this->acs, keyDefinition.acs, 256);
+    } else {
+      memset(this->acs, 0, 256);
+    }
+  }
+
   uint16_t getPosition() const { return offset + 1; }
 
   bool requiresACS() const { return attributes & NumberedACS; }
@@ -35,7 +64,7 @@ public:
 
   uint16_t getNumber() const { return number; }
 
-  const uint8_t *getACS() const { return acs.data(); }
+  const char *getACS() const { return acs; }
 
   uint16_t getOffset() const { return offset; }
 
@@ -51,7 +80,7 @@ private:
   uint16_t segmentOf;
   uint16_t segmentIndex;
   uint8_t nullValue;
-  std::vector<uint8_t> acs;
+  char acs[256];
 };
 } // namespace btrieve
 
