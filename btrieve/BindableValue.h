@@ -22,6 +22,8 @@ public:
       : type(Type::Blob), blob_value(new std::vector<uint8_t>(
                               data.data(), data.data() + data.size())) {}
 
+  BindableValue(const std::string_view data)
+      : type(Type::Text), text_value(new std::string(data)) {}
   // deep copy
   BindableValue(const BindableValue &value) : type(value.type) {
     // TODO
@@ -61,6 +63,8 @@ public:
   }
 
   sqlite3_int64 getIntegerValue() const { return int_value; }
+
+  const std::string &getStringValue() const { return *text_value; }
 
 private:
   Type type;

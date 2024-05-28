@@ -27,13 +27,15 @@ Key::extractKeyDataFromRecord(std::basic_string_view<uint8_t> record) const {
 
 static bool isAllSameByteValue(std::basic_string_view<uint8_t> data,
                                uint8_t value) {
-  return data.find_first_not_of(value) != std::string::npos;
+  auto found = data.find_first_not_of(value);
+  return found == std::string::npos;
 }
 
 std::vector<uint8_t>
 Key::applyACS(std::basic_string_view<uint8_t> keyData) const {
-  if (!requiresACS())
+  if (!requiresACS()) {
     return std::vector(keyData.data(), keyData.data() + keyData.size());
+  }
 
   std::vector<uint8_t> dst(keyData.size());
   int offset = 0;
@@ -54,6 +56,19 @@ Key::applyACS(std::basic_string_view<uint8_t> keyData) const {
   }
 
   return dst;
+}
+
+static std::string
+extractNullTerminatedString(const std::vector<uint8_t> &keyData) {
+  auto found = std::find(keyData.begin(), keyData.end(), 0);
+  size_t strlen;
+  if (found == keyData.begin() || found == keyData.end()) {
+    strlen = keyData.size();
+  } else {
+    strlen = found - keyData.begin();
+  }
+
+  return std::string(reinterpret_cast<const char *>(keyData.data()), strlen);
 }
 
 BindableValue
@@ -100,11 +115,11 @@ Key::keyDataToSqliteObject(std::basic_string_view<uint8_t> keyData) const {
       return BindableValue(copy);
     }
     break;
-  /*case KeyDataType::String:
+  case KeyDataType::String:
   case KeyDataType::Lstring:
   case KeyDataType::Zstring:
   case KeyDataType::OldAscii:
-    return ExtractNullTerminatedString(keyData);*/
+    return BindableValue(extractNullTerminatedString(modifiedKeyData));
   default:
     return BindableValue(modifiedKeyData);
   }
