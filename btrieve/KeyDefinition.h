@@ -70,6 +70,10 @@ public:
 
   uint16_t getLength() const { return length; }
 
+  uint8_t getNullValue() const { return nullValue; }
+
+  KeyDataType getDataType() const { return dataType; }
+
 private:
   uint16_t number;
   uint16_t length;

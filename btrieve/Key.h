@@ -1,6 +1,7 @@
 ﻿#ifndef __BTRIEVEKEY_H_
 #define __BTRIEVEKEY_H_
 
+#include "BindableValue.h"
 #include "KeyDefinition.h"
 #include <algorithm>
 #include <cstddef>
@@ -55,7 +56,12 @@ public:
   std::vector<uint8_t>
   extractKeyDataFromRecord(std::basic_string_view<uint8_t> record) const;
 
+  BindableValue
+  keyDataToSqliteObject(std::basic_string_view<uint8_t> keyData) const;
+
 private:
+  std::vector<uint8_t> applyACS(std::basic_string_view<uint8_t> keyData) const;
+
   std::vector<KeyDefinition> segments;
 };
 } // namespace btrieve
