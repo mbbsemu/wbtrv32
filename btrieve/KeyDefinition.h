@@ -37,6 +37,8 @@ public:
 
   const uint8_t *getACS() const { return acs.data(); }
 
+  uint16_t getOffset() const { return offset; }
+
   uint16_t getLength() const { return length; }
 
 private:

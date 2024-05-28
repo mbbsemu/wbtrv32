@@ -5,12 +5,14 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <string>
+#include <string_view>
 
 namespace btrieve {
 
-class BtrieveKey {
+class Key {
 public:
-  KeyDefinition getPrimarySegment() const { return segments[0]; }
+  const KeyDefinition &getPrimarySegment() const { return segments[0]; }
 
   uint16_t getNumber() const { return getPrimarySegment().getNumber(); }
 
@@ -47,37 +49,21 @@ public:
     return length;
   }
 
+  std::string getSqliteKeyName() const {
+    char buf[128];
+    std::snprintf(buf, sizeof(buf), "key_%d", getPrimarySegment().getNumber());
+    return buf;
+  }
+
+  std::vector<uint8_t>
+  extractKeyDataFromRecord(std::basic_string_view<uint8_t> record) const;
+
 private:
   std::vector<KeyDefinition> segments;
 };
 } // namespace btrieve
 
 /*
-/// <summary>
-///     The key name used in the SQLite data_t table.
-/// </summary>
-public
-string SqliteKeyName = > $ "key_{PrimarySegment.Number}";
-
-/// <summary>
-///     Returns a span of bytes containing the key value from record.
-/// </summary>
-public
-ReadOnlySpan<byte> ExtractKeyDataFromRecord(ReadOnlySpan<byte> record) {
-  if (!IsComposite)
-    return record.Slice(PrimarySegment.Offset, PrimarySegment.Length);
-
-  var composite = new byte[Length];
-  var i = 0;
-  foreach (var segment in Segments) {
-    var destSlice = composite.AsSpan(i, segment.Length);
-    record.Slice(segment.Offset, segment.Length).CopyTo(destSlice);
-    i += segment.Length;
-  }
-
-  return composite;
-}
-
 /// <summary>
 ///      Returns true if data contains all of value.
 /// </summary>
