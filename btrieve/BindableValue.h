@@ -62,11 +62,15 @@ public:
     }
   }
 
+  Type getType() const { return type; }
+
   sqlite3_int64 getIntegerValue() const { return int_value; }
 
   const std::string &getStringValue() const { return *text_value; }
 
   const std::vector<uint8_t> &getBlobValue() const { return *blob_value; }
+
+  bool isNull() { return getType() == Type::Null; }
 
 private:
   Type type;

@@ -175,4 +175,42 @@ TEST(Key, CompositeKeyConcatentation) {
             std::vector<uint8_t>(expected, expected + sizeof(expected)));
 }
 
+struct ParameterizedKeyDataType {
+  KeyDataType type;
+};
+
+class ParameterizedKeyDataTypeFixture
+    : public testing::TestWithParam<ParameterizedKeyDataType> {};
+
+TEST_P(ParameterizedKeyDataTypeFixture, NullValues) {
+  const ParameterizedKeyDataType &view = GetParam();
+
+  KeyDefinition keyDefinition(0, 8, 2, view.type,
+                              UseExtendedDataType | NullAllSegments, true, 0, 0,
+                              ' ', NULL);
+
+  Key key(&keyDefinition, 1);
+
+  uint8_t record[128];
+  memset(record, 0xFF, sizeof(record));
+  // first segment is all spaces i.e. null
+  memset(record + 2, ' ', 8);
+
+  auto actual = key.extractKeyInRecordToSqliteObject(
+      std::basic_string_view<uint8_t>(record, sizeof(record)));
+
+  EXPECT_TRUE(actual.isNull());
+}
+
+static std::vector<ParameterizedKeyDataType> createKeyDataTypeData() {
+  return std::vector<ParameterizedKeyDataType>{
+      {KeyDataType::String},         {KeyDataType::Lstring},
+      {KeyDataType::Zstring},        {KeyDataType::OldAscii},
+      {KeyDataType::Integer},        {KeyDataType::Unsigned},
+      {KeyDataType::UnsignedBinary}, {KeyDataType::OldBinary}};
+}
+
+INSTANTIATE_TEST_CASE_P(Key, ParameterizedKeyDataTypeFixture,
+                        ::testing::ValuesIn(createKeyDataTypeData()));
+
 } // namespace
