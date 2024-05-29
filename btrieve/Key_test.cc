@@ -253,4 +253,59 @@ TEST(Key, ACSReplacementSingleKey) {
   EXPECT_EQ(actual, "ABTZ%");
 }
 
+struct ACSReplacementMultipleKey {
+  bool firstACS;
+  const char *input;
+  const char *expected;
+};
+
+class ParameterizedACSReplacementMultipleKeyFixture
+    : public testing::TestWithParam<ACSReplacementMultipleKey> {};
+
+TEST_P(ParameterizedACSReplacementMultipleKeyFixture,
+       ACSReplacementMultipleKey) {
+  const ACSReplacementMultipleKey &view = GetParam();
+
+  char acs[256];
+
+  upperACS(acs);
+
+  KeyDefinition keyDefinitions[2] = {
+      KeyDefinition(0, 8, 2, KeyDataType::Zstring,
+                    UseExtendedDataType | (view.firstACS ? NumberedACS : 0),
+                    true, 0, 0, 0, acs),
+      KeyDefinition(0, 8, 10, KeyDataType::Zstring,
+                    UseExtendedDataType | NumberedACS, false, 1, 0, 0, acs)};
+
+  Key key(keyDefinitions, 2);
+
+  uint8_t record[128];
+  memset(record, 0, sizeof(record));
+  memcpy(record + 2, view.input, strlen(view.input));
+
+  auto actual = key.extractKeyInRecordToSqliteObject(
+                       std::basic_string_view<uint8_t>(record, sizeof(record)))
+                    .getBlobValue();
+
+  EXPECT_EQ(std::string(reinterpret_cast<const char *>(actual.data()),
+                        strlen(reinterpret_cast<const char *>(actual.data()))),
+            view.expected);
+}
+
+static std::vector<ACSReplacementMultipleKey>
+createACSReplacementMultipleKey() {
+  return std::vector<ACSReplacementMultipleKey>{
+      {true, "b", "B"},
+      {true, "test", "TEST"},
+      {true, "1234567890", "1234567890"},
+      {true, "test1234test4321", "TEST1234TEST4321"},
+      {false, "b", "b"},
+      {false, "test", "test"},
+      {false, "1234567890", "1234567890"},
+      {false, "test1234test4321", "test1234TEST4321"}};
+}
+
+INSTANTIATE_TEST_CASE_P(Key, ParameterizedACSReplacementMultipleKeyFixture,
+                        ::testing::ValuesIn(createACSReplacementMultipleKey()));
+
 } // namespace
