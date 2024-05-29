@@ -164,8 +164,9 @@ TEST(Key, CompositeKeyConcatentation) {
 
   Key key(keyDefinitions, 2);
 
-  auto actual = key.extractKeyDataFromRecord(
-      std::basic_string_view<uint8_t>(record, sizeof(record)));
+  auto actual = key.extractKeyInRecordToSqliteObject(
+                       std::basic_string_view<uint8_t>(record, sizeof(record)))
+                    .getBlobValue();
 
   uint8_t expected[] = {0x5, 0x5, 0x5, 0x5, 0x5, 0x5,
                         0x5, 0x5, 'T', 'T', 'T', 'T'};

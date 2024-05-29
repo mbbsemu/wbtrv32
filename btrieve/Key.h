@@ -59,6 +59,13 @@ public:
   BindableValue
   keyDataToSqliteObject(std::basic_string_view<uint8_t> keyData) const;
 
+  BindableValue extractKeyInRecordToSqliteObject(
+      std::basic_string_view<uint8_t> record) const {
+    auto keyData = extractKeyDataFromRecord(record);
+    return keyDataToSqliteObject(
+        std::basic_string_view<uint8_t>(keyData.data(), keyData.size()));
+  }
+
 private:
   std::vector<uint8_t> applyACS(std::basic_string_view<uint8_t> keyData) const;
 
