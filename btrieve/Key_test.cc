@@ -213,4 +213,44 @@ static std::vector<ParameterizedKeyDataType> createKeyDataTypeData() {
 INSTANTIATE_TEST_CASE_P(Key, ParameterizedKeyDataTypeFixture,
                         ::testing::ValuesIn(createKeyDataTypeData()));
 
+static char *upperACS(char acs[256]) {
+  for (int i = 0; i < 256; ++i) {
+    acs[i] = (char)i;
+  }
+  // make uppercase
+  for (int i = 'a'; i <= 'z'; ++i) {
+    acs[i] = toupper(acs[i]);
+  }
+
+  return acs;
+}
+
+TEST(Key, ACSReplacementSingleKey) {
+  char acs[256];
+
+  upperACS(acs);
+
+  KeyDefinition keyDefinition(0, 8, 2, KeyDataType::String,
+                              UseExtendedDataType | NumberedACS, true, 0, 0, 0,
+                              acs);
+
+  Key key(&keyDefinition, 1);
+
+  uint8_t record[128];
+  memset(record, 0xFF, sizeof(record));
+  // first segment is all spaces i.e. null
+  record[2] = (uint8_t)'a';
+  record[3] = (uint8_t)'B';
+  record[4] = (uint8_t)'t';
+  record[5] = (uint8_t)'Z';
+  record[6] = (uint8_t)'%';
+  record[7] = 0;
+
+  auto actual = key.extractKeyInRecordToSqliteObject(
+                       std::basic_string_view<uint8_t>(record, sizeof(record)))
+                    .getStringValue();
+
+  EXPECT_EQ(actual, "ABTZ%");
+}
+
 } // namespace
