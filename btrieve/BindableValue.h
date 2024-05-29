@@ -26,7 +26,22 @@ public:
       : type(Type::Text), text_value(new std::string(data)) {}
   // deep copy
   BindableValue(const BindableValue &value) : type(value.type) {
-    // TODO
+    switch (value.type) {
+    case Type::Null:
+      break;
+    case Type::Integer:
+      int_value = value.int_value;
+      break;
+    case Type::Double:
+      double_value = value.double_value;
+      break;
+    case Type::Text:
+      text_value = new std::string(*value.text_value);
+      break;
+    case Type::Blob:
+      blob_value = new std::vector<uint8_t>(*value.blob_value);
+      break;
+    }
   }
 
   // move copy
