@@ -66,6 +66,8 @@ public:
 
   const std::string &getStringValue() const { return *text_value; }
 
+  const std::vector<uint8_t> &getBlobValue() const { return *blob_value; }
+
 private:
   Type type;
   union {

@@ -148,4 +148,30 @@ static std::vector<ParameterizedStringFixtureType> createStringData() {
 INSTANTIATE_TEST_CASE_P(Key, ParameterizedStringFixture,
                         ::testing::ValuesIn(createStringData()));
 
+TEST(Key, CompositeKeyConcatentation) {
+  KeyDefinition keyDefinitions[2] = {
+      KeyDefinition(0, 8, 2, KeyDataType::Integer, UseExtendedDataType, true, 0,
+                    0, 0, NULL),
+      KeyDefinition(0, 4, 20, KeyDataType::Zstring, UseExtendedDataType, false,
+                    1, 0, 0, NULL)};
+
+  uint8_t record[128];
+  memset(record, 0xFF, sizeof(record));
+  // first segment is all 0x5
+  memset(record + 2, 0x5, 8);
+  // second segment is just a letter
+  memset(record + 20, 'T', 4);
+
+  Key key(keyDefinitions, 2);
+
+  auto actual = key.extractKeyDataFromRecord(
+      std::basic_string_view<uint8_t>(record, sizeof(record)));
+
+  uint8_t expected[] = {0x5, 0x5, 0x5, 0x5, 0x5, 0x5,
+                        0x5, 0x5, 'T', 'T', 'T', 'T'};
+
+  EXPECT_EQ(actual,
+            std::vector<uint8_t>(expected, expected + sizeof(expected)));
+}
+
 } // namespace

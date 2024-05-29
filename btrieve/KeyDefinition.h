@@ -11,6 +11,8 @@ namespace btrieve {
 
 class KeyDefinition {
 public:
+  KeyDefinition() {}
+
   KeyDefinition(uint16_t number, uint16_t length, uint16_t offset,
                 KeyDataType dataType, uint16_t attributes, bool segment,
                 uint16_t segmentOf, uint16_t segmentIndex, uint8_t nullValue,
