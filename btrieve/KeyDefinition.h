@@ -34,11 +34,7 @@ public:
         segmentOf(keyDefinition.segmentOf),
         segmentIndex(keyDefinition.segmentIndex),
         nullValue(keyDefinition.nullValue) {
-    if (keyDefinition.acs != nullptr) {
-      memcpy(this->acs, keyDefinition.acs, 256);
-    } else {
-      memset(this->acs, 0, 256);
-    }
+    memcpy(this->acs, keyDefinition.acs, 256);
   }
 
   uint16_t getPosition() const { return offset + 1; }
@@ -75,6 +71,22 @@ public:
   uint8_t getNullValue() const { return nullValue; }
 
   KeyDataType getDataType() const { return dataType; }
+
+  bool isSegment() const { return segment; }
+
+  bool operator==(const KeyDefinition &other) const {
+    return number == other.number && length == other.length &&
+           offset == other.offset && dataType == other.dataType &&
+           attributes == other.attributes && segment == other.segment &&
+           segmentOf == other.segmentOf && nullValue == other.nullValue &&
+           memcmp(acs, other.acs, sizeof(acs)) == 0;
+  }
+
+  uint16_t getSegmentIndex() const { return segmentIndex; }
+
+  void setSegmentIndex(uint16_t segmentIndex) {
+    this->segmentIndex = segmentIndex;
+  }
 
 private:
   uint16_t number;

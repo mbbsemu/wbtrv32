@@ -148,6 +148,20 @@ static std::vector<ParameterizedStringFixtureType> createStringData() {
 INSTANTIATE_TEST_CASE_P(Key, ParameterizedStringFixture,
                         ::testing::ValuesIn(createStringData()));
 
+TEST(Key, SegmentIndices) {
+  KeyDefinition keyDefinitions[2] = {
+      KeyDefinition(0, 8, 2, KeyDataType::Integer, UseExtendedDataType, true, 0,
+                    0, 0, NULL),
+      KeyDefinition(0, 4, 20, KeyDataType::Zstring, UseExtendedDataType, false,
+                    1, 0, 0, NULL)};
+
+  Key key(keyDefinitions, 2);
+
+  EXPECT_EQ(key.getPrimarySegment().getSegmentIndex(), 0);
+  EXPECT_EQ(key.getSegments()[0].getSegmentIndex(), 0);
+  EXPECT_EQ(key.getSegments()[1].getSegmentIndex(), 1);
+}
+
 TEST(Key, CompositeKeyConcatentation) {
   KeyDefinition keyDefinitions[2] = {
       KeyDefinition(0, 8, 2, KeyDataType::Integer, UseExtendedDataType, true, 0,
@@ -287,8 +301,8 @@ TEST_P(ParameterizedACSReplacementMultipleKeyFixture,
                        std::basic_string_view<uint8_t>(record, sizeof(record)))
                     .getBlobValue();
 
-  EXPECT_EQ(std::string(reinterpret_cast<const char *>(actual.data()),
-                        strlen(reinterpret_cast<const char *>(actual.data()))),
+  auto keyChars = reinterpret_cast<const char *>(actual.data());
+  EXPECT_EQ(std::string(keyChars, std::min(actual.size(), strlen(keyChars))),
             view.expected);
 }
 

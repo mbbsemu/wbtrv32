@@ -13,12 +13,18 @@ namespace btrieve {
 
 class Key {
 public:
+  Key() {}
+
   Key(const Key &key) : segments(key.segments) {}
 
   Key(const KeyDefinition *segments, size_t numSegments)
-      : segments(segments, segments + numSegments) {}
+      : segments(segments, segments + numSegments) {
+    updateSegmentIndices();
+  }
 
   const KeyDefinition &getPrimarySegment() const { return segments[0]; }
+
+  const std::vector<KeyDefinition> &getSegments() const { return segments; }
 
   uint16_t getNumber() const { return getPrimarySegment().getNumber(); }
 
@@ -64,6 +70,17 @@ public:
     auto keyData = extractKeyDataFromRecord(record);
     return keyDataToSqliteObject(
         std::basic_string_view<uint8_t>(keyData.data(), keyData.size()));
+  }
+
+  void addSegment(const KeyDefinition &keyDefinition) {
+    segments.push_back(keyDefinition);
+  }
+
+  void updateSegmentIndices() {
+    uint16_t i = 0;
+    for (auto &segment : segments) {
+      segment.setSegmentIndex(i++);
+    }
   }
 
 private:
