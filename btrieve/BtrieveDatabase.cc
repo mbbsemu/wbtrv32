@@ -2,8 +2,6 @@
 
 namespace btrieve {
 
-static const unsigned int RECORD_LENGTH_POINTER = 0x1A;
-
 static inline uint16_t toUint16(const void *ptr) {
   auto p = reinterpret_cast<const uint8_t *>(ptr);
   return p[0] | p[1] << 8;
@@ -12,6 +10,28 @@ static inline uint16_t toUint16(const void *ptr) {
 static inline uint32_t toUint32(const void *ptr) {
   auto p = reinterpret_cast<const uint8_t *>(ptr);
   return p[0] | p[1] << 8 | p[2] << 16 | p[3] << 24;
+}
+
+static uint32_t getRecordPointer(std::basic_string_view<uint8_t> data) {
+  // 2 byte high word -> 2 byte low word
+  return static_cast<uint32_t>(toUint16(data.data())) << 16 |
+         static_cast<uint32_t>(toUint16(data.data() + 2));
+}
+
+static uint32_t getRecordPointer(FILE *f, uint32_t offset) {
+  uint8_t data[4];
+  fseek(f, offset, SEEK_SET);
+  fread(data, 1, sizeof(data), f);
+  return getRecordPointer(std::basic_string_view<uint8_t>(data, sizeof(data)));
+}
+
+static void getRecordPointerList(FILE *f, uint32_t first,
+                                 std::unordered_set<uint32_t> &set) {
+  while (first != 0xFFFFFFFF) {
+    set.insert(first);
+
+    first = getRecordPointer(f, first);
+  }
 }
 
 const char *BtrieveDatabase::validateDatabase(FILE *f,
@@ -72,7 +92,77 @@ const char *BtrieveDatabase::validateDatabase(FILE *f,
   return nullptr;
 }
 
-bool BtrieveDatabase::loadRecords(
+bool BtrieveDatabase::isUnusedRecord(std::basic_string_view<uint8_t> data) {
+  if (data[0] == 0 && data[1] == 0 && data[2] == 0 && data[3] == 0) {
+    // additional validation, to ensure the record pointer is valid
+    uint32_t offset = getRecordPointer(data);
+    if (offset < fileLength)
+      return true;
+  }
+
+  return false;
+}
+
+void BtrieveDatabase::loadRecords(
+    FILE *f,
+    std::function<bool(const std::basic_string_view<uint8_t>)> onRecordLoaded) {
+  unsigned int recordsLoaded = 0;
+  uint8_t *const data = reinterpret_cast<uint8_t *>(alloca(pageLength));
+  const unsigned int recordsInPage = ((pageLength - 6) / physicalRecordLength);
+
+  fseek(f, pageLength, SEEK_SET);
+  // Starting at 1, since the first page is the header
+  for (unsigned int i = 1; i <= pageCount; i++) {
+    // read in the entire page
+    fread(data, 1, pageLength, f);
+    // Verify Data Page, high bit set on byte 5 (usage count)
+    if ((data[0x5] & 0x80) == 0)
+      continue;
+
+    // page data starts 6 bytes in
+    unsigned int recordOffset = 6;
+    for (unsigned int j = 0; j < recordsInPage;
+         j++, recordOffset += physicalRecordLength) {
+      if (recordsLoaded == recordCount) {
+        return;
+      }
+
+      // Marked for deletion? Skip
+      if (deletedRecordOffsets.count(recordOffset) > 0) {
+        continue;
+      }
+
+      std::basic_string_view<uint8_t> record =
+          std::basic_string_view<uint8_t>(data + recordOffset, recordLength);
+      if (isUnusedRecord(record)) {
+        break;
+      }
+
+      if (variableLengthRecords) {
+        // memcpy(physicalRecord, record.data(), physicalRecordLength);
+
+        /*
+          using var stream = new MemoryStream();
+          stream.Write(recordArray);
+
+          Records.Add(new BtrieveRecord(recordOffset,
+          GetVariableLengthData(recordOffset, stream)));
+        */
+      } else {
+        onRecordLoaded(record);
+      }
+
+      recordsLoaded++;
+    }
+  }
+
+  if (recordsLoaded != recordCount) {
+    fprintf(stderr, "Database contains %d records but only read %d!\n",
+            recordCount, recordsLoaded);
+  }
+}
+
+bool BtrieveDatabase::parseDatabase(
     const std::string &fileName,
     std::function<bool(const BtrieveDatabase &database)> onMetadataLoaded,
     std::function<bool(const std::basic_string_view<uint8_t>)> onRecordLoaded) {
@@ -85,36 +175,14 @@ bool BtrieveDatabase::loadRecords(
   BtrieveDatabase database;
   bool ret = database.from(f);
   if (ret) {
-    if (onMetadataLoaded(database)) {
-      // load the records
+    if (onMetadataLoaded(database) && database.getRecordCount() > 0) {
+      database.loadRecords(f, onRecordLoaded);
     }
   } else {
     fprintf(stderr, "Couldn't load %s: %s\n", fileName.c_str(), "generic");
   }
   fclose(f);
   return ret;
-}
-
-static uint32_t getRecordPointer(std::basic_string_view<uint8_t> data) {
-  // 2 byte high word -> 2 byte low word
-  return static_cast<uint32_t>(toUint16(data.data())) << 16 |
-         static_cast<uint32_t>(toUint16(data.data() + 2));
-}
-
-static uint32_t getRecordPointer(FILE *f, uint32_t offset) {
-  uint8_t data[4];
-  fseek(f, offset, SEEK_SET);
-  fread(data, 1, sizeof(data), f);
-  return getRecordPointer(std::basic_string_view<uint8_t>(data, sizeof(data)));
-}
-
-static void getRecordPointerList(FILE *f, uint32_t first,
-                                 std::unordered_set<uint32_t> &set) {
-  while (first != 0xFFFFFFFF) {
-    set.insert(first);
-
-    first = getRecordPointer(f, first);
-  }
 }
 
 static const uint8_t ACS_PAGE_HEADER[] = {0, 0, 1, 0, 0, 0, 0xAC};
@@ -191,6 +259,10 @@ bool BtrieveDatabase::from(FILE *f) {
   uint8_t firstPage[512];
   char acs[256];
 
+  fseek(f, 0, SEEK_END);
+  fileLength = ftell(f);
+  fseek(f, 0, SEEK_SET);
+
   fread(firstPage, 1, sizeof(firstPage), f);
 
   if (validateDatabase(f, firstPage) != nullptr) {
@@ -205,7 +277,4 @@ bool BtrieveDatabase::from(FILE *f) {
 
   return true;
 }
-
-void BtrieveDatabase::enumerateRecords() {}
-
 } // namespace btrieve

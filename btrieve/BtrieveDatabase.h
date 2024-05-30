@@ -17,8 +17,8 @@ public:
         pageLength(database.pageLength), pageCount(database.pageCount),
         recordLength(database.recordLength),
         physicalRecordLength(database.physicalRecordLength),
-        recordCount(database.recordCount), keyCount(database.keyCount),
-        logKeyPresent(database.logKeyPresent),
+        recordCount(database.recordCount), fileLength(database.fileLength),
+        keyCount(database.keyCount), logKeyPresent(database.logKeyPresent),
         variableLengthRecords(database.variableLengthRecords) {}
 
   BtrieveDatabase(BtrieveDatabase &&database)
@@ -27,8 +27,8 @@ public:
         pageLength(database.pageLength), pageCount(database.pageCount),
         recordLength(database.recordLength),
         physicalRecordLength(database.physicalRecordLength),
-        recordCount(database.recordCount), keyCount(database.keyCount),
-        logKeyPresent(database.logKeyPresent),
+        recordCount(database.recordCount), fileLength(database.fileLength),
+        keyCount(database.keyCount), logKeyPresent(database.logKeyPresent),
         variableLengthRecords(database.variableLengthRecords) {}
 
   const std::vector<Key> &getKeys() const { return keys; }
@@ -49,13 +49,11 @@ public:
 
   bool isVariableLengthRecords() const { return variableLengthRecords; }
 
-  static bool loadRecords(
+  static bool parseDatabase(
       const std::string &fileName,
       std::function<bool(const BtrieveDatabase &database)> onMetadataLoaded,
       std::function<bool(const std::basic_string_view<uint8_t>)>
           onRecordLoaded);
-
-  void enumerateRecords();
 
 private:
   bool from(FILE *f);
@@ -64,6 +62,12 @@ private:
 
   bool loadACS(FILE *f, char *acs);
   void loadKeyDefinitions(FILE *f, const uint8_t *firstPage, const char *acs);
+
+  void loadRecords(FILE *f,
+                   std::function<bool(const std::basic_string_view<uint8_t>)>
+                       onRecordLoaded);
+
+  bool isUnusedRecord(std::basic_string_view<uint8_t> fixedRecordData);
 
   std::vector<Key> keys;
   std::string fileName;
@@ -75,6 +79,8 @@ private:
   unsigned int recordLength;
   unsigned int physicalRecordLength;
   unsigned int recordCount;
+
+  unsigned int fileLength;
 
   unsigned int keyCount;
 

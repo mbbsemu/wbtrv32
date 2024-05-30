@@ -1,25 +1,31 @@
-#include "gtest/gtest.h"
 #include "BtrieveDatabase.h"
+#include "gtest/gtest.h"
 
 using namespace btrieve;
 
 TEST(BtrieveDatabase, LoadsFile) {
+  unsigned int recordCount = 0;
   BtrieveDatabase *database = nullptr;
   char blankACS[256];
 
   memset(blankACS, 0, sizeof(blankACS));
 
-  ASSERT_TRUE(BtrieveDatabase::loadRecords(
+  ASSERT_TRUE(BtrieveDatabase::parseDatabase(
       "assets/MBBSEMU.DAT",
       [&database](const BtrieveDatabase &db) {
         database = new BtrieveDatabase(db);
-        return false;
+        return true;
       },
-      [](std::basic_string_view<uint8_t> record) { return true; }));
+      [&database, &recordCount](std::basic_string_view<uint8_t> record) {
+        EXPECT_EQ(record.size(), database->getRecordLength());
+        ++recordCount;
+        return true;
+      }));
 
   ASSERT_TRUE(database != nullptr);
   EXPECT_EQ(database->getKeys().size(), 4);
   EXPECT_EQ(database->getRecordLength(), 74);
+  EXPECT_EQ(database->getRecordCount(), 4);
   EXPECT_EQ(database->getPhysicalRecordLength(), 90);
   EXPECT_EQ(database->getPageLength(), 512);
   EXPECT_EQ(database->getPageCount(), 5);
@@ -49,6 +55,8 @@ TEST(BtrieveDatabase, LoadsFile) {
   EXPECT_EQ(database->getKeys()[3].getPrimarySegment(),
             KeyDefinition(3, 4, 70, KeyDataType::AutoInc, UseExtendedDataType,
                           false, 0, 0, 0, blankACS));
+
+  EXPECT_EQ(recordCount, database->getRecordCount());
 
   delete database;
 }
