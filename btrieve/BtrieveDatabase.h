@@ -69,6 +69,14 @@ private:
 
   bool isUnusedRecord(std::basic_string_view<uint8_t> fixedRecordData);
 
+  void getVariableLengthData(FILE *f,
+                             std::basic_string_view<uint8_t> recordData,
+                             std::vector<uint8_t> &stream);
+
+  uint32_t getFragment(std::basic_string_view<uint8_t> page, uint32_t fragment,
+                       uint32_t numFragments, uint32_t &length,
+                       bool &nextPointerExists);
+
   std::vector<Key> keys;
   std::string fileName;
   std::unordered_set<uint32_t> deletedRecordOffsets;

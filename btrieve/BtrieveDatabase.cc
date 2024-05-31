@@ -12,7 +12,7 @@ static inline uint32_t toUint32(const void *ptr) {
   return p[0] | p[1] << 8 | p[2] << 16 | p[3] << 24;
 }
 
-static uint32_t getRecordPointer(std::basic_string_view<uint8_t> data) {
+static inline uint32_t getRecordPointer(std::basic_string_view<uint8_t> data) {
   // 2 byte high word -> 2 byte low word
   return static_cast<uint32_t>(toUint16(data.data())) << 16 |
          static_cast<uint32_t>(toUint16(data.data() + 2));
@@ -32,6 +32,32 @@ static void getRecordPointerList(FILE *f, uint32_t first,
 
     first = getRecordPointer(f, first);
   }
+}
+
+static inline uint32_t
+getPageFromVariableLengthRecordPointer(std::basic_string_view<uint8_t> data) {
+  // high low mid, yep it's stupid
+  return (uint)data[0] << 16 | (uint)data[1] | (uint)data[2] << 8;
+}
+
+static uint16_t
+getPageOffsetFromFragmentArray(std::basic_string_view<uint8_t> arrayEntry,
+                               bool &nextPointerExists) {
+  if (arrayEntry[0] == 0xFF && arrayEntry[1] == 0xFF) {
+    nextPointerExists = false;
+    return 0xFFFF;
+  }
+
+  uint16_t offset = (uint)arrayEntry[0] | ((uint)arrayEntry[1] & 0x7F) << 8;
+  nextPointerExists = (arrayEntry[1] & 0x80) != 0;
+  return offset;
+}
+
+static void append(std::vector<uint8_t> &vector,
+                   std::basic_string_view<uint8_t> data) {
+  unsigned int vectorSize = vector.size();
+  vector.resize(vectorSize + data.size());
+  memcpy(vector.data() + vectorSize, data.data(), data.size());
 }
 
 const char *BtrieveDatabase::validateDatabase(FILE *f,
@@ -139,15 +165,16 @@ void BtrieveDatabase::loadRecords(
       }
 
       if (variableLengthRecords) {
-        // memcpy(physicalRecord, record.data(), physicalRecordLength);
+        std::vector<uint8_t> stream(recordLength);
+        memcpy(stream.data(), record.data(), record.size());
 
-        /*
-          using var stream = new MemoryStream();
-          stream.Write(recordArray);
+        getVariableLengthData(f,
+                              std::basic_string_view<uint8_t>(
+                                  data + recordOffset, physicalRecordLength),
+                              stream);
 
-          Records.Add(new BtrieveRecord(recordOffset,
-          GetVariableLengthData(recordOffset, stream)));
-        */
+        onRecordLoaded(
+            std::basic_string_view<uint8_t>(stream.data(), stream.size()));
       } else {
         onRecordLoaded(record);
       }
@@ -277,4 +304,94 @@ bool BtrieveDatabase::from(FILE *f) {
 
   return true;
 }
+
+uint32_t BtrieveDatabase::getFragment(std::basic_string_view<uint8_t> page,
+                                      uint32_t fragment, uint32_t numFragments,
+                                      uint32_t &length,
+                                      bool &nextPointerExists) {
+  auto offsetPointer = pageLength - 2 * (fragment + 1);
+  auto offset = getPageOffsetFromFragmentArray(page.substr(offsetPointer, 2),
+                                               nextPointerExists);
+
+  // to compute length, keep going until I read the next valid fragment and get
+  // its offset then we subtract the two offets to compute length
+  auto nextFragmentOffset = offsetPointer;
+  uint32_t nextOffset = 0xFFFFFFFFu;
+  for (unsigned int i = fragment + 1; i <= numFragments; ++i) {
+    bool unused;
+    nextFragmentOffset -=
+        2; // fragment array is at end of page and grows downward
+    nextOffset = getPageOffsetFromFragmentArray(
+        page.substr(nextFragmentOffset, 2), unused);
+    if (nextOffset == 0xFFFF)
+      continue;
+    // valid offset, break now
+    break;
+  }
+
+  // some sanity checks
+  if (nextOffset == 0xFFFFFFFFu) {
+    // throw new ArgumentException($"Can't find next fragment offset {fragment}
+    // numFragments:{numFragments} {FileName}");
+    // TODO
+    return offset;
+  }
+
+  length = nextOffset - offset;
+  // final sanity check
+  if (offset < 0xC ||
+      (offset + length) > (pageLength - 2 * (numFragments + 1))) {
+    // throw new ArgumentException($"Variable data overflows page {fragment}
+    // numFragments:{numFragments} {FileName}");
+    // TODO
+    return offset;
+  }
+
+  return offset;
+}
+
+void BtrieveDatabase::getVariableLengthData(
+    FILE *f, std::basic_string_view<uint8_t> recordData,
+    std::vector<uint8_t> &stream) {
+  std::basic_string_view<uint8_t> variableData(
+      recordData.data() + recordLength, physicalRecordLength - recordLength);
+  auto vrecPage = getPageFromVariableLengthRecordPointer(variableData);
+  auto vrecFragment = variableData[3];
+  uint8_t *data = reinterpret_cast<uint8_t *>(alloca(pageLength));
+
+  while (true) {
+    // invalid page? abort and return what we have
+    if (vrecPage == 0xFFFFFF && vrecFragment == 0xFF) {
+      // TODO seek back to original
+      return;
+    }
+
+    // jump to that page
+    auto vpage = vrecPage * pageLength;
+    fseek(f, vpage, SEEK_SET);
+    fread(data, 1, pageLength, f);
+
+    auto numFragmentsInPage = toUint16(data + 0xA);
+    uint32_t length;
+    bool nextPointerExists;
+    // grab the fragment pointer
+    auto offset = getFragment(std::basic_string_view<uint8_t>(data, pageLength),
+                              vrecFragment, numFragmentsInPage, length,
+                              nextPointerExists);
+    // now finally read the data!
+    std::basic_string_view<uint8_t> variableData(data + offset, length);
+    if (!nextPointerExists) {
+      // read all the data and reached the end!
+      append(stream, variableData);
+      return;
+    }
+
+    // keep going through more pages!
+    vrecPage = getPageFromVariableLengthRecordPointer(variableData);
+    vrecFragment = variableData[3];
+
+    append(stream, variableData.substr(4));
+  }
+}
+
 } // namespace btrieve
