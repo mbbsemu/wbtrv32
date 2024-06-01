@@ -23,6 +23,4 @@ int main(int argc, const char **argv) {
               ex.getErrorMessage().c_str());
     }
   }
-
-  // /home/tcj/mbbs/ELWICLIB.DAT
 }
