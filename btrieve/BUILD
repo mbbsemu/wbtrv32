@@ -4,7 +4,6 @@ cc_library(
   name = "btrieve",
   hdrs = glob(["*.h"]),
   srcs = glob(["*.cc"], exclude = TEST_SRCS),
-  deps = ["//sqlite",]
 )
 
 cc_test(

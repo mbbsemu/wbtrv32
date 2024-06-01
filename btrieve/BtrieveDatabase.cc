@@ -200,27 +200,20 @@ void BtrieveDatabase::loadRecords(
   }
 }
 
-bool BtrieveDatabase::parseDatabase(
-    const std::string &fileName,
-    std::function<bool(const BtrieveDatabase &database)> onMetadataLoaded,
+void BtrieveDatabase::parseDatabase(
+    const std::string &fileName, std::function<bool()> onMetadataLoaded,
     std::function<bool(const std::basic_string_view<uint8_t>)> onRecordLoaded) {
   FILE *f = fopen(fileName.c_str(), "rb");
   if (f == nullptr) {
     fprintf(stderr, "Couldn't open %s\n", fileName.c_str());
-    return false;
+    return;
   }
 
-  BtrieveDatabase database;
-  bool ret = database.from(f);
-  if (ret) {
-    if (onMetadataLoaded(database) && database.getRecordCount() > 0) {
-      database.loadRecords(f, onRecordLoaded);
-    }
-  } else {
-    fprintf(stderr, "Couldn't load %s: %s\n", fileName.c_str(), "generic");
+  from(f);
+  if (onMetadataLoaded() && getRecordCount() > 0) {
+    loadRecords(f, onRecordLoaded);
   }
   fclose(f);
-  return ret;
 }
 
 static const uint8_t ACS_PAGE_HEADER[] = {0, 0, 1, 0, 0, 0, 0xAC};
@@ -294,7 +287,7 @@ void BtrieveDatabase::loadKeyDefinitions(FILE *f, const uint8_t *firstPage,
   }
 }
 
-bool BtrieveDatabase::from(FILE *f) {
+void BtrieveDatabase::from(FILE *f) {
   uint8_t firstPage[512];
   char acs[256];
 
@@ -305,7 +298,7 @@ bool BtrieveDatabase::from(FILE *f) {
   fread(firstPage, 1, sizeof(firstPage), f);
 
   if (validateDatabase(f, firstPage) != nullptr) {
-    return false;
+    return;
   }
 
   getRecordPointerList(f, getRecordPointer(f, 0x10), deletedRecordOffsets);
@@ -313,8 +306,6 @@ bool BtrieveDatabase::from(FILE *f) {
   loadACS(f, acs);
 
   loadKeyDefinitions(f, firstPage, acs);
-
-  return true;
 }
 
 uint32_t BtrieveDatabase::getFragment(std::basic_string_view<uint8_t> page,

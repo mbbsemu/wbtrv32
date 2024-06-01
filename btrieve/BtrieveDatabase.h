@@ -49,14 +49,14 @@ public:
 
   bool isVariableLengthRecords() const { return variableLengthRecords; }
 
-  static bool parseDatabase(
-      const std::string &fileName,
-      std::function<bool(const BtrieveDatabase &database)> onMetadataLoaded,
-      std::function<bool(const std::basic_string_view<uint8_t>)>
-          onRecordLoaded);
+  // throws FileException
+  void parseDatabase(const std::string &fileName,
+                     std::function<bool()> onMetadataLoaded,
+                     std::function<bool(const std::basic_string_view<uint8_t>)>
+                         onRecordLoaded);
 
 private:
-  bool from(FILE *f);
+  void from(FILE *f);
 
   const char *validateDatabase(FILE *f, const uint8_t *firstPage);
 

@@ -1,7 +1,6 @@
 #ifndef __BINDABLE_VALUE_H_
 #define __BINDABLE_VALUE_H_
 
-#include "sqlite3.h"
 #include <string>
 #include <vector>
 
@@ -13,7 +12,7 @@ private:
 public:
   BindableValue() : type(Type::Null) {}
 
-  BindableValue(sqlite3_int64 value) : type(Type::Integer), int_value(value) {}
+  BindableValue(uint64_t value) : type(Type::Integer), int_value(value) {}
 
   BindableValue(const std::vector<uint8_t> &data)
       : type(Type::Blob), blob_value(new std::vector<uint8_t>(data)) {}
@@ -79,7 +78,7 @@ public:
 
   Type getType() const { return type; }
 
-  sqlite3_int64 getIntegerValue() const { return int_value; }
+  uint64_t getIntegerValue() const { return int_value; }
 
   const std::string &getStringValue() const { return *text_value; }
 
@@ -90,7 +89,7 @@ public:
 private:
   Type type;
   union {
-    sqlite3_int64 int_value;
+    uint64_t int_value;
     double double_value;
     std::string *text_value;
     std::vector<uint8_t> *blob_value;

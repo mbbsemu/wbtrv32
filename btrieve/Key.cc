@@ -106,7 +106,7 @@ Key::keyDataToSqliteObject(std::basic_string_view<uint8_t> keyData) const {
         mask = mask << 8 | ((mask & 0xFF00000000000000u) >> 56);
         value |= static_cast<uint64_t>(*(data++)) << (8 * i);
       }
-      return BindableValue(static_cast<sqlite3_int64>(value));
+      return BindableValue(static_cast<uint64_t>(value));
     } else {
       // data is LSB, sqlite blobs compare msb (using memcmp), so swap bytes
       // prior to insert

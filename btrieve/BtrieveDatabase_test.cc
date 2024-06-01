@@ -5,60 +5,53 @@ using namespace btrieve;
 
 TEST(BtrieveDatabase, LoadsMBBSEmuDat) {
   unsigned int recordCount = 0;
-  BtrieveDatabase *database = nullptr;
+  BtrieveDatabase database;
   char blankACS[256];
 
   memset(blankACS, 0, sizeof(blankACS));
 
-  ASSERT_TRUE(BtrieveDatabase::parseDatabase(
-      "assets/MBBSEMU.DAT",
-      [&database](const BtrieveDatabase &db) {
-        database = new BtrieveDatabase(db);
-        return true;
-      },
+  database.parseDatabase(
+      "assets/MBBSEMU.DAT", []() { return true; },
       [&database, &recordCount](std::basic_string_view<uint8_t> record) {
-        EXPECT_EQ(record.size(), database->getRecordLength());
+        EXPECT_EQ(record.size(), database.getRecordLength());
         ++recordCount;
         return true;
-      }));
+      });
 
-  ASSERT_TRUE(database != nullptr);
-  EXPECT_EQ(database->getKeys().size(), 4);
-  EXPECT_EQ(database->getRecordLength(), 74);
-  EXPECT_EQ(database->getRecordCount(), 4);
-  EXPECT_EQ(database->getPhysicalRecordLength(), 90);
-  EXPECT_EQ(database->getPageLength(), 512);
-  EXPECT_EQ(database->getPageCount(), 5);
-  EXPECT_FALSE(database->isLogKeyPresent());
-  EXPECT_FALSE(database->isVariableLengthRecords());
+  EXPECT_EQ(database.getKeys().size(), 4);
+  EXPECT_EQ(database.getRecordLength(), 74);
+  EXPECT_EQ(database.getRecordCount(), 4);
+  EXPECT_EQ(database.getPhysicalRecordLength(), 90);
+  EXPECT_EQ(database.getPageLength(), 512);
+  EXPECT_EQ(database.getPageCount(), 5);
+  EXPECT_FALSE(database.isLogKeyPresent());
+  EXPECT_FALSE(database.isVariableLengthRecords());
 
-  EXPECT_FALSE(database->getKeys()[0].isComposite());
-  EXPECT_FALSE(database->getKeys()[1].isComposite());
-  EXPECT_FALSE(database->getKeys()[2].isComposite());
-  EXPECT_FALSE(database->getKeys()[3].isComposite());
+  EXPECT_FALSE(database.getKeys()[0].isComposite());
+  EXPECT_FALSE(database.getKeys()[1].isComposite());
+  EXPECT_FALSE(database.getKeys()[2].isComposite());
+  EXPECT_FALSE(database.getKeys()[3].isComposite());
 
-  EXPECT_EQ(database->getKeys()[0].getPrimarySegment(),
+  EXPECT_EQ(database.getKeys()[0].getPrimarySegment(),
             KeyDefinition(0, 32, 2, KeyDataType::Zstring,
                           Duplicates | UseExtendedDataType, false, 0, 0, 0,
                           blankACS));
 
-  EXPECT_EQ(database->getKeys()[1].getPrimarySegment(),
+  EXPECT_EQ(database.getKeys()[1].getPrimarySegment(),
             KeyDefinition(1, 4, 34, KeyDataType::Integer,
                           Modifiable | UseExtendedDataType, false, 0, 0, 0,
                           blankACS));
 
-  EXPECT_EQ(database->getKeys()[2].getPrimarySegment(),
+  EXPECT_EQ(database.getKeys()[2].getPrimarySegment(),
             KeyDefinition(2, 32, 38, KeyDataType::Zstring,
                           Duplicates | Modifiable | UseExtendedDataType, false,
                           0, 0, 0, blankACS));
 
-  EXPECT_EQ(database->getKeys()[3].getPrimarySegment(),
+  EXPECT_EQ(database.getKeys()[3].getPrimarySegment(),
             KeyDefinition(3, 4, 70, KeyDataType::AutoInc, UseExtendedDataType,
                           false, 0, 0, 0, blankACS));
 
-  EXPECT_EQ(recordCount, database->getRecordCount());
-
-  delete database;
+  EXPECT_EQ(recordCount, database.getRecordCount());
 }
 
 typedef struct _tagPOPULATE {
@@ -69,19 +62,15 @@ typedef struct _tagPOPULATE {
 
 TEST(BtrieveDatabase, LoadsVariableDat) {
   unsigned int recordCount = 0;
-  BtrieveDatabase *database = nullptr;
+  BtrieveDatabase database;
   char blankACS[256];
 
   memset(blankACS, 0, sizeof(blankACS));
 
-  ASSERT_TRUE(BtrieveDatabase::parseDatabase(
-      "assets/VARIABLE.DAT",
-      [&database](const BtrieveDatabase &db) {
-        database = new BtrieveDatabase(db);
-        return true;
-      },
+  database.parseDatabase(
+      "assets/VARIABLE.DAT", []() { return true; },
       [&database, &recordCount](std::basic_string_view<uint8_t> record) {
-        EXPECT_GT(record.size(), database->getRecordLength() - 1);
+        EXPECT_GT(record.size(), database.getRecordLength() - 1);
 
         const POPULATE *data =
             reinterpret_cast<const POPULATE *>(record.data());
@@ -96,31 +85,28 @@ TEST(BtrieveDatabase, LoadsVariableDat) {
 
         ++recordCount;
         return true;
-      }));
+      });
 
-  ASSERT_TRUE(database != nullptr);
-  EXPECT_EQ(database->getKeys().size(), 2);
-  EXPECT_EQ(database->getRecordLength(), 8);
-  EXPECT_EQ(database->getRecordCount(), 1024);
-  EXPECT_EQ(database->getPhysicalRecordLength(), 20);
-  EXPECT_EQ(database->getPageLength(), 512);
-  EXPECT_EQ(database->getPageCount(), 1155);
-  EXPECT_FALSE(database->isLogKeyPresent());
-  EXPECT_TRUE(database->isVariableLengthRecords());
+  EXPECT_EQ(database.getKeys().size(), 2);
+  EXPECT_EQ(database.getRecordLength(), 8);
+  EXPECT_EQ(database.getRecordCount(), 1024);
+  EXPECT_EQ(database.getPhysicalRecordLength(), 20);
+  EXPECT_EQ(database.getPageLength(), 512);
+  EXPECT_EQ(database.getPageCount(), 1155);
+  EXPECT_FALSE(database.isLogKeyPresent());
+  EXPECT_TRUE(database.isVariableLengthRecords());
 
-  EXPECT_FALSE(database->getKeys()[0].isComposite());
-  EXPECT_FALSE(database->getKeys()[1].isComposite());
+  EXPECT_FALSE(database.getKeys()[0].isComposite());
+  EXPECT_FALSE(database.getKeys()[1].isComposite());
 
-  EXPECT_EQ(database->getKeys()[0].getPrimarySegment(),
+  EXPECT_EQ(database.getKeys()[0].getPrimarySegment(),
             KeyDefinition(0, 2, 4, KeyDataType::Integer,
                           Duplicates | UseExtendedDataType, false, 0, 0, 0,
                           blankACS));
 
-  EXPECT_EQ(database->getKeys()[1].getPrimarySegment(),
+  EXPECT_EQ(database.getKeys()[1].getPrimarySegment(),
             KeyDefinition(1, 2, 6, KeyDataType::Integer, UseExtendedDataType,
                           false, 0, 0, 0, blankACS));
 
-  EXPECT_EQ(recordCount, database->getRecordCount());
-
-  delete database;
+  EXPECT_EQ(recordCount, database.getRecordCount());
 }
