@@ -133,7 +133,8 @@ void BtrieveDatabase::validateDatabase(FILE *f, const uint8_t *firstPage) {
 }
 
 bool BtrieveDatabase::isUnusedRecord(std::basic_string_view<uint8_t> data) {
-  if (data[0] == 0 && data[1] == 0 && data[2] == 0 && data[3] == 0) {
+  if (data.size() >= 4 && data.substr(4).find_first_not_of(static_cast<uint8_t>(
+                              0)) == std::string_view::npos) {
     // additional validation, to ensure the record pointer is valid
     uint32_t offset = getRecordPointer(data);
     // sanity check to ensure the data is valid
@@ -151,10 +152,11 @@ void BtrieveDatabase::loadRecords(
   unsigned int recordsLoaded = 0;
   uint8_t *const data = reinterpret_cast<uint8_t *>(alloca(pageLength));
   const unsigned int recordsInPage = ((pageLength - 6) / physicalRecordLength);
+  unsigned int pageOffset = pageLength;
 
   fseek(f, pageLength, SEEK_SET);
   // Starting at 1, since the first page is the header
-  for (unsigned int i = 1; i <= pageCount; i++) {
+  for (unsigned int i = 1; i <= pageCount; i++, pageOffset += pageLength) {
     // read in the entire page
     fread(data, 1, pageLength, f);
     // Verify Data Page, high bit set on byte 5 (usage count)
@@ -171,7 +173,7 @@ void BtrieveDatabase::loadRecords(
       }
 
       // Marked for deletion? Skip
-      if (deletedRecordOffsets.count(recordOffset) > 0) {
+      if (deletedRecordOffsets.count(pageOffset + recordOffset) > 0) {
         continue;
       }
 

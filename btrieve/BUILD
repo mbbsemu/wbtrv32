@@ -3,6 +3,7 @@ TEST_SRCS = glob(["*_test.cc"])
 cc_library(
   name = "btrieve",
   hdrs = glob(["*.h"]),
+  visibility = ["//visibility:public"],
   srcs = glob(["*.cc"], exclude = TEST_SRCS),
 )
 
