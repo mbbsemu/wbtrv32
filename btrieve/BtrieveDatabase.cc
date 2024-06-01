@@ -332,7 +332,7 @@ uint32_t BtrieveDatabase::getFragment(std::basic_string_view<uint8_t> page,
   for (unsigned int i = fragment + 1; i <= numFragments; ++i) {
     bool unused;
     // fragment array is at end of page and grows downward
-    nextFragmentOffset -= 2; 
+    nextFragmentOffset -= 2;
     nextOffset = getPageOffsetFromFragmentArray(
         page.substr(nextFragmentOffset, 2), unused);
     if (nextOffset == 0xFFFF) {
