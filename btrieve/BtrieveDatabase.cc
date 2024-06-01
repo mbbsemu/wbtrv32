@@ -1,4 +1,6 @@
 #include "BtrieveDatabase.h"
+#include "BtrieveException.h"
+#include <stdio.h>
 
 namespace btrieve {
 
@@ -60,16 +62,17 @@ static void append(std::vector<uint8_t> &vector,
   memcpy(vector.data() + vectorSize, data.data(), data.size());
 }
 
-const char *BtrieveDatabase::validateDatabase(FILE *f,
-                                              const uint8_t *firstPage) {
+void BtrieveDatabase::validateDatabase(FILE *f, const uint8_t *firstPage) {
   if (firstPage[0] == 'F' && firstPage[1] == 'C') {
-    return "Cannot import v6 Btrieve database - only v5 databases are "
-           "supported for now.";
+    throw BtrieveException(
+        "Cannot import v6 Btrieve database - only v5 databases are "
+        "supported for now.");
   }
 
   if (firstPage[0] != 0 && firstPage[1] != 0 && firstPage[2] != 0 &&
       firstPage[3] != 0) {
-    return "Doesn't appear to be a v5 Btrieve database - bad header";
+    throw BtrieveException(
+        "Doesn't appear to be a v5 Btrieve database - bad header");
   }
 
   uint32_t versionCode = firstPage[6] << 16 | firstPage[7];
@@ -79,35 +82,40 @@ const char *BtrieveDatabase::validateDatabase(FILE *f,
   case 5:
     break;
   default:
-    return "Invalid version code in v5 Btrieve database";
+    throw BtrieveException(
+        "Invalid version code in v5 Btrieve database, got %d wanted 3/4/5",
+        versionCode);
   }
 
   auto needsRecovery = (firstPage[0x22] == 0xFF && firstPage[0x23] == 0xFF);
   if (needsRecovery) {
-    return "Cannot import Btrieve database since it's marked inconsistent and "
-           "needs recovery.";
+    throw BtrieveException(
+        "Cannot import Btrieve database since it's marked inconsistent and "
+        "needs recovery.");
   }
 
   pageLength = toUint16(firstPage + 0x8);
   if (pageLength < 512 || (pageLength & 0x1FF) != 0) {
-    return "Invalid PageLength, must be multiple of 512";
+    throw BtrieveException(
+        "Invalid PageLength, must be multiple of 512. Got %d", pageLength);
   }
 
   auto accelFlags = toUint16(firstPage + 0xA);
   if (accelFlags != 0) {
-    return "Invalid accel flags, expected 0";
+    throw BtrieveException("Invalid accel flags, got %d, expected 0",
+                           accelFlags);
   }
 
   auto usrflgs = toUint16(firstPage + 0x106);
   if ((usrflgs & 0x8) != 0) {
-    return "firstPage is compressed, cannot handle";
+    throw BtrieveException("firstPage is compressed, cannot handle");
   }
 
   variableLengthRecords = ((usrflgs & 0x1) != 0);
   auto recordsContainVariableLength = (firstPage[0x38] == 0xFF);
 
   if (variableLengthRecords ^ recordsContainVariableLength) {
-    return "Mismatched variable length fields";
+    throw BtrieveException("Mismatched variable length fields");
   }
 
   fseek(f, 0, SEEK_END);
@@ -122,8 +130,6 @@ const char *BtrieveDatabase::validateDatabase(FILE *f,
   physicalRecordLength = toUint16(firstPage + 0x18);
 
   keyCount = toUint16(firstPage + 0x14);
-
-  return nullptr;
 }
 
 bool BtrieveDatabase::isUnusedRecord(std::basic_string_view<uint8_t> data) {
@@ -297,9 +303,7 @@ void BtrieveDatabase::from(FILE *f) {
 
   fread(firstPage, 1, sizeof(firstPage), f);
 
-  if (validateDatabase(f, firstPage) != nullptr) {
-    return;
-  }
+  validateDatabase(f, firstPage);
 
   getRecordPointerList(f, getRecordPointer(f, 0x10), deletedRecordOffsets);
 
@@ -335,20 +339,17 @@ uint32_t BtrieveDatabase::getFragment(std::basic_string_view<uint8_t> page,
 
   // some sanity checks
   if (nextOffset == 0xFFFFFFFF) {
-    // throw new ArgumentException($"Can't find next fragment offset {fragment}
-    // numFragments:{numFragments} {FileName}");
-    // TODO
-    return offset;
+    throw BtrieveException(
+        "Can't find next fragment offset %d, numFragments %d", nextOffset,
+        numFragments);
   }
 
   length = nextOffset - offset;
   // final sanity check
   if (offset < 0xC ||
       (offset + length) > (pageLength - 2 * (numFragments + 1))) {
-    // throw new ArgumentException($"Variable data overflows page {fragment}
-    // numFragments:{numFragments} {FileName}");
-    // TODO
-    return offset;
+    throw BtrieveException("Variable data overflows page %d, numFragments %d",
+                           offset, numFragments);
   }
 
   return offset;

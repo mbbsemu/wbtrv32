@@ -12,7 +12,7 @@ public:
   BtrieveDatabase() {}
 
   BtrieveDatabase(const BtrieveDatabase &database)
-      : keys(database.keys), fileName(database.fileName),
+      : keys(database.keys),
         deletedRecordOffsets(database.deletedRecordOffsets),
         pageLength(database.pageLength), pageCount(database.pageCount),
         recordLength(database.recordLength),
@@ -22,7 +22,7 @@ public:
         variableLengthRecords(database.variableLengthRecords) {}
 
   BtrieveDatabase(BtrieveDatabase &&database)
-      : keys(std::move(database.keys)), fileName(std::move(database.fileName)),
+      : keys(std::move(database.keys)),
         deletedRecordOffsets(std::move(database.deletedRecordOffsets)),
         pageLength(database.pageLength), pageCount(database.pageCount),
         recordLength(database.recordLength),
@@ -38,8 +38,6 @@ public:
   unsigned int getPhysicalRecordLength() const { return physicalRecordLength; }
 
   uint16_t getPageLength() const { return pageLength; }
-
-  const std::string &getFilename() const { return fileName; }
 
   unsigned int getPageCount() const { return pageCount; }
 
@@ -58,7 +56,7 @@ public:
 private:
   void from(FILE *f);
 
-  const char *validateDatabase(FILE *f, const uint8_t *firstPage);
+  void validateDatabase(FILE *f, const uint8_t *firstPage);
 
   bool loadACS(FILE *f, char *acs);
   void loadKeyDefinitions(FILE *f, const uint8_t *firstPage, const char *acs);
@@ -78,7 +76,6 @@ private:
                        bool &nextPointerExists);
 
   std::vector<Key> keys;
-  std::string fileName;
   std::unordered_set<uint32_t> deletedRecordOffsets;
 
   uint16_t pageLength;
