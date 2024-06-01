@@ -24,7 +24,7 @@ public:
   BtrieveException(const BtrieveException &ex)
       : errorMessage(ex.errorMessage) {}
 
-  const std::string &getErrorMessage() { return errorMessage; }
+  const std::string &getErrorMessage() const { return errorMessage; }
 
 private:
   std::string errorMessage;

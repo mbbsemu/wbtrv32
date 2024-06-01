@@ -24,7 +24,6 @@ TEST(BtrieveDatabase, LoadsMBBSEmuDat) {
   EXPECT_EQ(database.getPhysicalRecordLength(), 90);
   EXPECT_EQ(database.getPageLength(), 512);
   EXPECT_EQ(database.getPageCount(), 5);
-  EXPECT_FALSE(database.isLogKeyPresent());
   EXPECT_FALSE(database.isVariableLengthRecords());
 
   EXPECT_FALSE(database.getKeys()[0].isComposite());
@@ -93,7 +92,6 @@ TEST(BtrieveDatabase, LoadsVariableDat) {
   EXPECT_EQ(database.getPhysicalRecordLength(), 20);
   EXPECT_EQ(database.getPageLength(), 512);
   EXPECT_EQ(database.getPageCount(), 1155);
-  EXPECT_FALSE(database.isLogKeyPresent());
   EXPECT_TRUE(database.isVariableLengthRecords());
 
   EXPECT_FALSE(database.getKeys()[0].isComposite());

@@ -1,6 +1,5 @@
 #include "BtrieveDatabase.h"
 #include "BtrieveException.h"
-#include <stdio.h>
 
 namespace btrieve {
 
@@ -27,6 +26,7 @@ static uint32_t getRecordPointer(FILE *f, uint32_t offset) {
   return getRecordPointer(std::basic_string_view<uint8_t>(data, sizeof(data)));
 }
 
+// Fills set with all record pointers reachable from first.
 static void getRecordPointerList(FILE *f, uint32_t first,
                                  std::unordered_set<uint32_t> &set) {
   while (first != 0xFFFFFFFF) {
@@ -129,7 +129,7 @@ void BtrieveDatabase::validateDatabase(FILE *f, const uint8_t *firstPage) {
 
   physicalRecordLength = toUint16(firstPage + 0x18);
 
-  keyCount = toUint16(firstPage + 0x14);
+  keys.resize(toUint16(firstPage + 0x14));
 }
 
 bool BtrieveDatabase::isUnusedRecord(std::basic_string_view<uint8_t> data) {
@@ -192,10 +192,14 @@ void BtrieveDatabase::loadRecords(
                                   data + recordOffset, physicalRecordLength),
                               stream);
 
-        onRecordLoaded(
-            std::basic_string_view<uint8_t>(stream.data(), stream.size()));
+        if (!onRecordLoaded(std::basic_string_view<uint8_t>(stream.data(),
+                                                            stream.size()))) {
+          return;
+        }
       } else {
-        onRecordLoaded(record);
+        if (!onRecordLoaded(record)) {
+          return;
+        }
       }
 
       recordsLoaded++;
@@ -251,11 +255,7 @@ void BtrieveDatabase::loadKeyDefinitions(FILE *f, const uint8_t *firstPage,
   unsigned int keyDefinitionBase = 0x110;
   const auto keyDefinitionLength = 0x1E;
 
-  logKeyPresent = (firstPage[0x10C] == 1);
-
-  keys.resize(keyCount);
-
-  unsigned int totalKeys = keyCount;
+  unsigned int totalKeys = keys.size();
   unsigned int currentKeyNumber = 0;
   while (currentKeyNumber < totalKeys) {
     auto data = std::basic_string_view<uint8_t>(firstPage + keyDefinitionBase,
