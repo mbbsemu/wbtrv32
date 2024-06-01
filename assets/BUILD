@@ -1,8 +1,9 @@
 package(default_visibility = ["//visibility:public"])
 
 filegroup(
-    name = "mbbsemu_dat",
+    name = "test_dats",
     srcs = [
         "MBBSEMU.DAT",
+        "VARIABLE.DAT",
     ],
 )

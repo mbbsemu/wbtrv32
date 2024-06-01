@@ -3,7 +3,7 @@
 
 using namespace btrieve;
 
-TEST(BtrieveDatabase, LoadsFile) {
+TEST(BtrieveDatabase, LoadsMBBSEmuDat) {
   unsigned int recordCount = 0;
   BtrieveDatabase *database = nullptr;
   char blankACS[256];
@@ -54,6 +54,70 @@ TEST(BtrieveDatabase, LoadsFile) {
 
   EXPECT_EQ(database->getKeys()[3].getPrimarySegment(),
             KeyDefinition(3, 4, 70, KeyDataType::AutoInc, UseExtendedDataType,
+                          false, 0, 0, 0, blankACS));
+
+  EXPECT_EQ(recordCount, database->getRecordCount());
+
+  delete database;
+}
+
+typedef struct _tagPOPULATE {
+  uint32_t magic;
+  uint16_t key1;
+  uint16_t key2;
+} POPULATE;
+
+TEST(BtrieveDatabase, LoadsVariableDat) {
+  unsigned int recordCount = 0;
+  BtrieveDatabase *database = nullptr;
+  char blankACS[256];
+
+  memset(blankACS, 0, sizeof(blankACS));
+
+  ASSERT_TRUE(BtrieveDatabase::parseDatabase(
+      "assets/VARIABLE.DAT",
+      [&database](const BtrieveDatabase &db) {
+        database = new BtrieveDatabase(db);
+        return true;
+      },
+      [&database, &recordCount](std::basic_string_view<uint8_t> record) {
+        EXPECT_GT(record.size(), database->getRecordLength() - 1);
+
+        const POPULATE *data =
+            reinterpret_cast<const POPULATE *>(record.data());
+        EXPECT_EQ(data->magic, 0xDEADBEEF);
+        EXPECT_EQ(data->key1, recordCount % 64);
+        EXPECT_EQ(data->key2, recordCount);
+        EXPECT_EQ(record.size(), sizeof(POPULATE) + recordCount);
+        for (unsigned int i = 0; i < record.size() - sizeof(POPULATE); ++i) {
+          EXPECT_EQ(record.data()[sizeof(POPULATE) + i],
+                    static_cast<uint8_t>(i));
+        }
+
+        ++recordCount;
+        return true;
+      }));
+
+  ASSERT_TRUE(database != nullptr);
+  EXPECT_EQ(database->getKeys().size(), 2);
+  EXPECT_EQ(database->getRecordLength(), 8);
+  EXPECT_EQ(database->getRecordCount(), 1024);
+  EXPECT_EQ(database->getPhysicalRecordLength(), 20);
+  EXPECT_EQ(database->getPageLength(), 512);
+  EXPECT_EQ(database->getPageCount(), 1155);
+  EXPECT_FALSE(database->isLogKeyPresent());
+  EXPECT_TRUE(database->isVariableLengthRecords());
+
+  EXPECT_FALSE(database->getKeys()[0].isComposite());
+  EXPECT_FALSE(database->getKeys()[1].isComposite());
+
+  EXPECT_EQ(database->getKeys()[0].getPrimarySegment(),
+            KeyDefinition(0, 2, 4, KeyDataType::Integer,
+                          Duplicates | UseExtendedDataType, false, 0, 0, 0,
+                          blankACS));
+
+  EXPECT_EQ(database->getKeys()[1].getPrimarySegment(),
+            KeyDefinition(1, 2, 6, KeyDataType::Integer, UseExtendedDataType,
                           false, 0, 0, 0, blankACS));
 
   EXPECT_EQ(recordCount, database->getRecordCount());

@@ -10,7 +10,7 @@ cc_library(
 cc_test(
   name = "tests",
   srcs = TEST_SRCS,
-  data = ["//assets:mbbsemu_dat"],
+  data = ["//assets:test_dats"],
   deps = [
     ":btrieve",
     "@gtest",
