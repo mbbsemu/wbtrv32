@@ -3,6 +3,26 @@
 
 namespace btrieve {
 
+static size_t fread_s(void *ptr, size_t size, size_t nmemb, FILE *stream) {
+  size_t numRead = fread(ptr, size, nmemb, stream);
+  if (numRead != nmemb) {
+    throw BtrieveException(
+        "Failed to read all bytes, got %d, wanted %d, errno=%d", numRead, nmemb,
+        errno);
+  }
+  return numRead;
+}
+
+static int fseek_s(FILE *stream, long offset, int whence) {
+  int ret = fseek(stream, offset, whence);
+  if (ret != 0) {
+    throw BtrieveException(
+        "Failed to seek in file to position [%d|%d], errno=%d", offset, whence,
+        errno);
+  }
+  return ret;
+}
+
 static inline uint16_t toUint16(const void *ptr) {
   auto p = reinterpret_cast<const uint8_t *>(ptr);
   return p[0] | p[1] << 8;
@@ -21,8 +41,8 @@ static inline uint32_t getRecordPointer(std::basic_string_view<uint8_t> data) {
 
 static uint32_t getRecordPointer(FILE *f, uint32_t offset) {
   uint8_t data[4];
-  fseek(f, offset, SEEK_SET);
-  fread(data, 1, sizeof(data), f);
+  fseek_s(f, offset, SEEK_SET);
+  fread_s(data, 1, sizeof(data), f);
   return getRecordPointer(std::basic_string_view<uint8_t>(data, sizeof(data)));
 }
 
@@ -118,7 +138,7 @@ void BtrieveDatabase::validateDatabase(FILE *f, const uint8_t *firstPage) {
     throw BtrieveException("Mismatched variable length fields");
   }
 
-  fseek(f, 0, SEEK_END);
+  fseek_s(f, 0, SEEK_END);
   long totalSize = ftell(f);
 
   pageCount = totalSize / pageLength - 1;
@@ -154,11 +174,11 @@ void BtrieveDatabase::loadRecords(
   const unsigned int recordsInPage = ((pageLength - 6) / physicalRecordLength);
   unsigned int pageOffset = pageLength;
 
-  fseek(f, pageLength, SEEK_SET);
+  fseek_s(f, pageLength, SEEK_SET);
   // Starting at 1, since the first page is the header
   for (unsigned int i = 1; i <= pageCount; i++, pageOffset += pageLength) {
     // read in the entire page
-    fread(data, 1, pageLength, f);
+    fread_s(data, 1, pageLength, f);
     // Verify Data Page, high bit set on byte 5 (usage count)
     if ((data[0x5] & 0x80) == 0) {
       continue;
@@ -233,8 +253,8 @@ static const uint8_t ACS_PAGE_HEADER[] = {0, 0, 1, 0, 0, 0, 0xAC};
 bool BtrieveDatabase::loadACS(FILE *f, char *acs) {
   // ACS page immediately follows FCR (the first)
   char secondPage[512];
-  fseek(f, pageLength, SEEK_SET);
-  fread(secondPage, 1, sizeof(secondPage), f);
+  fseek_s(f, pageLength, SEEK_SET);
+  fread_s(secondPage, 1, sizeof(secondPage), f);
 
   if (memcmp(secondPage, ACS_PAGE_HEADER, sizeof(ACS_PAGE_HEADER))) {
     memset(acs, 0, 256);
@@ -299,11 +319,11 @@ void BtrieveDatabase::from(FILE *f) {
   uint8_t firstPage[512];
   char acs[256];
 
-  fseek(f, 0, SEEK_END);
+  fseek_s(f, 0, SEEK_END);
   fileLength = ftell(f);
-  fseek(f, 0, SEEK_SET);
+  fseek_s(f, 0, SEEK_SET);
 
-  fread(firstPage, 1, sizeof(firstPage), f);
+  fread_s(firstPage, 1, sizeof(firstPage), f);
 
   validateDatabase(f, firstPage);
 
@@ -375,8 +395,8 @@ void BtrieveDatabase::getVariableLengthData(
 
     // jump to that page
     auto vpage = vrecPage * pageLength;
-    fseek(f, vpage, SEEK_SET);
-    fread(data, 1, pageLength, f);
+    fseek_s(f, vpage, SEEK_SET);
+    fread_s(data, 1, pageLength, f);
 
     auto numFragmentsInPage = toUint16(data + 0xA);
     uint32_t length;
@@ -400,7 +420,7 @@ void BtrieveDatabase::getVariableLengthData(
     append(stream, variableData.substr(4));
   }
 
-  fseek(f, filePosition, SEEK_SET);
+  fseek_s(f, filePosition, SEEK_SET);
 }
 
 } // namespace btrieve
