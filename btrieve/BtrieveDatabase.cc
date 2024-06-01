@@ -363,7 +363,6 @@ void BtrieveDatabase::getVariableLengthData(
   while (true) {
     // invalid page? abort and return what we have
     if (vrecPage == 0xFFFFFF && vrecFragment == 0xFF) {
-      fseek(f, filePosition, SEEK_SET);
       break;
     }
 
