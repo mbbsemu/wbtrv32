@@ -36,7 +36,7 @@ static void getRecordPointerList(FILE *f, uint32_t first,
 
 static inline uint32_t
 getPageFromVariableLengthRecordPointer(std::basic_string_view<uint8_t> data) {
-  // high low mid, yep it's stupid
+  // high low mid, yep - it's stupid
   return (uint)data[0] << 16 | (uint)data[1] | (uint)data[2] << 8;
 }
 
@@ -62,12 +62,15 @@ static void append(std::vector<uint8_t> &vector,
 
 const char *BtrieveDatabase::validateDatabase(FILE *f,
                                               const uint8_t *firstPage) {
-  if (firstPage[0] == 'F' && firstPage[1] == 'C')
+  if (firstPage[0] == 'F' && firstPage[1] == 'C') {
     return "Cannot import v6 Btrieve database - only v5 databases are "
            "supported for now.";
+  }
+
   if (firstPage[0] != 0 && firstPage[1] != 0 && firstPage[2] != 0 &&
-      firstPage[3] != 0)
+      firstPage[3] != 0) {
     return "Doesn't appear to be a v5 Btrieve database - bad header";
+  }
 
   uint32_t versionCode = firstPage[6] << 16 | firstPage[7];
   switch (versionCode) {
@@ -80,27 +83,32 @@ const char *BtrieveDatabase::validateDatabase(FILE *f,
   }
 
   auto needsRecovery = (firstPage[0x22] == 0xFF && firstPage[0x23] == 0xFF);
-  if (needsRecovery)
+  if (needsRecovery) {
     return "Cannot import Btrieve database since it's marked inconsistent and "
            "needs recovery.";
+  }
 
   pageLength = toUint16(firstPage + 0x8);
-  if (pageLength < 512 || (pageLength & 0x1FF) != 0)
+  if (pageLength < 512 || (pageLength & 0x1FF) != 0) {
     return "Invalid PageLength, must be multiple of 512";
+  }
 
   auto accelFlags = toUint16(firstPage + 0xA);
-  if (accelFlags != 0)
+  if (accelFlags != 0) {
     return "Invalid accel flags, expected 0";
+  }
 
   auto usrflgs = toUint16(firstPage + 0x106);
-  if ((usrflgs & 0x8) != 0)
+  if ((usrflgs & 0x8) != 0) {
     return "firstPage is compressed, cannot handle";
+  }
 
   variableLengthRecords = ((usrflgs & 0x1) != 0);
   auto recordsContainVariableLength = (firstPage[0x38] == 0xFF);
 
-  if (variableLengthRecords ^ recordsContainVariableLength)
+  if (variableLengthRecords ^ recordsContainVariableLength) {
     return "Mismatched variable length fields";
+  }
 
   fseek(f, 0, SEEK_END);
   long totalSize = ftell(f);
@@ -122,8 +130,10 @@ bool BtrieveDatabase::isUnusedRecord(std::basic_string_view<uint8_t> data) {
   if (data[0] == 0 && data[1] == 0 && data[2] == 0 && data[3] == 0) {
     // additional validation, to ensure the record pointer is valid
     uint32_t offset = getRecordPointer(data);
-    if (offset < fileLength)
+    // sanity check to ensure the data is valid
+    if (offset < fileLength) {
       return true;
+    }
   }
 
   return false;
@@ -142,8 +152,9 @@ void BtrieveDatabase::loadRecords(
     // read in the entire page
     fread(data, 1, pageLength, f);
     // Verify Data Page, high bit set on byte 5 (usage count)
-    if ((data[0x5] & 0x80) == 0)
+    if ((data[0x5] & 0x80) == 0) {
       continue;
+    }
 
     // page data starts 6 bytes in
     unsigned int recordOffset = 6;
@@ -269,8 +280,9 @@ void BtrieveDatabase::loadKeyDefinitions(FILE *f, const uint8_t *firstPage,
 
     // If it's a segmented key, don't increment so the next key gets added to
     // the same ordinal as an additional segment
-    if (!keyDefinition.isSegment())
+    if (!keyDefinition.isSegment()) {
       currentKeyNumber++;
+    }
 
     keys[keyDefinition.getNumber()].addSegment(keyDefinition);
 
@@ -319,12 +331,13 @@ uint32_t BtrieveDatabase::getFragment(std::basic_string_view<uint8_t> page,
   uint32_t nextOffset = 0xFFFFFFFFu;
   for (unsigned int i = fragment + 1; i <= numFragments; ++i) {
     bool unused;
-    nextFragmentOffset -=
-        2; // fragment array is at end of page and grows downward
+    // fragment array is at end of page and grows downward
+    nextFragmentOffset -= 2; 
     nextOffset = getPageOffsetFromFragmentArray(
         page.substr(nextFragmentOffset, 2), unused);
-    if (nextOffset == 0xFFFF)
+    if (nextOffset == 0xFFFF) {
       continue;
+    }
     // valid offset, break now
     break;
   }
