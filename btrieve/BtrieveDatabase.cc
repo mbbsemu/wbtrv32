@@ -330,7 +330,7 @@ uint32_t BtrieveDatabase::getFragment(std::basic_string_view<uint8_t> page,
   }
 
   // some sanity checks
-  if (nextOffset == 0xFFFFFFFFu) {
+  if (nextOffset == 0xFFFFFFFF) {
     // throw new ArgumentException($"Can't find next fragment offset {fragment}
     // numFragments:{numFragments} {FileName}");
     // TODO
@@ -353,6 +353,7 @@ uint32_t BtrieveDatabase::getFragment(std::basic_string_view<uint8_t> page,
 void BtrieveDatabase::getVariableLengthData(
     FILE *f, std::basic_string_view<uint8_t> recordData,
     std::vector<uint8_t> &stream) {
+  unsigned int filePosition = ftell(f);
   std::basic_string_view<uint8_t> variableData(
       recordData.data() + recordLength, physicalRecordLength - recordLength);
   auto vrecPage = getPageFromVariableLengthRecordPointer(variableData);
@@ -362,8 +363,8 @@ void BtrieveDatabase::getVariableLengthData(
   while (true) {
     // invalid page? abort and return what we have
     if (vrecPage == 0xFFFFFF && vrecFragment == 0xFF) {
-      // TODO seek back to original
-      return;
+      fseek(f, filePosition, SEEK_SET);
+      break;
     }
 
     // jump to that page
@@ -383,7 +384,7 @@ void BtrieveDatabase::getVariableLengthData(
     if (!nextPointerExists) {
       // read all the data and reached the end!
       append(stream, variableData);
-      return;
+      break;
     }
 
     // keep going through more pages!
@@ -392,6 +393,8 @@ void BtrieveDatabase::getVariableLengthData(
 
     append(stream, variableData.substr(4));
   }
+
+  fseek(f, filePosition, SEEK_SET);
 }
 
 } // namespace btrieve
