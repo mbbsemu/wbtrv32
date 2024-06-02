@@ -3,6 +3,7 @@
 
 #include <cstdarg>
 #include <stdio.h>
+#include <string>
 
 namespace btrieve {
 class BtrieveException {

@@ -1,10 +1,21 @@
 TEST_SRCS = glob(["*_test.cc"])
 
+SQLITE_DATABASE_SRCS = ["SqliteDatabase.cc"]
+
+SQLITE_DATABASE_HDRS = ["SqliteDatabase.h"]
+
 cc_library(
   name = "btrieve",
-  hdrs = glob(["*.h"]),
+  hdrs = glob(["*.h"], exclude = SQLITE_DATABASE_HDRS),
   visibility = ["//visibility:public"],
-  srcs = glob(["*.cc"], exclude = TEST_SRCS),
+  srcs = glob(["*.cc"], exclude = TEST_SRCS + SQLITE_DATABASE_SRCS),
+)
+
+cc_library(
+  name = "sqlite_database",
+  srcs = SQLITE_DATABASE_SRCS,
+  hdrs = SQLITE_DATABASE_HDRS,
+  deps = [":btrieve", "//sqlite"],
 )
 
 cc_test(
@@ -13,6 +24,7 @@ cc_test(
   data = ["//assets:test_dats"],
   deps = [
     ":btrieve",
+    ":sqlite_database",
     "@gtest",
     "@gtest//:gtest_main",
  ],
