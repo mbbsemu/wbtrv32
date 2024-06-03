@@ -5,7 +5,8 @@
 
 namespace btrieve {
 
-// An interface that abstracts a SQL-compatible implementation of BtrieveDatabase.
+// An interface that abstracts a SQL-compatible implementation of
+// BtrieveDatabase.
 class SqlDatabase {
 public:
   virtual ~SqlDatabase() = default;

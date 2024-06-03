@@ -6,10 +6,10 @@
 
 namespace btrieve {
 class BindableValue {
-private:
-  enum Type { Null, Integer, Double, Text, Blob };
 
 public:
+  enum Type { Null, Integer, Double, Text, Blob };
+
   BindableValue() : type(Type::Null) {}
 
   BindableValue(uint64_t value) : type(Type::Integer), int_value(value) {}
@@ -79,6 +79,8 @@ public:
   Type getType() const { return type; }
 
   uint64_t getIntegerValue() const { return int_value; }
+
+  double getDoubleValue() const { return double_value; }
 
   const std::string &getStringValue() const { return *text_value; }
 

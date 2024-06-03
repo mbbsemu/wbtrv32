@@ -2,11 +2,13 @@
 #define __SQLITE_DATABASE_H_
 
 #include "SqlDatabase.h"
+#include "sqlite/sqlite3.h"
+#include <memory>
 
 namespace btrieve {
 class SqliteDatabase : public SqlDatabase {
 public:
-  SqliteDatabase() {}
+  SqliteDatabase() : database(nullptr, &sqlite3_close) {}
 
   virtual ~SqliteDatabase() { close(); }
 
@@ -17,6 +19,22 @@ public:
   virtual void create(const char *fileName, const BtrieveDatabase &database);
 
   virtual void close();
+
+private:
+  void createSqliteMetadataTable(const BtrieveDatabase &database);
+  void createSqliteKeysTable(const BtrieveDatabase &database);
+  void createSqliteDataTable(const BtrieveDatabase &database);
+  void createSqliteDataIndices(const BtrieveDatabase &database);
+  void createSqliteTriggers();
+  void populateSqliteDataTable(const BtrieveDatabase &database);
+
+  std::unique_ptr<sqlite3, decltype(&sqlite3_close)> database;
+
+  unsigned int recordLength;
+  unsigned int pageLength;
+  bool variableLengthRecords;
+  std::vector<Key> keys;
 };
+
 } // namespace btrieve
 #endif
