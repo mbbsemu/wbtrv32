@@ -28,7 +28,7 @@ private:
   void createSqliteTriggers();
   void populateSqliteDataTable(const BtrieveDatabase &database);
 
-  std::unique_ptr<sqlite3, decltype(&sqlite3_close)> database;
+  std::shared_ptr<sqlite3> database;
 
   unsigned int recordLength;
   unsigned int pageLength;

@@ -7,6 +7,14 @@ namespace btrieve {
 
 static const unsigned int CURRENT_VERSION = 2;
 
+static void throwException(int errorCode) {
+  const char *sqlite3ErrMsg = sqlite3_errstr(errorCode);
+
+  throw BtrieveException(sqlite3ErrMsg == nullptr ? "Sqlite error: [%d]"
+                                                  : "Sqlite error: [%d] - [%s]",
+                         errorCode, sqlite3ErrMsg);
+}
+
 // Opens a Btrieve database as a sql backed file. Will convert a legacy file
 // in place if required. Throws a BtrieveException if something fails.
 void SqliteDatabase::open(const char *fileName) {}
@@ -14,11 +22,13 @@ void SqliteDatabase::open(const char *fileName) {}
 void SqliteDatabase::create(const char *fileName,
                             const BtrieveDatabase &database) {
   sqlite3 *db;
-  sqlite3_open_v2(fileName, &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_MEMORY,
-                  nullptr);
+  int errorCode = sqlite3_open_v2(
+      fileName, &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_MEMORY, nullptr);
+  if (errorCode != SQLITE_OK) {
+    throwException(errorCode);
+  }
 
-  // assign it
-  this->database.reset(db);
+  this->database = std::shared_ptr<sqlite3>(db, &sqlite3_close);
 
   recordLength = database.getRecordLength();
   pageLength = database.getPageLength();
@@ -33,17 +43,10 @@ void SqliteDatabase::create(const char *fileName,
   populateSqliteDataTable(database);
 }
 
-static void throwException(int errorCode) {
-  const char *sqlite3ErrMsg = sqlite3_errstr(errorCode);
-
-  throw BtrieveException(sqlite3ErrMsg == nullptr ? "Sqlite error: [%d]"
-                                                  : "Sqlite error: [%d] - [%s]",
-                         errorCode, sqlite3ErrMsg);
-}
-
 class SqlitePreparedStatement {
 public:
-  SqlitePreparedStatement(sqlite3 *database_, const char *sqlFormat, ...)
+  SqlitePreparedStatement(std::shared_ptr<sqlite3> database_,
+                          const char *sqlFormat, ...)
       : database(database_), statement(nullptr, &sqlite3_finalize) {
     char sql[512];
     int len;
@@ -59,7 +62,7 @@ public:
     sql[sizeof(sql) - 1] = 0;
 
     errorCode =
-        sqlite3_prepare_v2(database_, sqlFormat, len, &statement, nullptr);
+        sqlite3_prepare_v2(database.get(), sqlFormat, len, &statement, nullptr);
     if (errorCode != SQLITE_OK) {
       throwException(errorCode);
     }
@@ -121,7 +124,7 @@ public:
   }
 
 private:
-  sqlite3 *database;
+  std::shared_ptr<sqlite3> database;
   std::unique_ptr<sqlite3_stmt, decltype(&sqlite3_finalize)> statement;
 };
 
@@ -133,7 +136,7 @@ void SqliteDatabase::createSqliteMetadataTable(
       "variable_length_records INTEGER NOT NULL, version INTEGER NOT NULL, "
       "acs_name STRING, acs BLOB)";
 
-  SqlitePreparedStatement createTableCommand(this->database.get(),
+  SqlitePreparedStatement createTableCommand(this->database,
                                              createTableStatement);
   createTableCommand.execute();
 
@@ -142,10 +145,8 @@ void SqliteDatabase::createSqliteMetadataTable(
       "page_length, variable_length_records, version, acs_name, acs) "
       "VALUES(@record_length, @physical_record_length, @page_length, "
       "@variable_length_records, @version, @acs_name, @acs)";
-  // not using GetSqlitePreparedStatement since this is used once and caching it
-  // provides no benefit
-  SqlitePreparedStatement command(this->database.get(),
-                                  insertIntoTableStatement);
+
+  SqlitePreparedStatement command(this->database, insertIntoTableStatement);
   command.bindParameter(1, BindableValue(database.getRecordLength()));
   command.bindParameter(2, BindableValue(database.getPhysicalRecordLength()));
   command.bindParameter(3, BindableValue(database.getPageLength()));
@@ -164,7 +165,7 @@ void SqliteDatabase::createSqliteKeysTable(const BtrieveDatabase &database) {
       "INTEGER NOT NULL, offset INTEGER NOT NULL, length INTEGER NOT NULL, "
       "null_value INTEGER NOT NULL, UNIQUE(number, segment))";
 
-  SqlitePreparedStatement createTableCommand(this->database.get(),
+  SqlitePreparedStatement createTableCommand(this->database,
                                              createTableStatement);
   createTableCommand.execute();
 
@@ -173,7 +174,7 @@ void SqliteDatabase::createSqliteKeysTable(const BtrieveDatabase &database) {
       "length, null_value) VALUES(@number, @segment, @attributes, @data_type, "
       "@offset, @length, @null_value)";
 
-  SqlitePreparedStatement insertIntoTableCommand(this->database.get(),
+  SqlitePreparedStatement insertIntoTableCommand(this->database,
                                                  insertIntoTableStatement);
 
   for (auto &key : database.getKeys()) {
@@ -206,11 +207,5 @@ void SqliteDatabase::createSqliteTriggers() {}
 void SqliteDatabase::populateSqliteDataTable(const BtrieveDatabase &database) {}
 
 // Closes an opened database.
-void SqliteDatabase::close() {
-  auto deleter = database.get_deleter();
-  auto sqlite3db = database.release();
-  if (sqlite3db != nullptr) {
-    deleter(sqlite3db);
-  }
-}
+void SqliteDatabase::close() { database.reset(); }
 } // namespace btrieve
