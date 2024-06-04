@@ -1,8 +1,43 @@
 ﻿#include "Key.h"
 #include <cassert>
 #include <cstring>
+#include <sstream>
 
 namespace btrieve {
+
+std::string Key::getSqliteColumnSql() const {
+  std::stringstream sql;
+
+  if (isComposite()) {
+    sql << "BLOB";
+  } else {
+    auto type = getPrimarySegment().getDataType();
+
+    if (type == KeyDataType::AutoInc) {
+      return "INTEGER NOT NULL UNIQUE";
+    } else if ((type == KeyDataType::Integer || type == KeyDataType::Unsigned ||
+                type == KeyDataType::UnsignedBinary ||
+                type == KeyDataType::OldBinary) &&
+               getPrimarySegment().getLength() <= 8) {
+      sql << "INTEGER";
+    } else if (type == KeyDataType::String || type == KeyDataType::Lstring ||
+               type == KeyDataType::Zstring || type == KeyDataType::OldAscii) {
+      sql << "TEXT";
+    } else {
+      sql << "BLOB";
+    }
+  }
+
+  if (!isNullable()) {
+    sql << " NOT NULL";
+  }
+
+  if (isUnique()) {
+    sql << " UNIQUE";
+  }
+
+  return sql.str();
+}
 
 std::vector<uint8_t>
 Key::extractKeyDataFromRecord(std::basic_string_view<uint8_t> record) const {

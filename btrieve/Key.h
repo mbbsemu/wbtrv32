@@ -63,6 +63,8 @@ public:
     return buf;
   }
 
+  std::string getSqliteColumnSql() const;
+
   std::vector<uint8_t>
   extractKeyDataFromRecord(std::basic_string_view<uint8_t> record) const;
 

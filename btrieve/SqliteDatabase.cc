@@ -2,6 +2,7 @@
 #include "BindableValue.h"
 #include "BtrieveException.h"
 #include "sqlite/sqlite3.h"
+#include <sstream>
 
 namespace btrieve {
 
@@ -201,7 +202,20 @@ void SqliteDatabase::createSqliteKeysTable(const BtrieveDatabase &database) {
   }
 }
 
-void SqliteDatabase::createSqliteDataTable(const BtrieveDatabase &database) {}
+void SqliteDatabase::createSqliteDataTable(const BtrieveDatabase &database) {
+  std::stringstream sb;
+  sb << "CREATE TABLE data_t(id INTEGER PRIMARY KEY, data BLOB NOT NULL";
+  for (auto &key : database.getKeys()) {
+    sb << ", " << key.getSqliteKeyName() << " " << key.getSqliteColumnSql();
+  }
+
+  sb << ");";
+
+  SqlitePreparedStatement createTableStatement(this->database,
+                                               sb.str().c_str());
+  createTableStatement.execute();
+}
+
 void SqliteDatabase::createSqliteDataIndices(const BtrieveDatabase &database) {}
 void SqliteDatabase::createSqliteTriggers() {}
 void SqliteDatabase::populateSqliteDataTable(const BtrieveDatabase &database) {}
