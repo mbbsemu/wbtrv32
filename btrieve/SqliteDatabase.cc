@@ -63,7 +63,7 @@ public:
     sql[sizeof(sql) - 1] = 0;
 
     errorCode =
-        sqlite3_prepare_v2(database.get(), sqlFormat, len, &statement, nullptr);
+        sqlite3_prepare_v2(database.get(), sql, len, &statement, nullptr);
     if (errorCode != SQLITE_OK) {
       throwException(errorCode);
     }
@@ -216,7 +216,17 @@ void SqliteDatabase::createSqliteDataTable(const BtrieveDatabase &database) {
   createTableStatement.execute();
 }
 
-void SqliteDatabase::createSqliteDataIndices(const BtrieveDatabase &database) {}
+void SqliteDatabase::createSqliteDataIndices(const BtrieveDatabase &database) {
+  for (auto &key : database.getKeys()) {
+    const char *possiblyUnique = key.isUnique() ? "UNIQUE" : "";
+    auto sqliteKeyName = key.getSqliteKeyName();
+    SqlitePreparedStatement command(
+        this->database, "CREATE %s INDEX %s_index on data_t(%s)",
+        possiblyUnique, sqliteKeyName.c_str(), sqliteKeyName.c_str());
+    command.execute();
+  }
+}
+
 void SqliteDatabase::createSqliteTriggers() {}
 void SqliteDatabase::populateSqliteDataTable(const BtrieveDatabase &database) {}
 
