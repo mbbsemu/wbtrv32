@@ -33,17 +33,12 @@ void SqliteDatabase::create(const char *fileName,
   populateSqliteDataTable(database);
 }
 
-static void throwException(int errorCode, const char *sqlite3ErrMsg) {
-  BtrieveException exception(sqlite3ErrMsg == nullptr
-                                 ? "Sqlite error: [%d]"
-                                 : "Sqlite error: [%d] - [%s]",
-                             errorCode, sqlite3ErrMsg);
+static void throwException(int errorCode) {
+  const char *sqlite3ErrMsg = sqlite3_errstr(errorCode);
 
-  if (sqlite3ErrMsg != nullptr) {
-    sqlite3_free(const_cast<char *>(sqlite3ErrMsg));
-  }
-
-  throw exception;
+  throw BtrieveException(sqlite3ErrMsg == nullptr ? "Sqlite error: [%d]"
+                                                  : "Sqlite error: [%d] - [%s]",
+                         errorCode, sqlite3ErrMsg);
 }
 
 class SqlitePreparedStatement {
@@ -66,11 +61,13 @@ public:
     errorCode =
         sqlite3_prepare_v2(database_, sqlFormat, len, &statement, nullptr);
     if (errorCode != SQLITE_OK) {
-      throwException(errorCode, nullptr);
+      throwException(errorCode);
     }
 
     this->statement.reset(statement);
   }
+
+  void reset() { sqlite3_reset(statement.get()); }
 
   void bindParameter(unsigned int parameter, const BindableValue &value) {
     int errorCode;
@@ -78,21 +75,21 @@ public:
     case BindableValue::Type::Null:
       errorCode = sqlite3_bind_null(statement.get(), parameter);
       if (errorCode != SQLITE_OK) {
-        throwException(errorCode, nullptr);
+        throwException(errorCode);
       }
       break;
     case BindableValue::Type::Integer:
       errorCode = sqlite3_bind_int64(statement.get(), parameter,
                                      value.getIntegerValue());
       if (errorCode != SQLITE_OK) {
-        throwException(errorCode, nullptr);
+        throwException(errorCode);
       }
       break;
     case BindableValue::Type::Double:
       errorCode = sqlite3_bind_double(statement.get(), parameter,
                                       value.getDoubleValue());
       if (errorCode != SQLITE_OK) {
-        throwException(errorCode, nullptr);
+        throwException(errorCode);
       }
       break;
     case BindableValue::Type::Text: {
@@ -101,7 +98,7 @@ public:
       errorCode = sqlite3_bind_text(statement.get(), parameter, copy,
                                     text.length(), ::free);
       if (errorCode != SQLITE_OK) {
-        throwException(errorCode, nullptr);
+        throwException(errorCode);
       }
     } break;
     case BindableValue::Type::Blob:
@@ -119,7 +116,7 @@ public:
     // OK indicates more things may happen, but still a valid response. If not
     // OK, we goofed
     if (errorCode != SQLITE_OK) {
-      throwException(errorCode, nullptr);
+      throwException(errorCode);
     }
   }
 
@@ -130,19 +127,15 @@ private:
 
 void SqliteDatabase::createSqliteMetadataTable(
     const BtrieveDatabase &database) {
-  char *errorMsg;
-  int errorCode;
   const char *const createTableStatement =
       "CREATE TABLE metadata_t(record_length INTEGER NOT NULL, "
       "physical_record_length INTEGER NOT NULL, page_length INTEGER NOT NULL, "
       "variable_length_records INTEGER NOT NULL, version INTEGER NOT NULL, "
       "acs_name STRING, acs BLOB)";
 
-  errorCode = sqlite3_exec(this->database.get(), createTableStatement, nullptr,
-                           nullptr, &errorMsg);
-  if (errorCode != SQLITE_OK) {
-    throwException(errorCode, errorMsg);
-  }
+  SqlitePreparedStatement createTableCommand(this->database.get(),
+                                             createTableStatement);
+  createTableCommand.execute();
 
   const char *const insertIntoTableStatement =
       "INSERT INTO metadata_t(record_length, physical_record_length, "
@@ -158,14 +151,55 @@ void SqliteDatabase::createSqliteMetadataTable(
   command.bindParameter(3, BindableValue(database.getPageLength()));
   command.bindParameter(4, BindableValue(database.isVariableLengthRecords()));
   command.bindParameter(5, BindableValue(CURRENT_VERSION));
-  // command.bindParameter("@acs_name", SqliteNullable(btrieveFile.ACSName));
-  // command.bindParameter("@acs", SqliteNullable(btrieveFile.ACS));
-  command.bindParameter(6, BindableValue());
-  command.bindParameter(7, BindableValue());
+  command.bindParameter(6, BindableValue(database.getKeys()[0].getACSName()));
+  command.bindParameter(7, BindableValue(database.getKeys()[0].getACS()));
 
   command.execute();
 }
-void SqliteDatabase::createSqliteKeysTable(const BtrieveDatabase &database) {}
+
+void SqliteDatabase::createSqliteKeysTable(const BtrieveDatabase &database) {
+  const char *const createTableStatement =
+      "CREATE TABLE keys_t(id INTEGER PRIMARY KEY, number INTEGER NOT NULL, "
+      "segment INTEGER NOT NULL, attributes INTEGER NOT NULL, data_type "
+      "INTEGER NOT NULL, offset INTEGER NOT NULL, length INTEGER NOT NULL, "
+      "null_value INTEGER NOT NULL, UNIQUE(number, segment))";
+
+  SqlitePreparedStatement createTableCommand(this->database.get(),
+                                             createTableStatement);
+  createTableCommand.execute();
+
+  const char *const insertIntoTableStatement =
+      "INSERT INTO keys_t(number, segment, attributes, data_type, offset, "
+      "length, null_value) VALUES(@number, @segment, @attributes, @data_type, "
+      "@offset, @length, @null_value)";
+
+  SqlitePreparedStatement insertIntoTableCommand(this->database.get(),
+                                                 insertIntoTableStatement);
+
+  for (auto &key : database.getKeys()) {
+    for (auto &keyDefinition : key.getSegments()) {
+      insertIntoTableCommand.reset();
+
+      insertIntoTableCommand.bindParameter(
+          1, BindableValue(keyDefinition.getNumber()));
+      insertIntoTableCommand.bindParameter(
+          2, BindableValue(keyDefinition.getSegmentIndex()));
+      insertIntoTableCommand.bindParameter(
+          3, BindableValue(keyDefinition.getAttributes()));
+      insertIntoTableCommand.bindParameter(
+          4, BindableValue(keyDefinition.getDataType()));
+      insertIntoTableCommand.bindParameter(
+          5, BindableValue(keyDefinition.getOffset()));
+      insertIntoTableCommand.bindParameter(
+          6, BindableValue(keyDefinition.getLength()));
+      insertIntoTableCommand.bindParameter(
+          7, BindableValue(keyDefinition.getNullValue()));
+
+      insertIntoTableCommand.execute();
+    }
+  }
+}
+
 void SqliteDatabase::createSqliteDataTable(const BtrieveDatabase &database) {}
 void SqliteDatabase::createSqliteDataIndices(const BtrieveDatabase &database) {}
 void SqliteDatabase::createSqliteTriggers() {}

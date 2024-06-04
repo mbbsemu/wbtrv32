@@ -250,28 +250,33 @@ void BtrieveDatabase::parseDatabase(
 
 static const uint8_t ACS_PAGE_HEADER[] = {0, 0, 1, 0, 0, 0, 0xAC};
 
-bool BtrieveDatabase::loadACS(FILE *f, char *acs) {
+bool BtrieveDatabase::loadACS(FILE *f, std::string &acsName,
+                              std::vector<char> &acs) {
   // ACS page immediately follows FCR (the first)
   char secondPage[512];
   fseek_s(f, pageLength, SEEK_SET);
   fread_s(secondPage, 1, sizeof(secondPage), f);
 
   if (memcmp(secondPage, ACS_PAGE_HEADER, sizeof(ACS_PAGE_HEADER))) {
-    memset(acs, 0, 256);
+    acsName.clear();
+    acs.clear();
     return false;
   }
 
   // read the acs data
-  char acsName[10];
-  memcpy(acsName, secondPage + 7, 9);
-  acsName[9] = 0;
+  char acsNameBuf[10];
+  memcpy(acsNameBuf, secondPage + 7, 9);
+  acsNameBuf[9] = 0;
+  acsName = acsNameBuf;
 
-  memcpy(acs, secondPage + 0xF, 256);
+  acs.resize(ACS_LENGTH);
+  memcpy(acs.data(), secondPage + 0xF, ACS_LENGTH);
   return true;
 }
 
 void BtrieveDatabase::loadKeyDefinitions(FILE *f, const uint8_t *firstPage,
-                                         const char *acs) {
+                                         const std::string &acsName,
+                                         const std::vector<char> &acs) {
   unsigned int keyDefinitionBase = 0x110;
   const auto keyDefinitionLength = 0x1E;
 
@@ -297,7 +302,7 @@ void BtrieveDatabase::loadKeyDefinitions(FILE *f, const uint8_t *firstPage,
         /* segmentOf= */
         (attributes & SegmentedKey) ? currentKeyNumber : (ushort)0,
         /* segmentIndex= */ 0,
-        /* nullValue= */ data[0x1D], acs);
+        /* nullValue= */ data[0x1D], acsName, acs);
 
     // If it's a segmented key, don't increment so the next key gets added to
     // the same ordinal as an additional segment
@@ -317,7 +322,8 @@ void BtrieveDatabase::loadKeyDefinitions(FILE *f, const uint8_t *firstPage,
 
 void BtrieveDatabase::from(FILE *f) {
   uint8_t firstPage[512];
-  char acs[256];
+  std::string acsName;
+  std::vector<char> acs;
 
   fseek_s(f, 0, SEEK_END);
   fileLength = ftell(f);
@@ -329,9 +335,9 @@ void BtrieveDatabase::from(FILE *f) {
 
   getRecordPointerList(f, getRecordPointer(f, 0x10), deletedRecordOffsets);
 
-  loadACS(f, acs);
+  loadACS(f, acsName, acs);
 
-  loadKeyDefinitions(f, firstPage, acs);
+  loadKeyDefinitions(f, firstPage, acsName, acs);
 }
 
 uint32_t BtrieveDatabase::getFragment(std::basic_string_view<uint8_t> page,

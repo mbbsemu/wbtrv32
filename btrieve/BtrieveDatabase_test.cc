@@ -6,9 +6,8 @@ using namespace btrieve;
 TEST(BtrieveDatabase, LoadsMBBSEmuDat) {
   unsigned int recordCount = 0;
   BtrieveDatabase database;
-  char blankACS[256];
-
-  memset(blankACS, 0, sizeof(blankACS));
+  std::string acsName;
+  std::vector<char> blankACS;
 
   database.parseDatabase(
       "assets/MBBSEMU.DAT", []() { return true; },
@@ -34,21 +33,21 @@ TEST(BtrieveDatabase, LoadsMBBSEmuDat) {
   EXPECT_EQ(database.getKeys()[0].getPrimarySegment(),
             KeyDefinition(0, 32, 2, KeyDataType::Zstring,
                           Duplicates | UseExtendedDataType, false, 0, 0, 0,
-                          blankACS));
+                          acsName, blankACS));
 
   EXPECT_EQ(database.getKeys()[1].getPrimarySegment(),
             KeyDefinition(1, 4, 34, KeyDataType::Integer,
                           Modifiable | UseExtendedDataType, false, 0, 0, 0,
-                          blankACS));
+                          acsName, blankACS));
 
   EXPECT_EQ(database.getKeys()[2].getPrimarySegment(),
             KeyDefinition(2, 32, 38, KeyDataType::Zstring,
                           Duplicates | Modifiable | UseExtendedDataType, false,
-                          0, 0, 0, blankACS));
+                          0, 0, 0, acsName, blankACS));
 
   EXPECT_EQ(database.getKeys()[3].getPrimarySegment(),
             KeyDefinition(3, 4, 70, KeyDataType::AutoInc, UseExtendedDataType,
-                          false, 0, 0, 0, blankACS));
+                          false, 0, 0, 0, acsName, blankACS));
 
   EXPECT_EQ(recordCount, database.getRecordCount());
 }
@@ -62,9 +61,8 @@ typedef struct _tagPOPULATE {
 TEST(BtrieveDatabase, LoadsVariableDat) {
   unsigned int recordCount = 0;
   BtrieveDatabase database;
-  char blankACS[256];
-
-  memset(blankACS, 0, sizeof(blankACS));
+  std::string acsName;
+  std::vector<char> blankACS;
 
   database.parseDatabase(
       "assets/VARIABLE.DAT", []() { return true; },
@@ -100,11 +98,11 @@ TEST(BtrieveDatabase, LoadsVariableDat) {
   EXPECT_EQ(database.getKeys()[0].getPrimarySegment(),
             KeyDefinition(0, 2, 4, KeyDataType::Integer,
                           Duplicates | UseExtendedDataType, false, 0, 0, 0,
-                          blankACS));
+                          acsName, blankACS));
 
   EXPECT_EQ(database.getKeys()[1].getPrimarySegment(),
             KeyDefinition(1, 2, 6, KeyDataType::Integer, UseExtendedDataType,
-                          false, 0, 0, 0, blankACS));
+                          false, 0, 0, 0, acsName, blankACS));
 
   EXPECT_EQ(recordCount, database.getRecordCount());
 }

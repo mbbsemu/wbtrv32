@@ -7,25 +7,22 @@
 #include <cstring>
 #include <vector>
 
+#define ACS_LENGTH 256
+
 namespace btrieve {
 
 class KeyDefinition {
 public:
   KeyDefinition() {}
 
-  KeyDefinition(uint16_t number, uint16_t length, uint16_t offset,
-                KeyDataType dataType, uint16_t attributes, bool segment,
-                uint16_t segmentOf, uint16_t segmentIndex, uint8_t nullValue,
-                const char *acs)
-      : number(number), length(length), offset(offset), dataType(dataType),
-        attributes(attributes), segment(segment), segmentOf(segmentOf),
-        segmentIndex(segmentIndex), nullValue(nullValue) {
-    if (acs != nullptr) {
-      memcpy(this->acs, acs, 256);
-    } else {
-      memset(this->acs, 0, 256);
-    }
-  }
+  KeyDefinition(uint16_t number_, uint16_t length_, uint16_t offset_,
+                KeyDataType dataType_, uint16_t attributes_, bool segment_,
+                uint16_t segmentOf_, uint16_t segmentIndex_, uint8_t nullValue_,
+                const std::string &acsName_, const std::vector<char> &acs_)
+      : number(number_), length(length_), offset(offset_), dataType(dataType_),
+        attributes(attributes_), segment(segment_), segmentOf(segmentOf_),
+        segmentIndex(segmentIndex_), nullValue(nullValue_), acsName(acsName_),
+        acs(acs_) {}
 
   KeyDefinition(const KeyDefinition &keyDefinition)
       : number(keyDefinition.number), length(keyDefinition.length),
@@ -33,9 +30,8 @@ public:
         attributes(keyDefinition.attributes), segment(keyDefinition.segment),
         segmentOf(keyDefinition.segmentOf),
         segmentIndex(keyDefinition.segmentIndex),
-        nullValue(keyDefinition.nullValue) {
-    memcpy(this->acs, keyDefinition.acs, 256);
-  }
+        nullValue(keyDefinition.nullValue), acsName(keyDefinition.acsName),
+        acs(keyDefinition.acs) {}
 
   uint16_t getPosition() const { return offset + 1; }
 
@@ -62,13 +58,29 @@ public:
 
   uint16_t getNumber() const { return number; }
 
-  const char *getACS() const { return acs; }
+  const char *getACS() const {
+    if (acs.empty()) {
+      return nullptr;
+    }
+
+    return acs.data();
+  }
+
+  const char *getACSName() const {
+    if (acsName.empty()) {
+      return nullptr;
+    }
+
+    return acsName.c_str();
+  }
 
   uint16_t getOffset() const { return offset; }
 
   uint16_t getLength() const { return length; }
 
   uint8_t getNullValue() const { return nullValue; }
+
+  uint16_t getAttributes() const { return attributes; }
 
   KeyDataType getDataType() const { return dataType; }
 
@@ -79,7 +91,7 @@ public:
            offset == other.offset && dataType == other.dataType &&
            attributes == other.attributes && segment == other.segment &&
            segmentOf == other.segmentOf && nullValue == other.nullValue &&
-           memcmp(acs, other.acs, sizeof(acs)) == 0;
+           acsName == other.acsName && acs == other.acs;
   }
 
   uint16_t getSegmentIndex() const { return segmentIndex; }
@@ -98,7 +110,8 @@ private:
   uint16_t segmentOf;
   uint16_t segmentIndex;
   uint8_t nullValue;
-  char acs[256];
+  std::string acsName;
+  std::vector<char> acs;
 };
 } // namespace btrieve
 

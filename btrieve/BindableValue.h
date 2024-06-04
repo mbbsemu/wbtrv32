@@ -21,6 +21,15 @@ public:
       : type(Type::Blob), blob_value(new std::vector<uint8_t>(
                               data.data(), data.data() + data.size())) {}
 
+  BindableValue(const char *str) {
+    if (str == nullptr) {
+      type = Type::Null;
+    } else {
+      type = Type::Text;
+      text_value = new std::string(str);
+    }
+  }
+
   BindableValue(const std::string_view data)
       : type(Type::Text), text_value(new std::string(data)) {}
   // deep copy

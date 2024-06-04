@@ -31,7 +31,6 @@ void BtrieveDriver::open(const char *fileName) {
   btrieveDatabase.parseDatabase(
       fileName,
       [this, &dbPath, &btrieveDatabase]() {
-        // TODO catch the exception
         sqlDatabase->create(dbPath.c_str(), btrieveDatabase);
         return true;
       },

@@ -14,7 +14,7 @@ static const char STRING_DATA[32] = "Test";
 
 TEST(Key, SingleKeySegment) {
   KeyDefinition keyDefinition(0, 10, 0, KeyDataType::String, 0, false, 0, 0, 0,
-                              NULL);
+                              "", std::vector<char>());
 
   Key key(&keyDefinition, 1);
 
@@ -38,7 +38,7 @@ TEST_P(ParameterizedFixture, IntegerTypeConversions) {
   const ParameterizedFixtureType &view = GetParam();
 
   KeyDefinition keyDefinition(0, view.length, 0, view.type, UseExtendedDataType,
-                              false, 0, 0, 0, NULL);
+                              false, 0, 0, 0, "", std::vector<char>());
 
   Key key(&keyDefinition, 1);
 
@@ -116,7 +116,7 @@ TEST_P(ParameterizedStringFixture, StringTypeConversions) {
   const ParameterizedStringFixtureType &view = GetParam();
 
   KeyDefinition keyDefinition(0, view.length, 0, view.type, UseExtendedDataType,
-                              false, 0, 0, 0, NULL);
+                              false, 0, 0, 0, "", std::vector<char>());
 
   Key key(&keyDefinition, 1);
 
@@ -151,9 +151,9 @@ INSTANTIATE_TEST_CASE_P(Key, ParameterizedStringFixture,
 TEST(Key, SegmentIndices) {
   KeyDefinition keyDefinitions[2] = {
       KeyDefinition(0, 8, 2, KeyDataType::Integer, UseExtendedDataType, true, 0,
-                    0, 0, NULL),
+                    0, 0, "", std::vector<char>()),
       KeyDefinition(0, 4, 20, KeyDataType::Zstring, UseExtendedDataType, false,
-                    1, 0, 0, NULL)};
+                    1, 0, 0, "", std::vector<char>())};
 
   Key key(keyDefinitions, 2);
 
@@ -165,9 +165,9 @@ TEST(Key, SegmentIndices) {
 TEST(Key, CompositeKeyConcatentation) {
   KeyDefinition keyDefinitions[2] = {
       KeyDefinition(0, 8, 2, KeyDataType::Integer, UseExtendedDataType, true, 0,
-                    0, 0, NULL),
+                    0, 0, "", std::vector<char>()),
       KeyDefinition(0, 4, 20, KeyDataType::Zstring, UseExtendedDataType, false,
-                    1, 0, 0, NULL)};
+                    1, 0, 0, "", std::vector<char>())};
 
   uint8_t record[128];
   memset(record, 0xFF, sizeof(record));
@@ -201,7 +201,7 @@ TEST_P(ParameterizedKeyDataTypeFixture, NullValues) {
 
   KeyDefinition keyDefinition(0, 8, 2, view.type,
                               UseExtendedDataType | NullAllSegments, true, 0, 0,
-                              ' ', NULL);
+                              ' ', "", std::vector<char>());
 
   Key key(&keyDefinition, 1);
 
@@ -227,8 +227,11 @@ static std::vector<ParameterizedKeyDataType> createKeyDataTypeData() {
 INSTANTIATE_TEST_CASE_P(Key, ParameterizedKeyDataTypeFixture,
                         ::testing::ValuesIn(createKeyDataTypeData()));
 
-static char *upperACS(char acs[256]) {
-  for (int i = 0; i < 256; ++i) {
+static std::vector<char> upperACS() {
+  std::vector<char> ret(ACS_LENGTH);
+  char *acs = ret.data();
+
+  for (int i = 0; i < ACS_LENGTH; ++i) {
     acs[i] = (char)i;
   }
   // make uppercase
@@ -236,17 +239,15 @@ static char *upperACS(char acs[256]) {
     acs[i] = toupper(acs[i]);
   }
 
-  return acs;
+  return ret;
 }
 
 TEST(Key, ACSReplacementSingleKey) {
-  char acs[256];
-
-  upperACS(acs);
+  std::vector<char> acs = upperACS();
 
   KeyDefinition keyDefinition(0, 8, 2, KeyDataType::String,
                               UseExtendedDataType | NumberedACS, true, 0, 0, 0,
-                              acs);
+                              "acsName", acs);
 
   Key key(&keyDefinition, 1);
 
@@ -280,16 +281,15 @@ TEST_P(ParameterizedACSReplacementMultipleKeyFixture,
        ACSReplacementMultipleKey) {
   const ACSReplacementMultipleKey &view = GetParam();
 
-  char acs[256];
-
-  upperACS(acs);
+  std::vector<char> acs = upperACS();
 
   KeyDefinition keyDefinitions[2] = {
       KeyDefinition(0, 8, 2, KeyDataType::Zstring,
                     UseExtendedDataType | (view.firstACS ? NumberedACS : 0),
-                    true, 0, 0, 0, acs),
+                    true, 0, 0, 0, "test", acs),
       KeyDefinition(0, 8, 10, KeyDataType::Zstring,
-                    UseExtendedDataType | NumberedACS, false, 1, 0, 0, acs)};
+                    UseExtendedDataType | NumberedACS, false, 1, 0, 0, "test",
+                    acs)};
 
   Key key(keyDefinitions, 2);
 

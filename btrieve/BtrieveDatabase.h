@@ -74,12 +74,14 @@ private:
   void validateDatabase(FILE *f, const uint8_t *firstPage);
 
   // Loads the ACS, if present, into acs, which is expected to be at least 256
-  // bytes in size. If no ACS, acs is filled with 0s.
-  bool loadACS(FILE *f, char *acs);
+  // bytes in size. If no ACS, acsName and acs are emptied.
+  bool loadACS(FILE *f, std::string &acsName, std::vector<char> &acs);
 
   // Loads the key definitions into the keys member variables, given the acs
-  // loaded previously from loadACS. acs is always guaranteed to be non-null.
-  void loadKeyDefinitions(FILE *f, const uint8_t *firstPage, const char *acs);
+  // loaded previously from loadACS. acsName and acs could both be empty.
+  void loadKeyDefinitions(FILE *f, const uint8_t *firstPage,
+                          const std::string &acsName,
+                          const std::vector<char> &acs);
 
   // Enumerates all records and calls onRecordLoaded for each one.
   void loadRecords(FILE *f,
