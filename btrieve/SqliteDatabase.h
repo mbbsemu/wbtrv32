@@ -2,6 +2,8 @@
 #define __SQLITE_DATABASE_H_
 
 #include "SqlDatabase.h"
+#include "SqlitePreparedStatement.h"
+#include "SqliteTransaction.h"
 #include "sqlite/sqlite3.h"
 #include <memory>
 
@@ -16,7 +18,8 @@ public:
 
   virtual void open(const char *fileName);
 
-  virtual void create(const char *fileName, const BtrieveDatabase &database);
+  virtual std::unique_ptr<RecordLoader> create(const char *fileName,
+                                               const BtrieveDatabase &database);
 
   virtual void close();
 
@@ -26,7 +29,6 @@ private:
   void createSqliteDataTable(const BtrieveDatabase &database);
   void createSqliteDataIndices(const BtrieveDatabase &database);
   void createSqliteTriggers(const BtrieveDatabase &database);
-  void populateSqliteDataTable(const BtrieveDatabase &database);
 
   std::shared_ptr<sqlite3> database;
 

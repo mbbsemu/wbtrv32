@@ -1,8 +1,8 @@
 TEST_SRCS = glob(["*_test.cc"])
 
-SQLITE_DATABASE_SRCS = ["SqliteDatabase.cc"]
+SQLITE_DATABASE_SRCS = ["SqliteDatabase.cc", "SqliteUtil.cc"]
 
-SQLITE_DATABASE_HDRS = ["SqliteDatabase.h"]
+SQLITE_DATABASE_HDRS = ["SqliteDatabase.h", "SqliteUtil.h", "SqlitePreparedStatement.h", "SqliteTransaction.h"]
 
 cc_library(
   name = "btrieve",

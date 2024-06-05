@@ -234,7 +234,8 @@ void BtrieveDatabase::loadRecords(
 
 void BtrieveDatabase::parseDatabase(
     const std::string &fileName, std::function<bool()> onMetadataLoaded,
-    std::function<bool(const std::basic_string_view<uint8_t>)> onRecordLoaded) {
+    std::function<bool(const std::basic_string_view<uint8_t>)> onRecordLoaded,
+    std::function<void()> onRecordsComplete) {
   FILE *f = fopen(fileName.c_str(), "rb");
   if (f == nullptr) {
     fprintf(stderr, "Couldn't open %s\n", fileName.c_str());
@@ -242,9 +243,13 @@ void BtrieveDatabase::parseDatabase(
   }
 
   from(f);
+
   if (onMetadataLoaded() && getRecordCount() > 0) {
     loadRecords(f, onRecordLoaded);
   }
+
+  onRecordsComplete();
+
   fclose(f);
 }
 

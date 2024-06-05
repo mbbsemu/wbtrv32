@@ -1,28 +1,100 @@
 #include "SqliteDatabase.h"
 #include "BindableValue.h"
 #include "BtrieveException.h"
+#include "SqlitePreparedStatement.h"
+#include "SqliteTransaction.h"
+#include "SqliteUtil.h"
 #include "sqlite/sqlite3.h"
+#include <atomic>
 #include <sstream>
 
 namespace btrieve {
 
 static const unsigned int CURRENT_VERSION = 2;
 
-static void throwException(int errorCode) {
-  const char *sqlite3ErrMsg = sqlite3_errstr(errorCode);
+static std::string
+commaDelimitedKey(const std::vector<Key> &keys,
+                  std::function<std::string(const Key &key)> func) {
+  std::stringstream sb;
+  bool first = true;
+  for (auto &key : keys) {
+    if (!first) {
+      sb << ", ";
+    }
+    first = false;
 
-  throw BtrieveException(sqlite3ErrMsg == nullptr ? "Sqlite error: [%d]"
-                                                  : "Sqlite error: [%d] - [%s]",
-                         errorCode, sqlite3ErrMsg);
+    sb << func(key);
+  }
+  return sb.str();
 }
+
+class SqliteCreationRecordLoader : public RecordLoader {
+public:
+  SqliteCreationRecordLoader(std::shared_ptr<sqlite3> database_,
+                             const BtrieveDatabase &database)
+      : database(database_), keys(database.getKeys()) {}
+  virtual ~SqliteCreationRecordLoader() {}
+
+  void createSqliteInsertionCommand() {
+    std::string insertSql;
+    if (!keys.empty()) {
+      std::stringstream sb;
+      sb << "INSERT INTO data_t(data, ";
+      sb << commaDelimitedKey(
+          keys, [](const Key &key) { return key.getSqliteKeyName(); });
+      sb << ") VALUES(@data, ";
+      sb << commaDelimitedKey(
+          keys, [](const Key &key) { return "@" + key.getSqliteKeyName(); });
+      sb << ");";
+      insertSql = sb.str();
+    } else {
+      insertSql = "INSERT INTO data_t(data) VALUES (@data)";
+    }
+
+    transaction.reset(new SqliteTransaction(this->database));
+    insertionCommand.reset(
+        new SqlitePreparedStatement(this->database, insertSql.c_str()));
+  }
+
+private:
+  virtual bool onRecordLoaded(std::basic_string_view<uint8_t> record) {
+    insertionCommand->reset();
+    insertionCommand->bindParameter(1, record);
+
+    unsigned int parameterNumber = 2;
+    for (auto &key : keys) {
+      insertionCommand->bindParameter(
+          parameterNumber++, key.extractKeyInRecordToSqliteObject(record));
+    }
+
+    insertionCommand->execute();
+
+    return true;
+  };
+
+  virtual void onRecordsComplete() {
+    try {
+      transaction->commit();
+    } catch (const BtrieveException &ex) {
+      transaction->rollback();
+      throw ex;
+    }
+  }
+
+  std::shared_ptr<sqlite3> database;
+  std::unique_ptr<SqliteTransaction> transaction;
+  std::unique_ptr<SqlitePreparedStatement> insertionCommand;
+  std::vector<Key> keys;
+};
 
 // Opens a Btrieve database as a sql backed file. Will convert a legacy file
 // in place if required. Throws a BtrieveException if something fails.
 void SqliteDatabase::open(const char *fileName) {}
 
-void SqliteDatabase::create(const char *fileName,
-                            const BtrieveDatabase &database) {
+std::unique_ptr<RecordLoader>
+SqliteDatabase::create(const char *fileName, const BtrieveDatabase &database) {
   sqlite3 *db;
+  // TODO change memory flag
   int errorCode = sqlite3_open_v2(
       fileName, &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_MEMORY, nullptr);
   if (errorCode != SQLITE_OK) {
@@ -41,93 +113,12 @@ void SqliteDatabase::create(const char *fileName,
   createSqliteDataTable(database);
   createSqliteDataIndices(database);
   createSqliteTriggers(database);
-  populateSqliteDataTable(database);
+
+  auto recordLoader = std::unique_ptr<SqliteCreationRecordLoader>(
+      new SqliteCreationRecordLoader(this->database, database));
+  recordLoader->createSqliteInsertionCommand();
+  return recordLoader;
 }
-
-class SqlitePreparedStatement {
-public:
-  SqlitePreparedStatement(std::shared_ptr<sqlite3> database_,
-                          const char *sqlFormat, ...)
-      : database(database_), statement(nullptr, &sqlite3_finalize) {
-    char sql[512];
-    int len;
-    int errorCode;
-    va_list args;
-    sqlite3_stmt *statement;
-
-    va_start(args, sqlFormat);
-    len = vsnprintf(sql, sizeof(sql), sqlFormat, args);
-    va_end(args);
-
-    // just in case
-    sql[sizeof(sql) - 1] = 0;
-
-    errorCode =
-        sqlite3_prepare_v2(database.get(), sql, len, &statement, nullptr);
-    if (errorCode != SQLITE_OK) {
-      throwException(errorCode);
-    }
-
-    this->statement.reset(statement);
-  }
-
-  void reset() { sqlite3_reset(statement.get()); }
-
-  void bindParameter(unsigned int parameter, const BindableValue &value) {
-    int errorCode;
-    switch (value.getType()) {
-    case BindableValue::Type::Null:
-      errorCode = sqlite3_bind_null(statement.get(), parameter);
-      if (errorCode != SQLITE_OK) {
-        throwException(errorCode);
-      }
-      break;
-    case BindableValue::Type::Integer:
-      errorCode = sqlite3_bind_int64(statement.get(), parameter,
-                                     value.getIntegerValue());
-      if (errorCode != SQLITE_OK) {
-        throwException(errorCode);
-      }
-      break;
-    case BindableValue::Type::Double:
-      errorCode = sqlite3_bind_double(statement.get(), parameter,
-                                      value.getDoubleValue());
-      if (errorCode != SQLITE_OK) {
-        throwException(errorCode);
-      }
-      break;
-    case BindableValue::Type::Text: {
-      const std::string &text = value.getStringValue();
-      char *copy = strdup(text.c_str());
-      errorCode = sqlite3_bind_text(statement.get(), parameter, copy,
-                                    text.length(), ::free);
-      if (errorCode != SQLITE_OK) {
-        throwException(errorCode);
-      }
-    } break;
-    case BindableValue::Type::Blob:
-      // TODO
-      break;
-    }
-  }
-
-  void execute() {
-    int errorCode = sqlite3_step(statement.get());
-    // SQLITE_DONE is expected, meaning the statement has finished
-    if (errorCode == SQLITE_DONE) {
-      return;
-    }
-    // OK indicates more things may happen, but still a valid response. If not
-    // OK, we goofed
-    if (errorCode != SQLITE_OK) {
-      throwException(errorCode);
-    }
-  }
-
-private:
-  std::shared_ptr<sqlite3> database;
-  std::unique_ptr<sqlite3_stmt, decltype(&sqlite3_finalize)> statement;
-};
 
 void SqliteDatabase::createSqliteMetadataTable(
     const BtrieveDatabase &database) {
@@ -254,8 +245,6 @@ void SqliteDatabase::createSqliteTriggers(const BtrieveDatabase &database) {
   SqlitePreparedStatement cmd(this->database, builder.str().c_str());
   cmd.execute();
 }
-
-void SqliteDatabase::populateSqliteDataTable(const BtrieveDatabase &database) {}
 
 // Closes an opened database.
 void SqliteDatabase::close() { database.reset(); }

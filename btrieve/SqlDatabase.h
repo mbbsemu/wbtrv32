@@ -2,8 +2,18 @@
 #define __SQL_DATABASE_H_
 
 #include "BtrieveDatabase.h"
+#include <memory>
 
 namespace btrieve {
+
+class RecordLoader {
+public:
+  virtual ~RecordLoader() = default;
+
+  virtual bool onRecordLoaded(std::basic_string_view<uint8_t> record) = 0;
+
+  virtual void onRecordsComplete() = 0;
+};
 
 // An interface that abstracts a SQL-compatible implementation of
 // BtrieveDatabase.
@@ -17,8 +27,8 @@ public:
   virtual void open(const char *fileName) = 0;
 
   // Creates a new sql backed file using database as the source of records
-  virtual void create(const char *fileName,
-                      const BtrieveDatabase &database) = 0;
+  virtual std::unique_ptr<RecordLoader>
+  create(const char *fileName, const BtrieveDatabase &database) = 0;
 
   // Closes an opened database.
   virtual void close() = 0;

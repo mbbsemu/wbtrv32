@@ -28,13 +28,17 @@ void BtrieveDriver::open(const char *fileName) {
           }*/
 
   BtrieveDatabase btrieveDatabase;
+  std::unique_ptr<RecordLoader> recordLoader;
   btrieveDatabase.parseDatabase(
       fileName,
-      [this, &dbPath, &btrieveDatabase]() {
-        sqlDatabase->create(dbPath.c_str(), btrieveDatabase);
+      [this, &dbPath, &btrieveDatabase, &recordLoader]() {
+        recordLoader = sqlDatabase->create(dbPath.c_str(), btrieveDatabase);
         return true;
       },
-      [](const std::basic_string_view<uint8_t> record) { return true; });
+      [&recordLoader](const std::basic_string_view<uint8_t> record) {
+        return recordLoader->onRecordLoaded(record);
+      },
+      [&recordLoader]() { recordLoader->onRecordsComplete(); });
   // btrieveFile.LoadFile(_logger, path, loadedFileName);
   // CreateSqliteDB(fullPathDB, btrieveFile);
   // throw BtrieveException("new path is %s", dbPath.c_str());

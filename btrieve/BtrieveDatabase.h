@@ -60,10 +60,10 @@ public:
   // records. Calls onRecordLoaded for each record in the database. Return false
   // to discontinue enumeration. Throws BtrieveException when a critical error
   // is encountered.
-  void parseDatabase(const std::string &fileName,
-                     std::function<bool()> onMetadataLoaded,
-                     std::function<bool(const std::basic_string_view<uint8_t>)>
-                         onRecordLoaded);
+  void parseDatabase(
+      const std::string &fileName, std::function<bool()> onMetadataLoaded,
+      std::function<bool(const std::basic_string_view<uint8_t>)> onRecordLoaded,
+      std::function<void()> onRecordsComplete = []() {});
 
 private:
   // Reads and validates the metadata from the Btrieve database identified by f.
