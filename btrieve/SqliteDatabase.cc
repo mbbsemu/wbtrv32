@@ -40,7 +40,7 @@ void SqliteDatabase::create(const char *fileName,
   createSqliteKeysTable(database);
   createSqliteDataTable(database);
   createSqliteDataIndices(database);
-  createSqliteTriggers();
+  createSqliteTriggers(database);
   populateSqliteDataTable(database);
 }
 
@@ -227,7 +227,34 @@ void SqliteDatabase::createSqliteDataIndices(const BtrieveDatabase &database) {
   }
 }
 
-void SqliteDatabase::createSqliteTriggers() {}
+void SqliteDatabase::createSqliteTriggers(const BtrieveDatabase &database) {
+  std::vector<Key> nonModifiableKeys;
+  std::copy_if(database.getKeys().begin(), database.getKeys().end(),
+               std::back_inserter(nonModifiableKeys),
+               [](const Key &key) { return !key.isModifiable(); });
+
+  if (nonModifiableKeys.empty()) {
+    return;
+  }
+
+  std::stringstream builder;
+  builder << "CREATE TRIGGER non_modifiable BEFORE UPDATE ON data_t BEGIN "
+             "SELECT CASE ";
+
+  for (auto &key : nonModifiableKeys) {
+    builder << "WHEN NEW." << key.getSqliteKeyName() << " != OLD."
+            << key.getSqliteKeyName()
+            << " THEN "
+               "RAISE (ABORT,'You modified a non-modifiable "
+            << key.getSqliteKeyName() << "}!') ";
+  }
+
+  builder << "END; END;";
+
+  SqlitePreparedStatement cmd(this->database, builder.str().c_str());
+  cmd.execute();
+}
+
 void SqliteDatabase::populateSqliteDataTable(const BtrieveDatabase &database) {}
 
 // Closes an opened database.

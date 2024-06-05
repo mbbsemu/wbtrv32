@@ -25,7 +25,7 @@ private:
   void createSqliteKeysTable(const BtrieveDatabase &database);
   void createSqliteDataTable(const BtrieveDatabase &database);
   void createSqliteDataIndices(const BtrieveDatabase &database);
-  void createSqliteTriggers();
+  void createSqliteTriggers(const BtrieveDatabase &database);
   void populateSqliteDataTable(const BtrieveDatabase &database);
 
   std::shared_ptr<sqlite3> database;
