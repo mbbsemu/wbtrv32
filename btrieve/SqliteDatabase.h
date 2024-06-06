@@ -10,7 +10,8 @@
 namespace btrieve {
 class SqliteDatabase : public SqlDatabase {
 public:
-  SqliteDatabase() : database(nullptr, &sqlite3_close) {}
+  SqliteDatabase(unsigned int openFlags_ = 0)
+      : openFlags(openFlags_), database(nullptr, &sqlite3_close) {}
 
   virtual ~SqliteDatabase() { close(); }
 
@@ -30,12 +31,8 @@ private:
   void createSqliteDataIndices(const BtrieveDatabase &database);
   void createSqliteTriggers(const BtrieveDatabase &database);
 
+  unsigned int openFlags;
   std::shared_ptr<sqlite3> database;
-
-  unsigned int recordLength;
-  unsigned int pageLength;
-  bool variableLengthRecords;
-  std::vector<Key> keys;
 };
 
 } // namespace btrieve

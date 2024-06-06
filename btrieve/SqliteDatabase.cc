@@ -94,9 +94,9 @@ void SqliteDatabase::open(const char *fileName) {}
 std::unique_ptr<RecordLoader>
 SqliteDatabase::create(const char *fileName, const BtrieveDatabase &database) {
   sqlite3 *db;
-  // TODO change memory flag
   int errorCode = sqlite3_open_v2(
-      fileName, &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_MEMORY, nullptr);
+      fileName, &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | openFlags,
+      nullptr);
   if (errorCode != SQLITE_OK) {
     throwException(errorCode);
   }
@@ -104,7 +104,6 @@ SqliteDatabase::create(const char *fileName, const BtrieveDatabase &database) {
   this->database = std::shared_ptr<sqlite3>(db, &sqlite3_close);
 
   recordLength = database.getRecordLength();
-  pageLength = database.getPageLength();
   variableLengthRecords = database.isVariableLengthRecords();
   keys = database.getKeys();
 
@@ -237,7 +236,7 @@ void SqliteDatabase::createSqliteTriggers(const BtrieveDatabase &database) {
             << key.getSqliteKeyName()
             << " THEN "
                "RAISE (ABORT,'You modified a non-modifiable "
-            << key.getSqliteKeyName() << "}!') ";
+            << key.getSqliteKeyName() << "!') ";
   }
 
   builder << "END; END;";

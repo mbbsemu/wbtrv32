@@ -32,6 +32,17 @@ public:
 
   // Closes an opened database.
   virtual void close() = 0;
+
+  virtual unsigned int getRecordLength() const { return recordLength; }
+
+  virtual bool isVariableLengthRecords() const { return variableLengthRecords; }
+
+  virtual const std::vector<Key> &getKeys() const { return keys; }
+
+protected:
+  unsigned int recordLength;
+  bool variableLengthRecords;
+  std::vector<Key> keys;
 };
 } // namespace btrieve
 

@@ -18,6 +18,16 @@ public:
   // Closes an opened database.
   void close();
 
+  unsigned int getRecordLength() const {
+    return sqlDatabase->getRecordLength();
+  }
+
+  bool isVariableLengthRecords() const {
+    return sqlDatabase->isVariableLengthRecords();
+  }
+
+  const std::vector<Key> &getKeys() const { return sqlDatabase->getKeys(); }
+
 private:
   std::unique_ptr<SqlDatabase> sqlDatabase;
 };
