@@ -2,7 +2,7 @@
 #define __OPERATION_CODES_H_
 
 namespace btrieve {
-enum EnumBtrieveOperationCodes {
+enum OperationCode {
   // Utility
   Open = 0x0,
   Close = 0x1,
@@ -114,36 +114,12 @@ enum EnumBtrieveOperationCodes {
   None = 0xFFFF,
 };
 
-/*
-public static class Extensions
-{
-    public static bool RequiresKey(this EnumBtrieveOperationCodes code)
-    {
-        var memberInstance = code.GetType().GetMember(code.ToString());
-        if (memberInstance.Length <= 0) return false;
+bool requiresKey(OperationCode operationCode);
 
-        return System.Attribute.GetCustomAttribute(memberInstance//[0],
-typeof(RequiresKey)) != null;
-    }
+bool acquiresData(OperationCode operationCode);
 
-    public static bool UsesPreviousQuery(this EnumBtrieveOperationCodes code)
-    {
-        var memberInstance = code.GetType().GetMember(code.ToString());
-        if (memberInstance.Length <= 0) return false;
+bool usesPreviousQuery(OperationCode operationCode);
 
-        return System.Attribute.GetCustomAttribute(memberInstance//[0],
-typeof(UsesPreviousQuery)) != null;
-    }
-
-    public static bool AcquiresData(this EnumBtrieveOperationCodes code)
-    {
-        var memberInstance = code.GetType().GetMember(code.ToString());
-        if (memberInstance.Length <= 0) return false;
-
-        return System.Attribute.GetCustomAttribute(memberInstance//[0],
-typeof(AcquiresData)) != null;
-    }
-}*/
 } // namespace btrieve
 
 #endif
