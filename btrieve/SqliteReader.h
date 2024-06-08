@@ -18,23 +18,23 @@ public:
     return false;
   }
 
-  int getInt32(unsigned int columnOrdinal) {
+  int getInt32(unsigned int columnOrdinal) const {
     return sqlite3_column_int(statement, columnOrdinal);
   }
 
-  int64_t getInt64(unsigned int columnOrdinal) {
+  int64_t getInt64(unsigned int columnOrdinal) const {
     return sqlite3_column_int64(statement, columnOrdinal);
   }
 
-  bool getBoolean(unsigned int columnOrdinal) {
+  bool getBoolean(unsigned int columnOrdinal) const {
     return getInt32(columnOrdinal) != 0;
   }
 
-  bool isDBNull(unsigned int columnOrdinal) {
+  bool isDBNull(unsigned int columnOrdinal) const {
     return sqlite3_column_type(statement, columnOrdinal) == SQLITE_NULL;
   }
 
-  std::string getString(unsigned int columnOrdinal) {
+  std::string getString(unsigned int columnOrdinal) const {
     const char *str = reinterpret_cast<const char *>(
         sqlite3_column_text(statement, columnOrdinal));
 
@@ -45,7 +45,7 @@ public:
     }
   }
 
-  std::vector<uint8_t> getBlob(unsigned int columnOrdinal) {
+  std::vector<uint8_t> getBlob(unsigned int columnOrdinal) const {
     int bytes = sqlite3_column_bytes(statement, columnOrdinal);
     std::vector<uint8_t> ret(bytes);
     if (bytes > 0) {

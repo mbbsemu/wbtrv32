@@ -55,7 +55,8 @@ void BtrieveDriver::open(const char *fileName) {
   }
 
   // Set Position to First Record
-  sqlDatabase->stepFirst();
+  sqlDatabase->performOperation(0, std::basic_string_view<uint8_t>(),
+                                OperationCode::StepFirst);
 }
 
 void BtrieveDriver::close() {

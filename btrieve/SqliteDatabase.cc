@@ -343,6 +343,32 @@ void SqliteDatabase::close() {
   database.reset();
 }
 
+SqlitePreparedStatement &SqliteDatabase::getPreparedStatement(const char *sql) {
+  auto iter = preparedStatements.find(sql);
+  if (iter == preparedStatements.end()) {
+    iter =
+        preparedStatements.emplace(sql, SqlitePreparedStatement(database, sql))
+            .first;
+  }
+
+  iter->second.reset(); // reset it before we return it
+  return iter->second;
+}
+
+void SqliteDatabase::getAndCacheBtrieveRecord(uint id,
+                                              const SqliteReader &reader,
+                                              unsigned int columnOrdinal) {
+  // TODO add caching
+
+  /*
+  using var stream = reader.GetStream(ordinal);
+  var data = BtrieveUtil.ReadEntireStream(stream);
+
+  var record = new BtrieveRecord(id, data);
+  _cache[id] = record;
+  return record; */
+}
+
 bool SqliteDatabase::stepFirst() {
   SqlitePreparedStatement &command =
       getPreparedStatement("SELECT id, data FROM data_t ORDER BY id LIMIT 1");
@@ -352,24 +378,77 @@ bool SqliteDatabase::stepFirst() {
   }
 
   position = reader->getInt32(0);
-  // GetAndCacheBtrieveRecord(Position, reader, ordinal: 1);
+  getAndCacheBtrieveRecord(position, *reader, 1);
   return true;
 }
 
-SqlitePreparedStatement &SqliteDatabase::getPreparedStatement(const char *sql) {
-  auto iter = preparedStatements.find(sql);
-  if (iter == preparedStatements.end()) {
-    iter =
-        preparedStatements.emplace(sql, SqlitePreparedStatement(database, sql))
-            .first;
+bool SqliteDatabase::stepLast() {
+  SqlitePreparedStatement &command = getPreparedStatement(
+      "SELECT id, data FROM data_t ORDER BY id DESC LIMIT 1");
+  auto reader = command.executeReader();
+  if (!reader->read()) {
+    return false;
   }
 
-  return iter->second;
+  position = reader->getInt32(0);
+  getAndCacheBtrieveRecord(position, *reader, 1);
+  return true;
+}
+
+bool SqliteDatabase::stepNext() {
+  SqlitePreparedStatement &command = getPreparedStatement(
+      "SELECT id, data FROM data_t WHERE id > @position ORDER BY id LIMIT 1");
+
+  command.bindParameter(1, position);
+
+  auto reader = command.executeReader();
+  if (!reader->read()) {
+    return false;
+  }
+
+  position = reader->getInt32(0);
+  getAndCacheBtrieveRecord(position, *reader, 1);
+  return true;
+}
+
+bool SqliteDatabase::stepPrevious() {
+  SqlitePreparedStatement &command =
+      getPreparedStatement("SELECT id, data FROM data_t WHERE id < @position "
+                           "ORDER BY id DESC LIMIT 1");
+
+  command.bindParameter(1, position);
+
+  auto reader = command.executeReader();
+  if (!reader->read()) {
+    return false;
+  }
+
+  position = reader->getInt32(0);
+  getAndCacheBtrieveRecord(position, *reader, 1);
+  return true;
 }
 
 bool SqliteDatabase::performOperation(unsigned int keyNumber,
                                       std::basic_string_view<uint8_t> key,
-                                      OperationCode btrieveOperationCode) {
+                                      OperationCode operationCode) {
+  switch (operationCode) {
+  // TODO
+  // case OperationCode::Delete:
+  //    return Delete();
+  case OperationCode::StepFirst:
+    return stepFirst();
+  case OperationCode::StepLast:
+    return stepLast();
+  case OperationCode::StepNext:
+  case OperationCode::StepNextExtended:
+    return stepNext();
+  case OperationCode::StepPrevious:
+  case OperationCode::StepPreviousExtended:
+    return stepPrevious();
+  default:
+    return false;
+  }
+
   return false;
 }
 
