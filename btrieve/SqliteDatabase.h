@@ -31,6 +31,9 @@ private:
   void createSqliteDataIndices(const BtrieveDatabase &database);
   void createSqliteTriggers(const BtrieveDatabase &database);
 
+  void loadSqliteMetadata(std::string &acsName, std::vector<char> &acs);
+  void loadSqliteKeys(const std::string &acsName, const std::vector<char> &acs);
+
   unsigned int openFlags;
   std::shared_ptr<sqlite3> database;
 };

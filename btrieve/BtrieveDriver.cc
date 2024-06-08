@@ -9,39 +9,53 @@
 namespace btrieve {
 BtrieveDriver::~BtrieveDriver() { close(); }
 
+static inline uint64_t toNanos(struct timespec *ts) {
+  return static_cast<uint64_t>(ts->tv_sec) * 1000000 + ts->tv_nsec;
+}
+
 void BtrieveDriver::open(const char *fileName) {
-  struct stat statbuf;
+  struct stat statbufdat;
+  struct stat statbufdb;
+
+  memset(&statbufdat, 0, sizeof(statbufdat));
+  memset(&statbufdb, 0, sizeof(statbufdb));
+
   std::filesystem::path dbPath =
       std::filesystem::path(fileName).replace_extension(
           sqlDatabase->getFileExtension());
 
-  if (stat(dbPath.c_str(), &statbuf) == 0) {
-    // create the db now
+  bool datExists = stat(fileName, &statbufdat) == 0;
+  bool dbExists = stat(dbPath.c_str(), &statbufdb) == 0;
+
+  // if both DAT/DB exist, check if the DAT has an a newer time, if so
+  // we want to reconvert it by deleting the DB
+  if (datExists && dbExists &&
+      toNanos(&statbufdat.st_mtim) > toNanos(&statbufdb.st_mtim)) {
+    //_logger.Warn($"{fullPathDAT} is newer than {fullPathDB}, reconverting the
+    // DAT -> DB");
+    unlink(dbPath.c_str());
+    dbExists = false;
   }
 
-  /*if (fileInfoDAT.Exists && fileInfoDB.Exists && fileInfoDAT.LastWriteTime >
-     fileInfoDB.LastWriteTime)
-          {
-              _logger.Warn($"{fullPathDAT} is newer than {fullPathDB},
-     reconverting the DAT -> DB"); File.Delete(fullPathDB); fileInfoDB = new
-     FileInfo(fullPathDB);
-          }*/
+  if (dbExists) {
+    sqlDatabase->open(dbPath.c_str());
+  } else {
+    BtrieveDatabase btrieveDatabase;
+    std::unique_ptr<RecordLoader> recordLoader;
+    btrieveDatabase.parseDatabase(
+        fileName,
+        [this, &dbPath, &btrieveDatabase, &recordLoader]() {
+          recordLoader = sqlDatabase->create(dbPath.c_str(), btrieveDatabase);
+          return true;
+        },
+        [&recordLoader](const std::basic_string_view<uint8_t> record) {
+          return recordLoader->onRecordLoaded(record);
+        },
+        [&recordLoader]() { recordLoader->onRecordsComplete(); });
+  }
 
-  BtrieveDatabase btrieveDatabase;
-  std::unique_ptr<RecordLoader> recordLoader;
-  btrieveDatabase.parseDatabase(
-      fileName,
-      [this, &dbPath, &btrieveDatabase, &recordLoader]() {
-        recordLoader = sqlDatabase->create(dbPath.c_str(), btrieveDatabase);
-        return true;
-      },
-      [&recordLoader](const std::basic_string_view<uint8_t> record) {
-        return recordLoader->onRecordLoaded(record);
-      },
-      [&recordLoader]() { recordLoader->onRecordsComplete(); });
-  // btrieveFile.LoadFile(_logger, path, loadedFileName);
-  // CreateSqliteDB(fullPathDB, btrieveFile);
-  // throw BtrieveException("new path is %s", dbPath.c_str());
+  // Set Position to First Record
+  // StepFirst();
 }
 
 void BtrieveDriver::close() {

@@ -1,6 +1,7 @@
 #ifndef __SQLITE_PREPARED_STATEMENT_H_
 #define __SQLITE_PREPARED_STATEMENT_H_
 
+#include "SqliteReader.h"
 #include "SqliteUtil.h"
 #include "sqlite/sqlite3.h"
 #include <memory>
@@ -92,6 +93,10 @@ public:
     if (errorCode != SQLITE_OK) {
       throwException(errorCode);
     }
+  }
+
+  std::unique_ptr<SqliteReader> executeReader() {
+    return std::unique_ptr<SqliteReader>(new SqliteReader(statement.get()));
   }
 
 private:

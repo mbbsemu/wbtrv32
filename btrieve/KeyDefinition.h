@@ -2,6 +2,7 @@
 #define __BTRIEVE_KEY_DEF_H_
 
 #include "AttributeMask.h"
+#include "BtrieveException.h"
 #include "KeyDataType.h"
 #include <cstdint>
 #include <cstring>
@@ -22,7 +23,12 @@ public:
       : number(number_), length(length_), offset(offset_), dataType(dataType_),
         attributes(attributes_), segment(segment_), segmentOf(segmentOf_),
         segmentIndex(segmentIndex_), nullValue(nullValue_), acsName(acsName_),
-        acs(acs_) {}
+        acs(acs_) {
+    if (requiresACS() && (acsName.empty() || acs.empty())) {
+      throw BtrieveException("Key %d requires ACS, but none was provided",
+                             number);
+    }
+  }
 
   KeyDefinition(const KeyDefinition &keyDefinition)
       : number(keyDefinition.number), length(keyDefinition.length),

@@ -89,7 +89,99 @@ private:
 
 // Opens a Btrieve database as a sql backed file. Will convert a legacy file
 // in place if required. Throws a BtrieveException if something fails.
-void SqliteDatabase::open(const char *fileName) {}
+void SqliteDatabase::open(const char *fileName) {
+  sqlite3 *db;
+  int errorCode = sqlite3_open_v2(fileName, &db,
+                                  SQLITE_OPEN_READWRITE | openFlags, nullptr);
+  if (errorCode != SQLITE_OK) {
+    throwException(errorCode);
+  }
+
+  this->database = std::shared_ptr<sqlite3>(db, &sqlite3_close);
+
+  std::string acsName;
+  std::vector<char> acs;
+
+  loadSqliteMetadata(acsName, acs);
+  loadSqliteKeys(acsName, acs);
+}
+
+void SqliteDatabase::loadSqliteMetadata(std::string &acsName,
+                                        std::vector<char> &acs) {
+  SqlitePreparedStatement command(
+      database,
+      "SELECT record_length, variable_length_records, version, acs_name, acs "
+      "FROM metadata_t");
+  std::unique_ptr<SqliteReader> reader = command.executeReader();
+  if (!reader->read()) {
+    throw BtrieveException("Can't read metadata_t");
+  }
+
+  recordLength = reader->getInt32(0);
+  variableLengthRecords = reader->getBoolean(1);
+  acsName = reader->getString(3);
+
+  if (!reader->isDBNull(4)) {
+    std::vector<uint8_t> readAcs = reader->getBlob(4);
+    if (readAcs.size() != ACS_LENGTH) {
+      throw BtrieveException(
+          "The ACS length is not 256 in the database. This is corrupt.");
+    }
+
+    acs.reserve(ACS_LENGTH);
+    std::copy(readAcs.begin(), readAcs.end(), std::back_inserter(acs));
+  }
+
+  // reserved for future upgrade paths
+  /*
+  var version = reader.GetInt32(2);
+  if (version != CURRENT_VERSION){
+    UpgradeDatabaseFromVersion(version);
+  }
+  */
+}
+
+void SqliteDatabase::loadSqliteKeys(const std::string &acsName,
+                                    const std::vector<char> &acs) {
+  unsigned int numKeys = 0;
+  {
+    SqlitePreparedStatement keyCountCommand(database,
+                                            "SELECT MAX(number) FROM keys_t");
+    std::unique_ptr<SqliteReader> reader = keyCountCommand.executeReader();
+    if (!reader->read()) {
+      // we have no keys, strange, but valid
+      return;
+    }
+
+    numKeys = reader->getInt32(0) + 1;
+  }
+
+  keys.resize(numKeys);
+
+  SqlitePreparedStatement command(
+      database, "SELECT number, segment, attributes, data_type, offset, length "
+                "FROM keys_t ORDER BY number, segment");
+  std::unique_ptr<SqliteReader> reader = command.executeReader();
+
+  unsigned int segmentIndex = 0;
+  while (reader->read()) {
+    unsigned int number = reader->getInt32(0);
+
+    uint8_t nullValue = 0; // TODO why isn't this in database?
+
+    KeyDefinition keyDefinition(
+        number, reader->getInt32(5), reader->getInt32(4),
+        (KeyDataType)reader->getInt32(3), reader->getInt32(2),
+        reader->getBoolean(1), reader->getBoolean(1) ? number : 0, segmentIndex,
+        nullValue, acsName, acs);
+
+    keys[number].addSegment(keyDefinition);
+  }
+
+  for (auto &key : keys) {
+    key.updateSegmentIndices();
+  }
+}
 
 std::unique_ptr<RecordLoader>
 SqliteDatabase::create(const char *fileName, const BtrieveDatabase &database) {

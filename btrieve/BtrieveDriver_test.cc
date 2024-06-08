@@ -3,6 +3,17 @@
 #include "SqliteDatabase.h"
 #include "gtest/gtest.h"
 
+/* Data layout as follows:
+
+sqlite> select * from data_t;
+    id          data        key_0       key_1       key_2       key_3
+    ----------  ----------  ----------  ----------  ----------  ----------
+    1                       Sysop       3444        3444        1
+    2                       Sysop       7776        7776        2
+    3                       Sysop       1052234073  StringValu  3
+    4                       Sysop       -615634567  stringValu  4
+*/
+
 using namespace btrieve;
 
 static int sqlite_exec(sqlite3 *db, const char *sql,
@@ -150,4 +161,41 @@ TEST(BtrieveDriver, LoadsAndConverts) {
   ASSERT_EQ(recordCount, 4);
 
   ASSERT_EQ(sqlite3_close(db), SQLITE_OK);
+}
+
+TEST(BtrieveDriver, LoadsPreexistingSqliteDatabase) {
+  std::string acsName;
+  std::vector<char> blankACS;
+
+  BtrieveDriver driver(new SqliteDatabase());
+
+  driver.open("assets/MBBSEMU.DB");
+
+  EXPECT_EQ(driver.getRecordLength(), 74);
+  EXPECT_FALSE(driver.isVariableLengthRecords());
+  EXPECT_EQ(driver.getKeys().size(), 4);
+
+  EXPECT_FALSE(driver.getKeys()[0].isComposite());
+  EXPECT_FALSE(driver.getKeys()[1].isComposite());
+  EXPECT_FALSE(driver.getKeys()[2].isComposite());
+  EXPECT_FALSE(driver.getKeys()[3].isComposite());
+
+  EXPECT_EQ(driver.getKeys()[0].getPrimarySegment(),
+            KeyDefinition(0, 32, 2, KeyDataType::Zstring,
+                          Duplicates | UseExtendedDataType, false, 0, 0, 0,
+                          acsName, blankACS));
+
+  EXPECT_EQ(driver.getKeys()[1].getPrimarySegment(),
+            KeyDefinition(1, 4, 34, KeyDataType::Integer,
+                          Modifiable | UseExtendedDataType, false, 0, 0, 0,
+                          acsName, blankACS));
+
+  EXPECT_EQ(driver.getKeys()[2].getPrimarySegment(),
+            KeyDefinition(2, 32, 38, KeyDataType::Zstring,
+                          Duplicates | Modifiable | UseExtendedDataType, false,
+                          0, 0, 0, acsName, blankACS));
+
+  EXPECT_EQ(driver.getKeys()[3].getPrimarySegment(),
+            KeyDefinition(3, 4, 70, KeyDataType::AutoInc, UseExtendedDataType,
+                          false, 0, 0, 0, acsName, blankACS));
 }
