@@ -338,5 +338,39 @@ void SqliteDatabase::createSqliteTriggers(const BtrieveDatabase &database) {
 }
 
 // Closes an opened database.
-void SqliteDatabase::close() { database.reset(); }
+void SqliteDatabase::close() {
+  preparedStatements.clear();
+  database.reset();
+}
+
+bool SqliteDatabase::stepFirst() {
+  SqlitePreparedStatement &command =
+      getPreparedStatement("SELECT id, data FROM data_t ORDER BY id LIMIT 1");
+  auto reader = command.executeReader();
+  if (!reader->read()) {
+    return false;
+  }
+
+  position = reader->getInt32(0);
+  // GetAndCacheBtrieveRecord(Position, reader, ordinal: 1);
+  return true;
+}
+
+SqlitePreparedStatement &SqliteDatabase::getPreparedStatement(const char *sql) {
+  auto iter = preparedStatements.find(sql);
+  if (iter == preparedStatements.end()) {
+    iter =
+        preparedStatements.emplace(sql, SqlitePreparedStatement(database, sql))
+            .first;
+  }
+
+  return iter->second;
+}
+
+bool SqliteDatabase::performOperation(unsigned int keyNumber,
+                                      std::basic_string_view<uint8_t> key,
+                                      OperationCode btrieveOperationCode) {
+  return false;
+}
+
 } // namespace btrieve

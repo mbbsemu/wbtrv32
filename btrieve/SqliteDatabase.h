@@ -4,6 +4,7 @@
 #include "SqlDatabase.h"
 #include "SqlitePreparedStatement.h"
 #include "SqliteTransaction.h"
+#include "OperationCode.h"
 #include "sqlite/sqlite3.h"
 #include <memory>
 
@@ -24,7 +25,15 @@ public:
 
   virtual void close();
 
+  virtual bool stepFirst();
+
+  virtual bool performOperation(unsigned int keyNumber,
+                                std::basic_string_view<uint8_t> key,
+                                OperationCode btrieveOperationCode);
+
 private:
+  SqlitePreparedStatement &getPreparedStatement(const char *sql);
+
   void createSqliteMetadataTable(const BtrieveDatabase &database);
   void createSqliteKeysTable(const BtrieveDatabase &database);
   void createSqliteDataTable(const BtrieveDatabase &database);
@@ -35,6 +44,7 @@ private:
   void loadSqliteKeys(const std::string &acsName, const std::vector<char> &acs);
 
   unsigned int openFlags;
+  std::unordered_map<std::string, SqlitePreparedStatement> preparedStatements;
   std::shared_ptr<sqlite3> database;
 };
 

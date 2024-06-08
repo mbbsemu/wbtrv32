@@ -2,6 +2,7 @@
 #define __SQL_DATABASE_H_
 
 #include "BtrieveDatabase.h"
+#include "OperationCode.h"
 #include <memory>
 
 namespace btrieve {
@@ -39,8 +40,15 @@ public:
 
   virtual const std::vector<Key> &getKeys() const { return keys; }
 
+  virtual bool stepFirst() = 0;
+
+  virtual bool performOperation(unsigned int keyNumber,
+                                std::basic_string_view<uint8_t> key,
+                                OperationCode btrieveOperationCode) = 0;
+
 protected:
   unsigned int recordLength;
+  unsigned int position;
   bool variableLengthRecords;
   std::vector<Key> keys;
 };
