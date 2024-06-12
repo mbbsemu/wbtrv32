@@ -206,7 +206,7 @@ typedef struct _tagMBBSEmuRecordStruct {
   char key0[32];
   uint32_t key1;
   char key2[32];
-  uint32_t key4;
+  uint32_t key3;
 } MBBSEmuRecordStruct;
 #pragma pack(pop)
 
@@ -338,4 +338,49 @@ TEST(BtrieveDriver, StepPrevious) {
             false);
 
   ASSERT_EQ(driver.getPosition(), 1);
+}
+
+TEST(BtrieveDriver, RandomAccess) {
+  BtrieveDriver driver(new SqliteDatabase());
+
+  driver.open("assets/MBBSEMU.DB");
+
+  ASSERT_EQ(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
+                                    OperationCode::StepLast),
+            true);
+
+  std::pair<bool, Record> data(driver.getRecord(4));
+  ASSERT_TRUE(data.first);
+  ASSERT_EQ(data.second.getData().size(), 74);
+  auto dbValue = reinterpret_cast<const MBBSEmuRecordStruct *>(
+      data.second.getData().data());
+
+  EXPECT_STREQ(dbValue->key0, "Sysop");
+  EXPECT_EQ(dbValue->key1, -615634567);
+  EXPECT_STREQ(dbValue->key2, "stringValue");
+  EXPECT_EQ(dbValue->key3, 4);
+
+  data = driver.getRecord(3);
+  ASSERT_TRUE(data.first);
+  ASSERT_EQ(data.second.getData().size(), 74);
+  EXPECT_EQ(reinterpret_cast<const MBBSEmuRecordStruct *>(
+                data.second.getData().data())
+                ->key1,
+            1052234073);
+
+  data = driver.getRecord(2);
+  ASSERT_TRUE(data.first);
+  ASSERT_EQ(data.second.getData().size(), 74);
+  EXPECT_EQ(reinterpret_cast<const MBBSEmuRecordStruct *>(
+                data.second.getData().data())
+                ->key1,
+            7776);
+
+  data = driver.getRecord(1);
+  ASSERT_TRUE(data.first);
+  ASSERT_EQ(data.second.getData().size(), 74);
+  EXPECT_EQ(reinterpret_cast<const MBBSEmuRecordStruct *>(
+                data.second.getData().data())
+                ->key1,
+            3444);
 }
