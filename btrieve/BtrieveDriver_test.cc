@@ -345,10 +345,6 @@ TEST(BtrieveDriver, RandomAccess) {
 
   driver.open("assets/MBBSEMU.DB");
 
-  ASSERT_EQ(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
-                                    OperationCode::StepLast),
-            true);
-
   std::pair<bool, Record> data(driver.getRecord(4));
   ASSERT_TRUE(data.first);
   ASSERT_EQ(data.second.getData().size(), 74);
@@ -383,4 +379,28 @@ TEST(BtrieveDriver, RandomAccess) {
                 data.second.getData().data())
                 ->key1,
             3444);
+}
+
+TEST(BtrieveDriver, RandomInvalidAccess) {
+  BtrieveDriver driver(new SqliteDatabase());
+
+  driver.open("assets/MBBSEMU.DB");
+
+  std::pair<bool, Record> data(driver.getRecord(5));
+  ASSERT_FALSE(data.first);
+  ASSERT_EQ(data.second.getData().size(), 0);
+
+  data = driver.getRecord(0);
+  ASSERT_FALSE(data.first);
+  ASSERT_EQ(data.second.getData().size(), 0);
+
+  driver.setPosition(5);
+  data = driver.getRecord();
+  ASSERT_FALSE(data.first);
+  ASSERT_EQ(data.second.getData().size(), 0);
+
+  driver.setPosition(0);
+  data = driver.getRecord();
+  ASSERT_FALSE(data.first);
+  ASSERT_EQ(data.second.getData().size(), 0);
 }

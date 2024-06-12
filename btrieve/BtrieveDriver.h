@@ -32,6 +32,10 @@ public:
 
   unsigned int getPosition() const { return sqlDatabase->getPosition(); }
 
+  void setPosition(unsigned int position) {
+    return sqlDatabase->setPosition(position);
+  }
+
   std::pair<bool, Record> getRecord() { return getRecord(getPosition()); }
 
   std::pair<bool, Record> getRecord(unsigned int position) {

@@ -45,6 +45,8 @@ public:
 
   unsigned int getPosition() const { return position; }
 
+  void setPosition(unsigned int position_) { position = position_; }
+
   std::pair<bool, Record> getRecord(unsigned int position) {
     std::shared_ptr<Record> data = cache.get(position);
     if (data) {
