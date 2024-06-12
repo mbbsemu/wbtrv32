@@ -95,7 +95,7 @@ public:
     }
   }
 
-  std::unique_ptr<SqliteReader> executeReader() {
+  std::unique_ptr<SqliteReader> executeReader() const {
     return std::unique_ptr<SqliteReader>(new SqliteReader(statement.get()));
   }
 

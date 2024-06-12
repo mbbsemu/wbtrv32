@@ -343,7 +343,8 @@ void SqliteDatabase::close() {
   database.reset();
 }
 
-SqlitePreparedStatement &SqliteDatabase::getPreparedStatement(const char *sql) {
+SqlitePreparedStatement &
+SqliteDatabase::getPreparedStatement(const char *sql) const {
   auto iter = preparedStatements.find(sql);
   if (iter == preparedStatements.end()) {
     iter =
@@ -435,6 +436,17 @@ std::pair<bool, Record> SqliteDatabase::selectRecord(unsigned int position) {
   }
 
   return std::pair<bool, Record>(true, readRecord(position, *reader, 0));
+}
+
+unsigned int SqliteDatabase::getRecordCount() const {
+  const SqlitePreparedStatement &command =
+      getPreparedStatement("SELECT COUNT(*) FROM data_t");
+  auto reader = command.executeReader();
+  if (!reader->read()) {
+    return -1;
+  }
+
+  return reader->getInt32(0);
 }
 
 } // namespace btrieve

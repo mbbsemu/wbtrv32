@@ -404,3 +404,11 @@ TEST(BtrieveDriver, RandomInvalidAccess) {
   ASSERT_FALSE(data.first);
   ASSERT_EQ(data.second.getData().size(), 0);
 }
+
+TEST(BtrieveDriver, GetRecordCount) {
+  BtrieveDriver driver(new SqliteDatabase());
+
+  driver.open("assets/MBBSEMU.DB");
+
+  ASSERT_EQ(driver.getRecordCount(), 4);
+}

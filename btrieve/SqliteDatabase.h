@@ -20,18 +20,18 @@ public:
 
   virtual const char *getFileExtension() override { return "db"; };
 
-  virtual void open(const char *fileName);
+  virtual void open(const char *fileName) override;
 
-  virtual std::unique_ptr<RecordLoader> create(const char *fileName,
-                                               const BtrieveDatabase &database);
+  virtual std::unique_ptr<RecordLoader>
+  create(const char *fileName, const BtrieveDatabase &database) override;
 
-  virtual void close();
+  virtual void close() override;
 
 protected:
-  virtual std::pair<bool, Record> selectRecord(unsigned int position);
+  virtual std::pair<bool, Record> selectRecord(unsigned int position) override;
 
 private:
-  SqlitePreparedStatement &getPreparedStatement(const char *sql);
+  SqlitePreparedStatement &getPreparedStatement(const char *sql) const;
 
   Record readRecord(unsigned int position, const SqliteReader &reader,
                     unsigned int columnOrdinal) {
@@ -51,13 +51,16 @@ private:
   void loadSqliteMetadata(std::string &acsName, std::vector<char> &acs);
   void loadSqliteKeys(const std::string &acsName, const std::vector<char> &acs);
 
-  bool stepFirst();
-  bool stepLast();
-  bool stepNext();
-  bool stepPrevious();
+  virtual bool stepFirst() override;
+  virtual bool stepLast() override;
+  virtual bool stepNext() override;
+  virtual bool stepPrevious() override;
+
+  virtual unsigned int getRecordCount() const override;
 
   unsigned int openFlags;
-  std::unordered_map<std::string, SqlitePreparedStatement> preparedStatements;
+  mutable std::unordered_map<std::string, SqlitePreparedStatement>
+      preparedStatements;
   std::shared_ptr<sqlite3> database;
 };
 

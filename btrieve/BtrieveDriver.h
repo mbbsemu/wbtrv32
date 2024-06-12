@@ -24,6 +24,8 @@ public:
     return sqlDatabase->getRecordLength();
   }
 
+  unsigned int getRecordCount() const { return sqlDatabase->getRecordCount(); }
+
   bool isVariableLengthRecords() const {
     return sqlDatabase->isVariableLengthRecords();
   }
