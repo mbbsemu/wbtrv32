@@ -275,3 +275,67 @@ TEST(BtrieveDriver, StepNext) {
 
   ASSERT_EQ(driver.getPosition(), 4);
 }
+
+TEST(BtrieveDriver, StepPrevious) {
+  BtrieveDriver driver(new SqliteDatabase());
+
+  driver.open("assets/MBBSEMU.DB");
+
+  ASSERT_EQ(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
+                                    OperationCode::StepLast),
+            true);
+
+  ASSERT_EQ(driver.getPosition(), 4);
+  std::pair<bool, Record> data(driver.getRecord());
+  ASSERT_TRUE(data.first);
+  ASSERT_EQ(data.second.getData().size(), 74);
+  EXPECT_EQ(reinterpret_cast<const MBBSEmuRecordStruct *>(
+                data.second.getData().data())
+                ->key1,
+            -615634567);
+
+  ASSERT_EQ(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
+                                    OperationCode::StepPrevious),
+            true);
+
+  ASSERT_EQ(driver.getPosition(), 3);
+  data = std::move(driver.getRecord());
+  ASSERT_TRUE(data.first);
+  ASSERT_EQ(data.second.getData().size(), 74);
+  EXPECT_EQ(reinterpret_cast<const MBBSEmuRecordStruct *>(
+                data.second.getData().data())
+                ->key1,
+            1052234073);
+
+  ASSERT_EQ(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
+                                    OperationCode::StepPrevious),
+            true);
+
+  ASSERT_EQ(driver.getPosition(), 2);
+  data = std::move(driver.getRecord());
+  ASSERT_TRUE(data.first);
+  ASSERT_EQ(data.second.getData().size(), 74);
+  EXPECT_EQ(reinterpret_cast<const MBBSEmuRecordStruct *>(
+                data.second.getData().data())
+                ->key1,
+            7776);
+
+  ASSERT_EQ(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
+                                    OperationCode::StepPrevious),
+            true);
+
+  ASSERT_EQ(driver.getPosition(), 1);
+  data = std::move(driver.getRecord());
+  ASSERT_TRUE(data.first);
+  ASSERT_EQ(data.second.getData().size(), 74);
+  EXPECT_EQ(reinterpret_cast<const MBBSEmuRecordStruct *>(
+                data.second.getData().data())
+                ->key1,
+            3444);
+
+  ASSERT_EQ(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
+                                    OperationCode::StepPrevious),
+            false);
+
+  ASSERT_EQ(driver.getPosition(), 1);
+}
