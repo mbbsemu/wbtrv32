@@ -61,7 +61,7 @@ public:
   // to discontinue enumeration. Throws BtrieveException when a critical error
   // is encountered.
   void parseDatabase(
-      const std::string &fileName, std::function<bool()> onMetadataLoaded,
+      const char *fileName, std::function<bool()> onMetadataLoaded,
       std::function<bool(const std::basic_string_view<uint8_t>)> onRecordLoaded,
       std::function<void()> onRecordsComplete = []() {});
 
