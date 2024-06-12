@@ -2,6 +2,7 @@
 #define __SQLITE_DATABASE_H_
 
 #include "OperationCode.h"
+#include "Record.h"
 #include "SqlDatabase.h"
 #include "SqlitePreparedStatement.h"
 #include "SqliteTransaction.h"
@@ -12,7 +13,8 @@ namespace btrieve {
 class SqliteDatabase : public SqlDatabase {
 public:
   SqliteDatabase(unsigned int openFlags_ = 0)
-      : openFlags(openFlags_), database(nullptr, &sqlite3_close) {}
+      : SqlDatabase(/* maxCacheSize= */ 64), openFlags(openFlags_),
+        database(nullptr, &sqlite3_close) {}
 
   virtual ~SqliteDatabase() { close(); }
 
@@ -25,14 +27,20 @@ public:
 
   virtual void close();
 
-  virtual bool performOperation(unsigned int keyNumber,
-                                std::basic_string_view<uint8_t> key,
-                                OperationCode btrieveOperationCode);
+protected:
+  virtual std::pair<bool, Record> selectRecord(unsigned int position);
 
 private:
   SqlitePreparedStatement &getPreparedStatement(const char *sql);
-  void getAndCacheBtrieveRecord(uint id, const SqliteReader &reader,
-                                unsigned int columnOrdinal);
+
+  Record readRecord(unsigned int position, const SqliteReader &reader,
+                    unsigned int columnOrdinal) {
+    return Record(position, reader.getBlob(columnOrdinal));
+  }
+
+  const Record &cacheBtrieveRecord(unsigned int position,
+                                   const SqliteReader &reader,
+                                   unsigned int columnOrdinal);
 
   void createSqliteMetadataTable(const BtrieveDatabase &database);
   void createSqliteKeysTable(const BtrieveDatabase &database);

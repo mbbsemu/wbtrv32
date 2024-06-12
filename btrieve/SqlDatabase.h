@@ -2,6 +2,7 @@
 #define __SQL_DATABASE_H_
 
 #include "BtrieveDatabase.h"
+#include "LRUCache.h"
 #include "OperationCode.h"
 #include <memory>
 
@@ -20,6 +21,8 @@ public:
 // BtrieveDatabase.
 class SqlDatabase {
 public:
+  SqlDatabase(unsigned int maxCacheSize) : cache(maxCacheSize) {}
+
   virtual ~SqlDatabase() = default;
 
   virtual const char *getFileExtension() = 0;
@@ -40,15 +43,34 @@ public:
 
   virtual const std::vector<Key> &getKeys() const { return keys; }
 
-  virtual bool performOperation(unsigned int keyNumber,
-                                std::basic_string_view<uint8_t> key,
-                                OperationCode btrieveOperationCode) = 0;
+  unsigned int getPosition() const { return position; }
+
+  std::pair<bool, Record> getRecord(unsigned int position) {
+    std::shared_ptr<Record> data = cache.get(position);
+    if (data) {
+      return std::pair<bool, Record>(true, *data);
+    }
+
+    std::pair<bool, Record> ret = selectRecord(position);
+    if (ret.first) {
+      cache.cache(position, ret.second);
+    }
+    return ret;
+  }
+
+  virtual bool stepFirst() = 0;
+  virtual bool stepLast() = 0;
+  virtual bool stepPrevious() = 0;
+  virtual bool stepNext() = 0;
 
 protected:
+  virtual std::pair<bool, Record> selectRecord(unsigned int position) = 0;
+
   unsigned int recordLength;
   unsigned int position;
   bool variableLengthRecords;
   std::vector<Key> keys;
+  LRUCache<unsigned int, Record> cache;
 };
 } // namespace btrieve
 

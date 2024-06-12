@@ -1,5 +1,6 @@
 #include "LRUCache.h"
 #include "gtest/gtest.h"
+#include <memory>
 
 using namespace btrieve;
 
@@ -8,8 +9,8 @@ TEST(LRUCache, SingleInsertionAndGet) {
 
   test.cache("hello", "my guy");
 
-  std::string *value = test.get("hello");
-  ASSERT_NE(value, nullptr);
+  std::shared_ptr<std::string> value(test.get("hello"));
+  ASSERT_TRUE(static_cast<bool>(value));
   ASSERT_STREQ(value->c_str(), "my guy");
 
   ASSERT_EQ(test.size(), 1);
@@ -29,8 +30,8 @@ TEST(LRUCache, MultiInsertionWithSameKey) {
   test.cache("hello", "my guy7");
   test.cache("hello", "my guy8");
 
-  std::string *value = test.get("hello");
-  ASSERT_NE(value, nullptr);
+  std::shared_ptr<std::string> value = test.get("hello");
+  ASSERT_TRUE(static_cast<bool>(value));
   ASSERT_STREQ(value->c_str(), "my guy8");
 
   ASSERT_EQ(test.size(), 1);
@@ -62,7 +63,7 @@ TEST(LRUCache, MultiInsertion) {
     sprintf(helloStr, "hello%d", 4 + i);
     sprintf(myGuyStr, "my guy%d", 4 + i);
 
-    std::string *value = test.get(helloStr);
+    std::shared_ptr<std::string> value(test.get(helloStr));
     ASSERT_NE(value, nullptr);
     ASSERT_STREQ(value->c_str(), myGuyStr);
 

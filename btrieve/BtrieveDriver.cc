@@ -55,8 +55,8 @@ void BtrieveDriver::open(const char *fileName) {
   }
 
   // Set Position to First Record
-  sqlDatabase->performOperation(0, std::basic_string_view<uint8_t>(),
-                                OperationCode::StepFirst);
+  performOperation(0, std::basic_string_view<uint8_t>(),
+                   OperationCode::StepFirst);
 }
 
 void BtrieveDriver::close() {
@@ -64,4 +64,29 @@ void BtrieveDriver::close() {
   // release ownership and delete
   sqlDatabase.reset(nullptr);
 }
+
+bool BtrieveDriver::performOperation(unsigned int keyNumber,
+                                     std::basic_string_view<uint8_t> key,
+                                     OperationCode operationCode) {
+  switch (operationCode) {
+  // TODO
+  // case OperationCode::Delete:
+  //    return Delete();
+  case OperationCode::StepFirst:
+    return sqlDatabase->stepFirst();
+  case OperationCode::StepLast:
+    return sqlDatabase->stepLast();
+  case OperationCode::StepNext:
+  case OperationCode::StepNextExtended:
+    return sqlDatabase->stepNext();
+  case OperationCode::StepPrevious:
+  case OperationCode::StepPreviousExtended:
+    return sqlDatabase->stepPrevious();
+  default:
+    return false;
+  }
+
+  return false;
+}
+
 } // namespace btrieve

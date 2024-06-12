@@ -4,6 +4,7 @@
 #include <cassert>
 #include <cstddef>
 #include <list>
+#include <memory>
 #include <unordered_map>
 
 namespace btrieve {
@@ -16,7 +17,8 @@ public:
     auto pos = keyValuesMap.find(key);
     if (pos == keyValuesMap.end()) {
       orderedKeys.push_front(key);
-      keyValuesMap[key] = {value, orderedKeys.begin()};
+      keyValuesMap[key] = {std::shared_ptr<V>(new V(value)),
+                           orderedKeys.begin()};
       if (keyValuesMap.size() > maxSize) {
         keyValuesMap.erase(orderedKeys.back());
         orderedKeys.pop_back();
@@ -26,12 +28,12 @@ public:
       orderedKeys.push_front(key);
 
       // update the values in keyValuesMap
-      pos->second.first = value;
+      pos->second.first = std::shared_ptr<V>(new V(value));
       pos->second.second = orderedKeys.begin();
     }
   }
 
-  V *get(const K &key) {
+  std::shared_ptr<V> get(const K &key) {
     auto pos = keyValuesMap.find(key);
     if (pos == keyValuesMap.end()) {
       return nullptr;
@@ -43,7 +45,7 @@ public:
     // update the value in keyValuesMap
     pos->second.second = orderedKeys.begin();
 
-    return &pos->second.first;
+    return pos->second.first;
   }
 
   size_t size() {
@@ -55,7 +57,8 @@ private:
   size_t maxSize;
   // most recently used is at the front, least recently used at the back
   std::list<K> orderedKeys;
-  std::unordered_map<K, std::pair<V, typename std::list<K>::iterator>>
+  std::unordered_map<
+      K, std::pair<std::shared_ptr<V>, typename std::list<K>::iterator>>
       keyValuesMap;
 };
 } // namespace btrieve

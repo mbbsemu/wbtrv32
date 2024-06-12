@@ -1,6 +1,8 @@
 #ifndef __BTRIEVE_DRIVER_H_
 #define __BTRIEVE_DRIVER_H_
 
+#include "OperationCode.h"
+#include "Record.h"
 #include "SqlDatabase.h"
 #include <memory>
 
@@ -27,6 +29,18 @@ public:
   }
 
   const std::vector<Key> &getKeys() const { return sqlDatabase->getKeys(); }
+
+  unsigned int getPosition() const { return sqlDatabase->getPosition(); }
+
+  std::pair<bool, Record> getRecord() { return getRecord(getPosition()); }
+
+  std::pair<bool, Record> getRecord(unsigned int position) {
+    return sqlDatabase->getRecord(position);
+  }
+
+  bool performOperation(unsigned int keyNumber,
+                        std::basic_string_view<uint8_t> key,
+                        OperationCode operationCode);
 
 private:
   std::unique_ptr<SqlDatabase> sqlDatabase;

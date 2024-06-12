@@ -355,20 +355,6 @@ SqlitePreparedStatement &SqliteDatabase::getPreparedStatement(const char *sql) {
   return iter->second;
 }
 
-void SqliteDatabase::getAndCacheBtrieveRecord(uint id,
-                                              const SqliteReader &reader,
-                                              unsigned int columnOrdinal) {
-  // TODO add caching
-
-  /*
-  using var stream = reader.GetStream(ordinal);
-  var data = BtrieveUtil.ReadEntireStream(stream);
-
-  var record = new BtrieveRecord(id, data);
-  _cache[id] = record;
-  return record; */
-}
-
 bool SqliteDatabase::stepFirst() {
   SqlitePreparedStatement &command =
       getPreparedStatement("SELECT id, data FROM data_t ORDER BY id LIMIT 1");
@@ -378,7 +364,7 @@ bool SqliteDatabase::stepFirst() {
   }
 
   position = reader->getInt32(0);
-  getAndCacheBtrieveRecord(position, *reader, 1);
+  cacheBtrieveRecord(position, *reader, 1);
   return true;
 }
 
@@ -391,7 +377,7 @@ bool SqliteDatabase::stepLast() {
   }
 
   position = reader->getInt32(0);
-  getAndCacheBtrieveRecord(position, *reader, 1);
+  cacheBtrieveRecord(position, *reader, 1);
   return true;
 }
 
@@ -407,7 +393,7 @@ bool SqliteDatabase::stepNext() {
   }
 
   position = reader->getInt32(0);
-  getAndCacheBtrieveRecord(position, *reader, 1);
+  cacheBtrieveRecord(position, *reader, 1);
   return true;
 }
 
@@ -424,32 +410,31 @@ bool SqliteDatabase::stepPrevious() {
   }
 
   position = reader->getInt32(0);
-  getAndCacheBtrieveRecord(position, *reader, 1);
+  cacheBtrieveRecord(position, *reader, 1);
   return true;
 }
 
-bool SqliteDatabase::performOperation(unsigned int keyNumber,
-                                      std::basic_string_view<uint8_t> key,
-                                      OperationCode operationCode) {
-  switch (operationCode) {
-  // TODO
-  // case OperationCode::Delete:
-  //    return Delete();
-  case OperationCode::StepFirst:
-    return stepFirst();
-  case OperationCode::StepLast:
-    return stepLast();
-  case OperationCode::StepNext:
-  case OperationCode::StepNextExtended:
-    return stepNext();
-  case OperationCode::StepPrevious:
-  case OperationCode::StepPreviousExtended:
-    return stepPrevious();
-  default:
-    return false;
+const Record &SqliteDatabase::cacheBtrieveRecord(unsigned int position,
+                                                 const SqliteReader &reader,
+                                                 unsigned int columnOrdinal) {
+  const Record &record = readRecord(position, reader, columnOrdinal);
+  cache.cache(position, record);
+  return record;
+}
+
+std::pair<bool, Record> SqliteDatabase::selectRecord(unsigned int position) {
+  this->position = position;
+
+  SqlitePreparedStatement &command =
+      getPreparedStatement("SELECT data FROM data_t WHERE id = @offset");
+  command.bindParameter(1, position);
+
+  auto reader = command.executeReader();
+  if (!reader->read()) {
+    return std::pair<bool, Record>(false, Record());
   }
 
-  return false;
+  return std::pair<bool, Record>(true, readRecord(position, *reader, 0));
 }
 
 } // namespace btrieve
