@@ -44,6 +44,8 @@ public:
     return sqlDatabase->getRecord(position);
   }
 
+  void deleteAll() { sqlDatabase->deleteAll(); }
+
   bool performOperation(unsigned int keyNumber,
                         std::basic_string_view<uint8_t> key,
                         OperationCode operationCode);

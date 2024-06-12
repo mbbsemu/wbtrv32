@@ -53,6 +53,11 @@ public:
     return orderedKeys.size();
   }
 
+  void clear() {
+    orderedKeys.clear();
+    keyValuesMap.clear();
+  }
+
 private:
   size_t maxSize;
   // most recently used is at the front, least recently used at the back

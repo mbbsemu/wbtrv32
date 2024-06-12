@@ -412,3 +412,16 @@ TEST(BtrieveDriver, GetRecordCount) {
 
   ASSERT_EQ(driver.getRecordCount(), 4);
 }
+
+TEST(BtrieveDriver, DeleteAll) {
+  BtrieveDriver driver(new SqliteDatabase());
+
+  driver.open("assets/MBBSEMU.DB");
+
+  ASSERT_EQ(driver.getRecordCount(), 4);
+
+  driver.deleteAll();
+
+  ASSERT_EQ(driver.getRecordCount(), 0);
+  ASSERT_EQ(driver.getPosition(), 0);
+}

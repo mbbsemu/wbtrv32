@@ -58,6 +58,8 @@ private:
 
   virtual unsigned int getRecordCount() const override;
 
+  virtual void deleteAll() override;
+
   unsigned int openFlags;
   mutable std::unordered_map<std::string, SqlitePreparedStatement>
       preparedStatements;

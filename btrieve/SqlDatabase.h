@@ -65,6 +65,7 @@ public:
   virtual bool stepPrevious() = 0;
   virtual bool stepNext() = 0;
   virtual unsigned int getRecordCount() const = 0;
+  virtual void deleteAll() = 0;
 
 protected:
   virtual std::pair<bool, Record> selectRecord(unsigned int position) = 0;

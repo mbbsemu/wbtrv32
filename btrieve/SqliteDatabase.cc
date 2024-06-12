@@ -449,4 +449,11 @@ unsigned int SqliteDatabase::getRecordCount() const {
   return reader->getInt32(0);
 }
 
+void SqliteDatabase::deleteAll() {
+  getPreparedStatement("DELETE FROM data_t").execute();
+
+  cache.clear();
+  setPosition(0);
+}
+
 } // namespace btrieve
