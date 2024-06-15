@@ -58,6 +58,11 @@ public:
     keyValuesMap.clear();
   }
 
+  void remove(const K &key) {
+    orderedKeys.remove(key);
+    keyValuesMap.erase(key);
+  }
+
 private:
   size_t maxSize;
   // most recently used is at the front, least recently used at the back

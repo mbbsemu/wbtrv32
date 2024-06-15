@@ -2,6 +2,10 @@
 #include "BtrieveException.h"
 #include "SqliteDatabase.h"
 #include "gtest/gtest.h"
+#include <cstdio>
+#include <dirent.h>
+#include <filesystem>
+#include <sys/types.h>
 
 /* Data layout as follows:
 
@@ -30,17 +34,168 @@ static int sqlite_exec(sqlite3 *db, const char *sql,
       &onData, nullptr);
 }
 
-TEST(BtrieveDriver, LoadsAndConverts) {
+#pragma pack(push, 1)
+typedef struct _taguuid {
+  uint32_t a;
+  uint16_t b;
+  uint16_t c;
+  uint16_t d;
+  uint16_t e;
+  uint32_t f;
+} uuid;
+#pragma pack(pop)
+
+static_assert(sizeof(uuid) == 16);
+
+class TempPath {
+public:
+  TempPath() = default;
+
+  bool create() {
+    char buf[64];
+    uuid id;
+    std::unique_ptr<FILE, decltype(&fclose)> f(fopen("/dev/random", "r"),
+                                               &fclose);
+    if (!f) {
+      return false;
+    }
+
+    if (fread(&id, 1, sizeof(id), f.get()) != sizeof(id)) {
+      return false;
+    }
+
+    snprintf(buf, sizeof(buf), "%X-%X-%X-%X-%X%X", id.a, id.b, id.c, id.d, id.e,
+             id.f);
+    buf[sizeof(buf) - 1] = 0;
+
+    tempFolder = buf;
+
+    std::string tempPath = getTempPath();
+    int result = mkdir(tempPath.c_str(), 0700);
+
+    if (result == 0) {
+      return true;
+    } else if (result == EEXIST) {
+      deleteAllFiles(tempPath.c_str());
+      return true;
+    }
+
+    return false;
+  }
+
+  ~TempPath() {
+    auto tempPath = getTempPath();
+
+    deleteAllFiles(tempPath.c_str());
+
+    rmdir(tempPath.c_str());
+  }
+
+  std::string getTempPath() {
+    std::filesystem::path tempPath(testing::TempDir());
+    tempPath /= std::filesystem::path(tempFolder.c_str());
+
+    return tempPath.c_str();
+  }
+
+  std::string copyToTempPath(const char *filePath) {
+    const size_t bufferSize = 32 * 1024;
+
+    std::filesystem::path destPath(getTempPath());
+    destPath /= std::filesystem::path(filePath).filename();
+
+    {
+      std::unique_ptr<FILE, decltype(&fclose)> sourceFile(fopen(filePath, "r"),
+                                                          &fclose);
+      if (!sourceFile) {
+        throw BtrieveException("Can't open %s\n", filePath);
+      }
+
+      std::unique_ptr<FILE, decltype(&fclose)> destFile(
+          fopen(destPath.c_str(), "w"), &fclose);
+      if (!destFile) {
+        throw BtrieveException("Can't open %s\n", destPath.c_str());
+      }
+
+      size_t numRead;
+      size_t numWritten;
+      std::unique_ptr<uint8_t> buffer(new uint8_t[bufferSize]);
+      while ((numRead = fread(reinterpret_cast<void *>(buffer.get()), 1,
+                              bufferSize, sourceFile.get())) > 0) {
+        numWritten = fwrite(reinterpret_cast<void *>(buffer.get()), 1, numRead,
+                            destFile.get());
+        if (numWritten != numRead) {
+          throw BtrieveException("Can't write data\n");
+        }
+      }
+    }
+
+    return destPath;
+  }
+
+private:
+  void deleteAllFiles(const char *filePath) {
+    std::list<std::string> filesToUnlink;
+    {
+      std::unique_ptr<DIR, decltype(&closedir)> dir(opendir(filePath),
+                                                    &closedir);
+      if (dir) {
+        struct dirent *d;
+
+        while ((d = readdir(dir.get()))) {
+          if (strcmp(d->d_name, ".") && strcmp(d->d_name, "..")) {
+            filesToUnlink.push_back(d->d_name);
+          }
+        }
+      }
+    }
+
+    for (auto &fileName : filesToUnlink) {
+      std::filesystem::path path(filePath);
+      path /= fileName;
+
+      EXPECT_EQ(unlink(path.c_str()), 0);
+    }
+  }
+
+  std::string tempFolder;
+};
+
+class BtrieveDriverTest : public ::testing::Test {
+protected:
+  TempPath *tempPath;
+
+public:
+  BtrieveDriverTest() = default;
+
+  virtual ~BtrieveDriverTest() = default;
+
+  virtual void SetUp() {
+    tempPath = new TempPath();
+    ASSERT_TRUE(tempPath->create());
+  }
+
+  virtual void TearDown() { delete tempPath; }
+};
+
+TEST_F(BtrieveDriverTest, LoadsAndConverts) {
+  std::string convertedDbPath;
+
   {
     std::string acsName;
     std::vector<char> blankACS;
     struct stat statbuf;
-
     BtrieveDriver driver(new SqliteDatabase());
 
-    driver.open("assets/MBBSEMU.DAT");
+    auto mbbsEmuDat = tempPath->copyToTempPath("assets/MBBSEMU.DAT");
+    driver.open(mbbsEmuDat.c_str());
 
-    ASSERT_EQ(stat("assets/MBBSEMU.db", &statbuf), 0);
+    std::filesystem::path dbPath(mbbsEmuDat);
+    dbPath.remove_filename();
+    dbPath /= "MBBSEMU.db";
+    convertedDbPath = dbPath.c_str();
+
+    ASSERT_EQ(stat(dbPath.c_str(), &statbuf), 0);
 
     EXPECT_EQ(driver.getRecordLength(), 74);
     EXPECT_FALSE(driver.isVariableLengthRecords());
@@ -74,9 +229,9 @@ TEST(BtrieveDriver, LoadsAndConverts) {
   // database should be closed now, open manually via sqlite methods to query
   // for correctness
   sqlite3 *db;
-  ASSERT_EQ(
-      sqlite3_open_v2("assets/MBBSEMU.db", &db, SQLITE_OPEN_READONLY, nullptr),
-      SQLITE_OK);
+  ASSERT_EQ(sqlite3_open_v2(convertedDbPath.c_str(), &db, SQLITE_OPEN_READONLY,
+                            nullptr),
+            SQLITE_OK);
 
   ASSERT_EQ(sqlite_exec(db, "SELECT version FROM metadata_t",
                         [](int numResults, char **data, char **columns) {
@@ -163,13 +318,13 @@ TEST(BtrieveDriver, LoadsAndConverts) {
   ASSERT_EQ(sqlite3_close(db), SQLITE_OK);
 }
 
-TEST(BtrieveDriver, LoadsPreexistingSqliteDatabase) {
+TEST_F(BtrieveDriverTest, LoadsPreexistingSqliteDatabase) {
   std::string acsName;
   std::vector<char> blankACS;
-
   BtrieveDriver driver(new SqliteDatabase());
 
-  driver.open("assets/MBBSEMU.DB");
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  driver.open(mbbsEmuDb.c_str());
 
   EXPECT_EQ(driver.getRecordLength(), 74);
   EXPECT_FALSE(driver.isVariableLengthRecords());
@@ -212,10 +367,11 @@ typedef struct _tagMBBSEmuRecordStruct {
 
 static_assert(sizeof(MBBSEmuRecordStruct) == 74);
 
-TEST(BtrieveDriver, StepNext) {
+TEST_F(BtrieveDriverTest, StepNext) {
   BtrieveDriver driver(new SqliteDatabase());
 
-  driver.open("assets/MBBSEMU.DB");
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  driver.open(mbbsEmuDb.c_str());
 
   ASSERT_EQ(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
                                     OperationCode::StepFirst),
@@ -276,10 +432,11 @@ TEST(BtrieveDriver, StepNext) {
   ASSERT_EQ(driver.getPosition(), 4);
 }
 
-TEST(BtrieveDriver, StepPrevious) {
+TEST_F(BtrieveDriverTest, StepPrevious) {
   BtrieveDriver driver(new SqliteDatabase());
 
-  driver.open("assets/MBBSEMU.DB");
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  driver.open(mbbsEmuDb.c_str());
 
   ASSERT_EQ(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
                                     OperationCode::StepLast),
@@ -340,10 +497,11 @@ TEST(BtrieveDriver, StepPrevious) {
   ASSERT_EQ(driver.getPosition(), 1);
 }
 
-TEST(BtrieveDriver, RandomAccess) {
+TEST_F(BtrieveDriverTest, RandomAccess) {
   BtrieveDriver driver(new SqliteDatabase());
 
-  driver.open("assets/MBBSEMU.DB");
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  driver.open(mbbsEmuDb.c_str());
 
   std::pair<bool, Record> data(driver.getRecord(4));
   ASSERT_TRUE(data.first);
@@ -381,10 +539,11 @@ TEST(BtrieveDriver, RandomAccess) {
             3444);
 }
 
-TEST(BtrieveDriver, RandomInvalidAccess) {
+TEST_F(BtrieveDriverTest, RandomInvalidAccess) {
   BtrieveDriver driver(new SqliteDatabase());
 
-  driver.open("assets/MBBSEMU.DB");
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  driver.open(mbbsEmuDb.c_str());
 
   std::pair<bool, Record> data(driver.getRecord(5));
   ASSERT_FALSE(data.first);
@@ -405,23 +564,48 @@ TEST(BtrieveDriver, RandomInvalidAccess) {
   ASSERT_EQ(data.second.getData().size(), 0);
 }
 
-TEST(BtrieveDriver, GetRecordCount) {
+TEST_F(BtrieveDriverTest, GetRecordCount) {
   BtrieveDriver driver(new SqliteDatabase());
 
-  driver.open("assets/MBBSEMU.DB");
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  driver.open(mbbsEmuDb.c_str());
 
   ASSERT_EQ(driver.getRecordCount(), 4);
 }
 
-TEST(BtrieveDriver, DeleteAll) {
+TEST_F(BtrieveDriverTest, DeleteAll) {
   BtrieveDriver driver(new SqliteDatabase());
 
-  driver.open("assets/MBBSEMU.DB");
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  driver.open(mbbsEmuDb.c_str());
 
   ASSERT_EQ(driver.getRecordCount(), 4);
 
-  driver.deleteAll();
+  ASSERT_TRUE(driver.deleteAll());
 
   ASSERT_EQ(driver.getRecordCount(), 0);
   ASSERT_EQ(driver.getPosition(), 0);
+}
+
+TEST_F(BtrieveDriverTest, Delete) {
+  BtrieveDriver driver(new SqliteDatabase());
+
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  driver.open(mbbsEmuDb.c_str());
+
+  driver.setPosition(2);
+
+  ASSERT_EQ(driver.getRecordCount(), 4);
+
+  ASSERT_TRUE(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
+                                      OperationCode::Delete));
+  ASSERT_EQ(driver.getPosition(), 2);
+  ASSERT_EQ(driver.getRecordCount(), 3);
+
+  ASSERT_FALSE(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
+                                       OperationCode::Delete));
+  ASSERT_EQ(driver.getPosition(), 2);
+  ASSERT_EQ(driver.getRecordCount(), 3);
+
+  ASSERT_FALSE(driver.getRecord().first);
 }

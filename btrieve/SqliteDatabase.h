@@ -55,10 +55,11 @@ private:
   virtual bool stepLast() override;
   virtual bool stepNext() override;
   virtual bool stepPrevious() override;
+  virtual bool deleteRecord() override;
 
   virtual unsigned int getRecordCount() const override;
 
-  virtual void deleteAll() override;
+  virtual bool deleteAll() override;
 
   unsigned int openFlags;
   mutable std::unordered_map<std::string, SqlitePreparedStatement>

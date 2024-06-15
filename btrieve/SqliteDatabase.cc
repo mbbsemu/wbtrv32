@@ -449,11 +449,30 @@ unsigned int SqliteDatabase::getRecordCount() const {
   return reader->getInt32(0);
 }
 
-void SqliteDatabase::deleteAll() {
-  getPreparedStatement("DELETE FROM data_t").execute();
+bool SqliteDatabase::deleteAll() {
+  bool ret = getPreparedStatement("DELETE FROM data_t").executeNoThrow();
 
-  cache.clear();
-  setPosition(0);
+  if (ret) {
+    cache.clear();
+    setPosition(0);
+  }
+
+  return ret;
+}
+
+bool SqliteDatabase::deleteRecord() {
+  cache.remove(position);
+
+  SqlitePreparedStatement &command =
+      getPreparedStatement("DELETE FROM data_t WHERE id=@position");
+  command.bindParameter(1, BindableValue(position));
+  bool ret = command.executeNoThrow();
+  if (!ret) {
+    return false;
+  }
+
+  int numRowsAffected = sqlite3_changes(database.get());
+  return numRowsAffected == 1;
 }
 
 } // namespace btrieve

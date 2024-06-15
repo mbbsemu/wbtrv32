@@ -13,6 +13,14 @@ static inline uint64_t toNanos(struct timespec *ts) {
   return static_cast<uint64_t>(ts->tv_sec) * 1000000 + ts->tv_nsec;
 }
 
+static std::string toUpper(const std::string &value) {
+  std::string ret(value);
+  for (size_t i = 0; i < ret.size(); ++i) {
+    ret[i] = toupper(ret[i]);
+  }
+  return ret;
+}
+
 void BtrieveDriver::open(const char *fileName) {
   struct stat statbufdat;
   struct stat statbufdb;
@@ -26,6 +34,15 @@ void BtrieveDriver::open(const char *fileName) {
 
   bool datExists = stat(fileName, &statbufdat) == 0;
   bool dbExists = stat(dbPath.c_str(), &statbufdb) == 0;
+  if (!dbExists) {
+    // failed to find db, let's uppercase and try again
+    std::filesystem::path dbPathUpper = dbPath;
+    dbPathUpper.replace_extension(toUpper(sqlDatabase->getFileExtension()));
+    dbExists = stat(dbPathUpper.c_str(), &statbufdb) == 0;
+    if (dbExists) {
+      dbPath = dbPathUpper;
+    }
+  }
 
   // if both DAT/DB exist, check if the DAT has an a newer time, if so
   // we want to reconvert it by deleting the DB
@@ -69,9 +86,8 @@ bool BtrieveDriver::performOperation(unsigned int keyNumber,
                                      std::basic_string_view<uint8_t> key,
                                      OperationCode operationCode) {
   switch (operationCode) {
-  // TODO
-  // case OperationCode::Delete:
-  //    return Delete();
+  case OperationCode::Delete:
+    return sqlDatabase->deleteRecord();
   case OperationCode::StepFirst:
     return sqlDatabase->stepFirst();
   case OperationCode::StepLast:

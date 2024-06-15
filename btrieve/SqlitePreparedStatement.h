@@ -82,6 +82,17 @@ public:
     }
   }
 
+  bool executeNoThrow() {
+    int errorCode = sqlite3_step(statement.get());
+    // SQLITE_DONE is expected, meaning the statement has finished
+    if (errorCode == SQLITE_DONE) {
+      return true;
+    }
+    // OK indicates more things may happen, but still a valid response. If not
+    // OK, we goofed
+    return errorCode == SQLITE_OK;
+  }
+
   void execute() {
     int errorCode = sqlite3_step(statement.get());
     // SQLITE_DONE is expected, meaning the statement has finished
