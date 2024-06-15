@@ -609,3 +609,56 @@ TEST_F(BtrieveDriverTest, Delete) {
 
   ASSERT_FALSE(driver.getRecord().first);
 }
+
+TEST_F(BtrieveDriverTest, RecordDeleteOneIteration) {
+  BtrieveDriver driver(new SqliteDatabase());
+
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  driver.open(mbbsEmuDb.c_str());
+
+  driver.setPosition(2);
+
+  ASSERT_TRUE(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
+                                      OperationCode::Delete));
+
+  ASSERT_TRUE(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
+                                      OperationCode::StepFirst));
+
+  ASSERT_EQ(driver.getPosition(), 1);
+  std::pair<bool, Record> data(driver.getRecord());
+  ASSERT_TRUE(data.first);
+  ASSERT_EQ(data.second.getData().size(), 74);
+  EXPECT_EQ(reinterpret_cast<const MBBSEmuRecordStruct *>(
+                data.second.getData().data())
+                ->key1,
+            3444);
+
+  ASSERT_TRUE(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
+                                      OperationCode::StepNext));
+
+  ASSERT_EQ(driver.getPosition(), 3);
+  data = std::move(driver.getRecord());
+  ASSERT_TRUE(data.first);
+  ASSERT_EQ(data.second.getData().size(), 74);
+  EXPECT_EQ(reinterpret_cast<const MBBSEmuRecordStruct *>(
+                data.second.getData().data())
+                ->key1,
+            1052234073);
+
+  ASSERT_TRUE(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
+                                      OperationCode::StepNext));
+
+  ASSERT_EQ(driver.getPosition(), 4);
+  data = std::move(driver.getRecord());
+  ASSERT_TRUE(data.first);
+  ASSERT_EQ(data.second.getData().size(), 74);
+  EXPECT_EQ(reinterpret_cast<const MBBSEmuRecordStruct *>(
+                data.second.getData().data())
+                ->key1,
+            -615634567);
+
+  ASSERT_FALSE(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
+                                       OperationCode::StepNext));
+
+  ASSERT_EQ(driver.getPosition(), 4);
+}
