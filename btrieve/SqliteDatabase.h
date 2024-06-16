@@ -61,6 +61,11 @@ private:
 
   virtual bool deleteAll() override;
 
+  virtual unsigned int
+  insertRecord(std::basic_string_view<uint8_t> record) override;
+
+  bool insertAutoincrementValues(std::vector<uint8_t> &record);
+
   unsigned int openFlags;
   mutable std::unordered_map<std::string, SqlitePreparedStatement>
       preparedStatements;

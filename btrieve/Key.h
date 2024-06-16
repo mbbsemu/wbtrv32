@@ -78,6 +78,8 @@ public:
         std::basic_string_view<uint8_t>(keyData.data(), keyData.size()));
   }
 
+  bool isNullKeyInRecord(std::basic_string_view<uint8_t> record) const;
+
   void addSegment(const KeyDefinition &keyDefinition) {
     segments.push_back(keyDefinition);
   }

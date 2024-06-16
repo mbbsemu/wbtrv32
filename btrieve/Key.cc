@@ -106,6 +106,13 @@ extractNullTerminatedString(const std::vector<uint8_t> &keyData) {
   return std::string(reinterpret_cast<const char *>(keyData.data()), strlen);
 }
 
+bool Key::isNullKeyInRecord(std::basic_string_view<uint8_t> record) const {
+  std::vector<uint8_t> keyData = extractKeyDataFromRecord(record);
+  return isAllSameByteValue(
+      std::basic_string_view<uint8_t>(keyData.data(), keyData.size()),
+      getPrimarySegment().getNullValue());
+}
+
 BindableValue
 Key::keyDataToSqliteObject(std::basic_string_view<uint8_t> keyData) const {
   if (isNullable() &&

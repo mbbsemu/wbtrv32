@@ -12,18 +12,17 @@ namespace btrieve {
 
 static const unsigned int CURRENT_VERSION = 2;
 
-static std::string
-commaDelimitedKey(const std::vector<Key> &keys,
-                  std::function<std::string(const Key &key)> func) {
+template <class InputIt, class UnaryPred>
+static std::string commaDelimited(InputIt first, InputIt last, UnaryPred pred) {
   std::stringstream sb;
-  bool first = true;
-  for (auto &key : keys) {
-    if (!first) {
+  bool firstRun = true;
+  for (; first != last; ++first) {
+    if (!firstRun) {
       sb << ", ";
     }
-    first = false;
+    firstRun = false;
 
-    sb << func(key);
+    sb << pred(*first);
   }
   return sb.str();
 }
@@ -40,11 +39,13 @@ public:
     if (!keys.empty()) {
       std::stringstream sb;
       sb << "INSERT INTO data_t(data, ";
-      sb << commaDelimitedKey(
-          keys, [](const Key &key) { return key.getSqliteKeyName(); });
+      sb << commaDelimited(keys.begin(), keys.end(), [](const Key &key) {
+        return key.getSqliteKeyName();
+      });
       sb << ") VALUES(@data, ";
-      sb << commaDelimitedKey(
-          keys, [](const Key &key) { return "@" + key.getSqliteKeyName(); });
+      sb << commaDelimited(keys.begin(), keys.end(), [](const Key &key) {
+        return "@" + key.getSqliteKeyName();
+      });
       sb << ");";
       insertSql = sb.str();
     } else {
@@ -471,8 +472,141 @@ bool SqliteDatabase::deleteRecord() {
     return false;
   }
 
+  return sqlite3_changes(database.get()) == 1;
+}
+
+unsigned int
+SqliteDatabase::insertRecord(std::basic_string_view<uint8_t> record) {
+  std::vector<uint8_t> data(record.size());
+  memcpy(data.data(), record.data(), record.size());
+
+  if (!variableLengthRecords && record.size() != recordLength) {
+    //_logger.Warn(
+    //    $"Btrieve Record Size Mismatch TRUNCATING. Expected Length
+    //    {RecordLength}, Actual Length {record.Length}");
+    data.resize(recordLength, 0);
+  }
+
+  SqliteTransaction transaction(database);
+
+  if (!insertAutoincrementValues(data)) {
+    transaction.rollback();
+    return 0;
+  }
+
+  std::string insertSql;
+  if (!keys.empty()) {
+    std::stringstream sb;
+    sb << "INSERT INTO data_t(data, ";
+    sb << commaDelimited(keys.begin(), keys.end(),
+                         [](const Key &key) { return key.getSqliteKeyName(); });
+    sb << ") VALUES(@data, ";
+    sb << commaDelimited(keys.begin(), keys.end(), [](const Key &key) {
+      return "@" + key.getSqliteKeyName();
+    });
+    sb << ");";
+    insertSql = sb.str();
+  } else {
+    insertSql = "INSERT INTO data_t(data) VALUES (@data)";
+  }
+
+  SqlitePreparedStatement &insertCmd = getPreparedStatement(insertSql.c_str());
+  insertCmd.bindParameter(1, BindableValue(record));
+
+  unsigned int parameterNumber = 2;
+  for (auto &key : keys) {
+    insertCmd.bindParameter(parameterNumber++,
+                            key.extractKeyInRecordToSqliteObject(record));
+  }
+
+  if (!insertCmd.executeNoThrow()) {
+    transaction.rollback();
+    return 0;
+  }
+
   int numRowsAffected = sqlite3_changes(database.get());
-  return numRowsAffected == 1;
+  unsigned int lastInsertRowId = sqlite3_last_insert_rowid(database.get());
+
+  try {
+    transaction.commit();
+  } catch (const BtrieveException &ex) {
+    //_logger.Log(logLevel, $"Failed to commit during insert: {ex.Message}");
+    transaction.rollback();
+    numRowsAffected = 0;
+  }
+
+  if (numRowsAffected == 0) {
+    return 0;
+  }
+
+  cache.cache(lastInsertRowId, Record(lastInsertRowId, data));
+  return lastInsertRowId;
+}
+
+// TODO - use a different method
+// https://stackoverflow.com/questions/6950454/getting-the-next-auto-increment-value-of-a-sqlite-database
+bool SqliteDatabase::insertAutoincrementValues(std::vector<uint8_t> &record) {
+  // first we need to fetch the next autoincrement values
+  std::list<std::string> zeroedKeyWhereClauses;
+  std::list<const Key *> autoincrementedKeys;
+  for (const Key &key : keys) {
+    if (key.getPrimarySegment().getDataType() == KeyDataType::AutoInc &&
+        key.isNullKeyInRecord(
+            std::basic_string_view<uint8_t>(record.data(), record.size()))) {
+      std::stringstream maxWhere;
+      maxWhere << "(MAX(" << key.getSqliteKeyName() << ") + 1)";
+
+      zeroedKeyWhereClauses.push_back(maxWhere.str());
+      autoincrementedKeys.push_back(&key);
+    }
+  }
+
+  if (zeroedKeyWhereClauses.size() == 0) {
+    return true;
+  }
+
+  std::stringstream sb;
+  sb << "SELECT "
+     << commaDelimited(
+            zeroedKeyWhereClauses.begin(), zeroedKeyWhereClauses.end(),
+            [](const std::string &whereClause) { return whereClause; });
+  sb << " FROM data_t;";
+
+  SqlitePreparedStatement &cmd = getPreparedStatement(sb.str().c_str());
+  auto reader = cmd.executeReader();
+  if (!reader->read()) {
+    //_logger.Error("Unable to query for MAX autoincremented values, unable to
+    // update");
+    return false;
+  }
+
+  // and once we have the values, insert them into the record so it ends up
+  // in the database record.
+  unsigned int i = 0;
+  for (const Key *key : autoincrementedKeys) {
+    for (const KeyDefinition &keyDefinition : key->getSegments()) {
+      uint64_t value = reader->getInt64(i++);
+      switch (keyDefinition.getLength()) {
+      case 8:
+        record.data()[keyDefinition.getOffset() + 4] = (value >> 32) & 0xFF;
+        record.data()[keyDefinition.getOffset() + 5] = (value >> 40) & 0xFF;
+        record.data()[keyDefinition.getOffset() + 6] = (value >> 48) & 0xFF;
+        record.data()[keyDefinition.getOffset() + 7] = (value >> 56) & 0xFF;
+        // fall through
+      case 4:
+        record.data()[keyDefinition.getOffset() + 2] = (value >> 16) & 0xFF;
+        record.data()[keyDefinition.getOffset() + 3] = (value >> 24) & 0xFF;
+        // fall through
+      case 2:
+        record.data()[keyDefinition.getOffset()] = value & 0xFF;
+        record.data()[keyDefinition.getOffset() + 1] = (value >> 8) & 0xFF;
+        break;
+      default:
+        throw BtrieveException("Key integer length not supported");
+      }
+    }
+  }
+  return true;
 }
 
 } // namespace btrieve

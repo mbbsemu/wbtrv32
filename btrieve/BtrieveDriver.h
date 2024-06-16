@@ -49,6 +49,10 @@ public:
 
   bool deleteAll() { return sqlDatabase->deleteAll(); }
 
+  unsigned int insertRecord(std::basic_string_view<uint8_t> record) {
+    return sqlDatabase->insertRecord(record);
+  }
+
   bool performOperation(unsigned int keyNumber,
                         std::basic_string_view<uint8_t> key,
                         OperationCode operationCode);
