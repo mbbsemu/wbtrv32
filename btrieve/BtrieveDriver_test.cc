@@ -669,8 +669,6 @@ TEST_F(BtrieveDriverTest, InsertionTest) {
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
 
-  driver.setPosition(2);
-
   MBBSEmuRecordStruct record;
   memset(&record, 0, sizeof(record));
   strcpy(record.key0, "Paladine");
@@ -701,8 +699,6 @@ TEST_F(BtrieveDriverTest, InsertionTestManualAutoincrementedValue) {
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
 
-  driver.setPosition(2);
-
   MBBSEmuRecordStruct record;
   memset(&record, 0, sizeof(record));
   strcpy(record.key0, "Paladine");
@@ -726,4 +722,56 @@ TEST_F(BtrieveDriverTest, InsertionTestManualAutoincrementedValue) {
   ASSERT_EQ(dbRecord->key3, 4444);
 
   ASSERT_EQ(driver.getRecordCount(), 5);
+}
+
+TEST_F(BtrieveDriverTest, InsertionTestSubSize) {
+  BtrieveDriver driver(new SqliteDatabase());
+
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  driver.open(mbbsEmuDb.c_str());
+
+  MBBSEmuRecordStruct record;
+  memset(&record, 0, sizeof(record));
+  strcpy(record.key0, "Paladine");
+  record.key1 = 31337;
+  strcpy(record.key2, "In orbe terrarum, optimus sum");
+  record.key3 = 4444; // set a manual value for the autoincrement value
+
+  // chop off the last 14 bytes rather than the full 74
+  ASSERT_EQ(driver.insertRecord(std::basic_string_view<uint8_t>(
+                reinterpret_cast<uint8_t *>(&record), sizeof(record) - 14)),
+            5);
+  std::pair<bool, Record> data(driver.getRecord(5));
+  ASSERT_TRUE(data.first);
+  ASSERT_EQ(data.second.getData().size(), 74);
+  const MBBSEmuRecordStruct *dbRecord =
+      reinterpret_cast<const MBBSEmuRecordStruct *>(
+          data.second.getData().data());
+
+  ASSERT_STREQ(dbRecord->key0, "Paladine");
+  ASSERT_EQ(dbRecord->key1, 31337);
+  ASSERT_STREQ(dbRecord->key2, "In orbe terrarum, opti"); // cut off
+  ASSERT_EQ(dbRecord->key3, 5);
+
+  ASSERT_EQ(driver.getRecordCount(), 5);
+}
+
+TEST_F(BtrieveDriverTest, InsertionConstraintFailure) {
+  BtrieveDriver driver(new SqliteDatabase());
+
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  driver.open(mbbsEmuDb.c_str());
+
+  MBBSEmuRecordStruct record;
+  memset(&record, 0, sizeof(record));
+  strcpy(record.key0, "Paladine");
+  record.key1 = 3444; // key constraint right here
+  strcpy(record.key2, "In orbe terrarum, optimus sum");
+  record.key3 = 4444; // set a manual value for the autoincrement value
+
+  ASSERT_EQ(driver.insertRecord(std::basic_string_view<uint8_t>(
+                reinterpret_cast<uint8_t *>(&record), sizeof(record))),
+            0);
+
+  ASSERT_EQ(driver.getRecordCount(), 4);
 }

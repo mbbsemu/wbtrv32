@@ -485,6 +485,7 @@ SqliteDatabase::insertRecord(std::basic_string_view<uint8_t> record) {
     //    $"Btrieve Record Size Mismatch TRUNCATING. Expected Length
     //    {RecordLength}, Actual Length {record.Length}");
     data.resize(recordLength, 0);
+    record = std::basic_string_view<uint8_t>(data.data(), recordLength);
   }
 
   SqliteTransaction transaction(database);
