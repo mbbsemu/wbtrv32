@@ -665,15 +665,12 @@ SqliteDatabase::updateRecord(unsigned int id,
 
     transaction.rollback();
 
-    if (errorCode == SQLITE_CONSTRAINT &&
-        extendedErrorCode == SQLITE_CONSTRAINT_UNIQUE) {
-      return BtrieveError::DuplicateKeyValue;
-    }
-
-    // TODO
-    if (/*BtrieveDriverMode &&*/ errorCode == SQLITE_CONSTRAINT &&
-        extendedErrorCode == SQLITE_CONSTRAINT_TRIGGER) {
-      return BtrieveError::NonModifiableKeyValue;
+    if (errorCode == SQLITE_CONSTRAINT) {
+      if (extendedErrorCode == SQLITE_CONSTRAINT_UNIQUE) {
+        return BtrieveError::DuplicateKeyValue;
+      } else if (extendedErrorCode == SQLITE_CONSTRAINT_TRIGGER) {
+        return BtrieveError::NonModifiableKeyValue;
+      }
     }
 
     return BtrieveError::IOError;
@@ -690,7 +687,7 @@ SqliteDatabase::updateRecord(unsigned int id,
   }
 
   if (numRowsAffected == 0) {
-    return BtrieveError::InvalidKeyNumber;
+    return BtrieveError::InvalidPositioning;
   }
 
   cache.cache(id, Record(id, data));

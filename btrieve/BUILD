@@ -15,6 +15,7 @@ cc_library(
   name = "sqlite_database",
   srcs = SQLITE_DATABASE_SRCS,
   hdrs = SQLITE_DATABASE_HDRS,
+  visibility = ["//visibility:public"],
   deps = [":btrieve", "//sqlite"],
 )
 

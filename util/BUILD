@@ -4,3 +4,8 @@ cc_binary(
   deps = ["//btrieve"],
 )
 
+cc_binary(
+  name = "database_converter",
+  srcs = ["DatabaseConverter.cc"],
+  deps = ["//btrieve", "//btrieve:sqlite_database",],
+)

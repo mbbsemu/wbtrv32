@@ -291,16 +291,20 @@ TEST_F(BtrieveDriverTest, LoadsAndConverts) {
       "WHEN NEW.key_3 != OLD.key_3 THEN RAISE (ABORT,'You modified a "
       "non-modifiable key_3!') END; END";
 
-  ASSERT_EQ(sqlite_exec(db,
-                        "SELECT name, tbl_name, sql FROM sqlite_master WHERE "
-                        "type = 'trigger'",
-                        [](int numResults, char **data, char **columns) {
-                          ASSERT_EQ(numResults, 3);
-                          ASSERT_STREQ(data[0], "non_modifiable");
-                          ASSERT_STREQ(data[1], "data_t");
-                          ASSERT_STREQ(data[2], EXPECTED_TRIGGERS_SQL);
-                        }),
-            SQLITE_OK);
+  bool foundTrigger = false;
+  ASSERT_EQ(
+      sqlite_exec(db,
+                  "SELECT name, tbl_name, sql FROM sqlite_master WHERE "
+                  "type = 'trigger'",
+                  [&foundTrigger](int numResults, char **data, char **columns) {
+                    foundTrigger = true;
+                    ASSERT_EQ(numResults, 3);
+                    ASSERT_STREQ(data[0], "non_modifiable");
+                    ASSERT_STREQ(data[1], "data_t");
+                    ASSERT_STREQ(data[2], EXPECTED_TRIGGERS_SQL);
+                  }),
+      SQLITE_OK);
+  ASSERT_TRUE(foundTrigger);
 
   int recordCount = 0;
   ASSERT_EQ(
@@ -875,6 +879,62 @@ TEST_F(BtrieveDriverTest, UpdateConstraintFailedTest) {
   ASSERT_EQ(dbRecord->key1, 3444);
   ASSERT_STREQ(dbRecord->key2, "3444");
   ASSERT_EQ(dbRecord->key3, 1);
+
+  ASSERT_EQ(driver.getRecordCount(), 4);
+}
+
+TEST_F(BtrieveDriverTest, UpdateTestNonModifiableKeyModifiedFailed) {
+  BtrieveDriver driver(new SqliteDatabase());
+
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  driver.open(mbbsEmuDb.c_str());
+
+  MBBSEmuRecordStruct record;
+  memset(&record, 0, sizeof(record));
+  strcpy(record.key0,
+         "Changed"); // this key isn't modifiable, but we try anyways
+  record.key1 = 3444;
+  strcpy(record.key2, "In orbe terrarum, optimus sum");
+  record.key3 = 333333; // this key isn't modifiable, but we try anyways
+
+  EXPECT_EQ(driver.updateRecord(
+                1, std::basic_string_view<uint8_t>(
+                       reinterpret_cast<uint8_t *>(&record), sizeof(record))),
+            BtrieveError::NonModifiableKeyValue);
+
+  std::pair<bool, Record> data(driver.getRecord(1));
+  ASSERT_TRUE(data.first);
+  ASSERT_EQ(data.second.getData().size(), 74);
+  const MBBSEmuRecordStruct *dbRecord =
+      reinterpret_cast<const MBBSEmuRecordStruct *>(
+          data.second.getData().data());
+
+  EXPECT_STREQ(dbRecord->key0, "Sysop");
+  EXPECT_EQ(dbRecord->key1, 3444);
+  EXPECT_STREQ(dbRecord->key2, "3444");
+  EXPECT_EQ(dbRecord->key3, 1);
+
+  ASSERT_EQ(driver.getRecordCount(), 4);
+}
+
+TEST_F(BtrieveDriverTest, UpdateInvalidKeyNumber) {
+  BtrieveDriver driver(new SqliteDatabase());
+
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  driver.open(mbbsEmuDb.c_str());
+
+  MBBSEmuRecordStruct record;
+  memset(&record, 0, sizeof(record));
+  strcpy(record.key0,
+         "Changed"); // this key isn't modifiable, but we try anyways
+  record.key1 = 3444;
+  strcpy(record.key2, "In orbe terrarum, optimus sum");
+  record.key3 = 333333; // this key isn't modifiable, but we try anyways
+
+  EXPECT_EQ(driver.updateRecord(
+                5, std::basic_string_view<uint8_t>(
+                       reinterpret_cast<uint8_t *>(&record), sizeof(record))),
+            BtrieveError::InvalidPositioning);
 
   ASSERT_EQ(driver.getRecordCount(), 4);
 }
