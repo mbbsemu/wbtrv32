@@ -544,11 +544,9 @@ SqliteDatabase::insertRecord(std::basic_string_view<uint8_t> record) {
   return lastInsertRowId;
 }
 
-// TODO - use a different method
-// https://stackoverflow.com/questions/6950454/getting-the-next-auto-increment-value-of-a-sqlite-database
 bool SqliteDatabase::insertAutoincrementValues(std::vector<uint8_t> &record) {
   // first we need to fetch the next autoincrement values
-  std::list<std::string> zeroedKeyWhereClauses;
+  std::list<std::string> zeroedKeyAutoincrementedClauses;
   std::list<const Key *> autoincrementedKeys;
   for (const Key &key : keys) {
     if (key.getPrimarySegment().getDataType() == KeyDataType::AutoInc &&
@@ -557,19 +555,20 @@ bool SqliteDatabase::insertAutoincrementValues(std::vector<uint8_t> &record) {
       std::stringstream maxWhere;
       maxWhere << "(MAX(" << key.getSqliteKeyName() << ") + 1)";
 
-      zeroedKeyWhereClauses.push_back(maxWhere.str());
+      zeroedKeyAutoincrementedClauses.push_back(maxWhere.str());
       autoincrementedKeys.push_back(&key);
     }
   }
 
-  if (zeroedKeyWhereClauses.size() == 0) {
+  if (zeroedKeyAutoincrementedClauses.size() == 0) {
     return true;
   }
 
   std::stringstream sb;
   sb << "SELECT "
      << commaDelimited(
-            zeroedKeyWhereClauses.begin(), zeroedKeyWhereClauses.end(),
+            zeroedKeyAutoincrementedClauses.begin(),
+            zeroedKeyAutoincrementedClauses.end(),
             [](const std::string &whereClause) { return whereClause; });
   sb << " FROM data_t;";
 
@@ -589,25 +588,113 @@ bool SqliteDatabase::insertAutoincrementValues(std::vector<uint8_t> &record) {
       uint64_t value = reader->getInt64(i++);
       switch (keyDefinition.getLength()) {
       case 8:
-        record.data()[keyDefinition.getOffset() + 4] = (value >> 32) & 0xFF;
-        record.data()[keyDefinition.getOffset() + 5] = (value >> 40) & 0xFF;
-        record.data()[keyDefinition.getOffset() + 6] = (value >> 48) & 0xFF;
         record.data()[keyDefinition.getOffset() + 7] = (value >> 56) & 0xFF;
+        record.data()[keyDefinition.getOffset() + 6] = (value >> 48) & 0xFF;
+        record.data()[keyDefinition.getOffset() + 5] = (value >> 40) & 0xFF;
+        record.data()[keyDefinition.getOffset() + 4] = (value >> 32) & 0xFF;
         // fall through
       case 4:
-        record.data()[keyDefinition.getOffset() + 2] = (value >> 16) & 0xFF;
         record.data()[keyDefinition.getOffset() + 3] = (value >> 24) & 0xFF;
+        record.data()[keyDefinition.getOffset() + 2] = (value >> 16) & 0xFF;
         // fall through
       case 2:
-        record.data()[keyDefinition.getOffset()] = value & 0xFF;
         record.data()[keyDefinition.getOffset() + 1] = (value >> 8) & 0xFF;
+        record.data()[keyDefinition.getOffset()] = value & 0xFF;
         break;
       default:
-        throw BtrieveException("Key integer length not supported");
+        throw BtrieveException("Key integer length not supported: %d",
+                               keyDefinition.getLength());
       }
     }
   }
   return true;
+}
+
+BtrieveError
+SqliteDatabase::updateRecord(unsigned int id,
+                             std::basic_string_view<uint8_t> record) {
+  std::vector<uint8_t> data(record.size());
+  memcpy(data.data(), record.data(), record.size());
+
+  if (!variableLengthRecords && record.size() != recordLength) {
+    //_logger.Warn(
+    //    $"Btrieve Record Size Mismatch TRUNCATING. Expected Length
+    //    {RecordLength}, Actual Length {record.Length}");
+    data.resize(recordLength, 0);
+    record = std::basic_string_view<uint8_t>(data.data(), recordLength);
+  }
+
+  SqliteTransaction transaction(database);
+
+  if (!insertAutoincrementValues(data)) {
+    transaction.rollback();
+    return BtrieveError::DuplicateKeyValue;
+  }
+
+  std::string updateSql;
+  if (!keys.empty()) {
+    std::stringstream sb;
+    sb << "UPDATE data_t SET data=@data, ";
+    sb << commaDelimited(keys.begin(), keys.end(), [](const Key &key) {
+      char buf[128];
+      snprintf(buf, sizeof(buf), "%s=@%s", key.getSqliteKeyName().c_str(),
+               key.getSqliteKeyName().c_str());
+      buf[sizeof(buf) - 1] = 0;
+
+      return std::string(buf);
+    });
+    sb << " WHERE id=@id;";
+    updateSql = sb.str();
+  } else {
+    updateSql = "UPDATE data_t SET data=@data WHERE id=@id";
+  }
+
+  SqlitePreparedStatement &updateCmd = getPreparedStatement(updateSql.c_str());
+  updateCmd.bindParameter(1, BindableValue(record));
+
+  unsigned int parameterNumber = 2;
+  for (auto &key : keys) {
+    updateCmd.bindParameter(parameterNumber++,
+                            key.extractKeyInRecordToSqliteObject(record));
+  }
+  updateCmd.bindParameter(parameterNumber, id);
+
+  if (!updateCmd.executeNoThrow()) {
+    int errorCode = sqlite3_errcode(database.get());
+    int extendedErrorCode = sqlite3_extended_errcode(database.get());
+
+    transaction.rollback();
+
+    if (errorCode == SQLITE_CONSTRAINT &&
+        extendedErrorCode == SQLITE_CONSTRAINT_UNIQUE) {
+      return BtrieveError::DuplicateKeyValue;
+    }
+
+    // TODO
+    if (/*BtrieveDriverMode &&*/ errorCode == SQLITE_CONSTRAINT &&
+        extendedErrorCode == SQLITE_CONSTRAINT_TRIGGER) {
+      return BtrieveError::NonModifiableKeyValue;
+    }
+
+    return BtrieveError::IOError;
+  }
+
+  int numRowsAffected = sqlite3_changes(database.get());
+
+  try {
+    transaction.commit();
+  } catch (const BtrieveException &ex) {
+    //_logger.Log(logLevel, $"Failed to commit during insert: {ex.Message}");
+    transaction.rollback();
+    numRowsAffected = 0;
+  }
+
+  if (numRowsAffected == 0) {
+    return BtrieveError::InvalidKeyNumber;
+  }
+
+  cache.cache(id, Record(id, data));
+  return BtrieveError::Success;
 }
 
 } // namespace btrieve

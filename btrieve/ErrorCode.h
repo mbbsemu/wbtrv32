@@ -12,7 +12,7 @@ enum BtrieveError {
   InvalidKeyNumber = 6,
   DifferentKeyNumber = 7,
   InvalidPositioning = 8,
-  EOF = 9,
+  EndOfFile = 9,
   NonModifiableKeyValue = 10,
   InvalidFileName = 11,
   FileNotFound = 12,
@@ -42,6 +42,6 @@ key-only file or a Get operation on a data only file */
   AccessDenied = 46,
   InvalidInterface = 53,
 };
-}
+} // namespace btrieve
 
 #endif

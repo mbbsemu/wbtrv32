@@ -2,6 +2,7 @@
 #define __SQL_DATABASE_H_
 
 #include "BtrieveDatabase.h"
+#include "ErrorCode.h"
 #include "LRUCache.h"
 #include "OperationCode.h"
 #include <memory>
@@ -68,6 +69,8 @@ public:
   virtual bool deleteAll() = 0;
   virtual bool deleteRecord() = 0;
   virtual unsigned int insertRecord(std::basic_string_view<uint8_t> record) = 0;
+  virtual BtrieveError updateRecord(unsigned int offset,
+                                    std::basic_string_view<uint8_t> record) = 0;
 
 protected:
   virtual std::pair<bool, Record> selectRecord(unsigned int position) = 0;

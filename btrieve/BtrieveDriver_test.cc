@@ -775,3 +775,106 @@ TEST_F(BtrieveDriverTest, InsertionConstraintFailure) {
 
   ASSERT_EQ(driver.getRecordCount(), 4);
 }
+
+TEST_F(BtrieveDriverTest, UpdateTest) {
+  BtrieveDriver driver(new SqliteDatabase());
+
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  driver.open(mbbsEmuDb.c_str());
+
+  MBBSEmuRecordStruct record;
+  memset(&record, 0, sizeof(record));
+  strcpy(record.key0, "Sysop");
+  record.key1 = 31337; // key constraint right here
+  strcpy(record.key2, "In orbe terrarum, optimus sum");
+  record.key3 = 1;
+
+  ASSERT_EQ(driver.updateRecord(
+                1, std::basic_string_view<uint8_t>(
+                       reinterpret_cast<uint8_t *>(&record), sizeof(record))),
+            BtrieveError::Success);
+
+  std::pair<bool, Record> data(driver.getRecord(1));
+  ASSERT_TRUE(data.first);
+  ASSERT_EQ(data.second.getData().size(), 74);
+  const MBBSEmuRecordStruct *dbRecord =
+      reinterpret_cast<const MBBSEmuRecordStruct *>(
+          data.second.getData().data());
+
+  ASSERT_STREQ(dbRecord->key0, "Sysop");
+  ASSERT_EQ(dbRecord->key1, 31337);
+  ASSERT_STREQ(dbRecord->key2, "In orbe terrarum, optimus sum");
+  ASSERT_EQ(dbRecord->key3, 1);
+
+  ASSERT_EQ(driver.getRecordCount(), 4);
+}
+
+TEST_F(BtrieveDriverTest, UpdateTestSubSize) {
+  BtrieveDriver driver(new SqliteDatabase());
+
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  driver.open(mbbsEmuDb.c_str());
+
+  MBBSEmuRecordStruct record;
+  memset(&record, 0, sizeof(record));
+  strcpy(record.key0, "Sysop");
+  record.key1 = 31337;
+  strcpy(record.key2, "In orbe terrarum, optimus sum");
+  record.key3 = 0x02020202;
+
+  // we shorten the data by 3 bytes, meaning Key3 data is still valid, and is a
+  // single byte of 2. The code will upsize to the full 74 bytes, filling in 0
+  // for the rest of Key3 data, so Key3 starts as 0x02 but grows to 0x02000000
+  // (little endian == 2) We have to keep Key3 as 2 since this key is marked
+  // non-modifiable
+  ASSERT_EQ(driver.updateRecord(2, std::basic_string_view<uint8_t>(
+                                       reinterpret_cast<uint8_t *>(&record),
+                                       sizeof(record) - 3)),
+            BtrieveError::Success);
+
+  std::pair<bool, Record> data(driver.getRecord(2));
+  ASSERT_TRUE(data.first);
+  ASSERT_EQ(data.second.getData().size(), 74);
+  const MBBSEmuRecordStruct *dbRecord =
+      reinterpret_cast<const MBBSEmuRecordStruct *>(
+          data.second.getData().data());
+
+  ASSERT_STREQ(dbRecord->key0, "Sysop");
+  ASSERT_EQ(dbRecord->key1, 31337);
+  ASSERT_STREQ(dbRecord->key2, "In orbe terrarum, optimus sum");
+  ASSERT_EQ(dbRecord->key3, 2); // truncated down to 2
+
+  ASSERT_EQ(driver.getRecordCount(), 4);
+}
+
+TEST_F(BtrieveDriverTest, UpdateConstraintFailedTest) {
+  BtrieveDriver driver(new SqliteDatabase());
+
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  driver.open(mbbsEmuDb.c_str());
+
+  MBBSEmuRecordStruct record;
+  memset(&record, 0, sizeof(record));
+  record.key1 = 7776;
+  strcpy(record.key2, "In orbe terrarum, optimus sum");
+  record.key3 = 1;
+
+  ASSERT_EQ(driver.updateRecord(
+                1, std::basic_string_view<uint8_t>(
+                       reinterpret_cast<uint8_t *>(&record), sizeof(record))),
+            BtrieveError::DuplicateKeyValue);
+
+  std::pair<bool, Record> data(driver.getRecord(1));
+  ASSERT_TRUE(data.first);
+  ASSERT_EQ(data.second.getData().size(), 74);
+  const MBBSEmuRecordStruct *dbRecord =
+      reinterpret_cast<const MBBSEmuRecordStruct *>(
+          data.second.getData().data());
+
+  ASSERT_STREQ(dbRecord->key0, "Sysop");
+  ASSERT_EQ(dbRecord->key1, 3444);
+  ASSERT_STREQ(dbRecord->key2, "3444");
+  ASSERT_EQ(dbRecord->key3, 1);
+
+  ASSERT_EQ(driver.getRecordCount(), 4);
+}

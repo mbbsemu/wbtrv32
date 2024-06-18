@@ -53,6 +53,11 @@ public:
     return sqlDatabase->insertRecord(record);
   }
 
+  BtrieveError updateRecord(unsigned int id,
+                            std::basic_string_view<uint8_t> record) {
+    return sqlDatabase->updateRecord(id, record);
+  }
+
   bool performOperation(unsigned int keyNumber,
                         std::basic_string_view<uint8_t> key,
                         OperationCode operationCode);

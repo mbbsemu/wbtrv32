@@ -64,6 +64,10 @@ private:
   virtual unsigned int
   insertRecord(std::basic_string_view<uint8_t> record) override;
 
+  virtual BtrieveError
+  updateRecord(unsigned int offset,
+               std::basic_string_view<uint8_t> record) override;
+
   bool insertAutoincrementValues(std::vector<uint8_t> &record);
 
   unsigned int openFlags;
