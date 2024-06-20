@@ -126,6 +126,9 @@ BtrieveDriver::performOperation(int keyNumber,
   case OperationCode::AcquireNext:
   case OperationCode::QueryNext:
     return sqlDatabase->getByKeyNext(previousQuery.get());
+  case OperationCode::AcquirePrevious:
+  case OperationCode::QueryPrevious:
+    return sqlDatabase->getByKeyPrevious(previousQuery.get());
   default:
     return BtrieveError::OperationNotAllowed;
   }

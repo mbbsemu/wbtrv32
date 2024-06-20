@@ -70,6 +70,7 @@ private:
 
   virtual BtrieveError getByKeyEqual(Query *query) override;
   virtual BtrieveError getByKeyNext(Query *query) override;
+  virtual BtrieveError getByKeyPrevious(Query *query) override;
 
   virtual std::unique_ptr<Query>
   newQuery(unsigned int position, const Key *key,

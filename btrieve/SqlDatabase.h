@@ -75,6 +75,7 @@ public:
 
   virtual BtrieveError getByKeyEqual(Query *query) = 0;
   virtual BtrieveError getByKeyNext(Query *query) = 0;
+  virtual BtrieveError getByKeyPrevious(Query *query) = 0;
 
   virtual std::unique_ptr<Query>
   newQuery(unsigned int position, const Key *key,

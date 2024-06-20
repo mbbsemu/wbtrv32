@@ -952,43 +952,82 @@ TEST_F(BtrieveDriverTest, SeekByKeyStringDuplicates) {
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
 
-  ASSERT_EQ(driver.performOperation(
-                0,
-                std::basic_string_view<uint8_t>(
-                    reinterpret_cast<const uint8_t *>("Sysop"), 5),
-                OperationCode::QueryEqual),
+  auto key = std::basic_string_view<uint8_t>(
+      reinterpret_cast<const uint8_t *>("Sysop"), 5);
+
+  ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryEqual),
             BtrieveError::Success);
   ASSERT_EQ(driver.getRecord().second.getPosition(), 1);
 
-  ASSERT_EQ(driver.performOperation(
-                0,
-                std::basic_string_view<uint8_t>(
-                    reinterpret_cast<const uint8_t *>("Sysop"), 5),
-                OperationCode::QueryNext),
+  ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryNext),
             BtrieveError::Success);
   ASSERT_EQ(driver.getRecord().second.getPosition(), 2);
 
-  ASSERT_EQ(driver.performOperation(
-                0,
-                std::basic_string_view<uint8_t>(
-                    reinterpret_cast<const uint8_t *>("Sysop"), 5),
-                OperationCode::QueryNext),
+  ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryNext),
             BtrieveError::Success);
   ASSERT_EQ(driver.getRecord().second.getPosition(), 3);
 
-  ASSERT_EQ(driver.performOperation(
-                0,
-                std::basic_string_view<uint8_t>(
-                    reinterpret_cast<const uint8_t *>("Sysop"), 5),
-                OperationCode::QueryNext),
+  ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryNext),
             BtrieveError::Success);
   ASSERT_EQ(driver.getRecord().second.getPosition(), 4);
 
-  ASSERT_EQ(driver.performOperation(
-                0,
-                std::basic_string_view<uint8_t>(
-                    reinterpret_cast<const uint8_t *>("Sysop"), 5),
-                OperationCode::QueryNext),
+  ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryNext),
             BtrieveError::InvalidPositioning);
   ASSERT_EQ(driver.getRecord().second.getPosition(), 4);
+}
+
+TEST_F(BtrieveDriverTest, SeekByKeyStringDuplicatesUpAndDown) {
+  BtrieveDriver driver(new SqliteDatabase());
+
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  driver.open(mbbsEmuDb.c_str());
+
+  auto key = std::basic_string_view<uint8_t>(
+      reinterpret_cast<const uint8_t *>("Sysop"), 5);
+
+  ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryEqual),
+            BtrieveError::Success);
+  ASSERT_EQ(driver.getRecord().second.getPosition(), 1);
+
+  ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryNext),
+            BtrieveError::Success);
+  ASSERT_EQ(driver.getRecord().second.getPosition(), 2);
+
+  ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryNext),
+            BtrieveError::Success);
+  ASSERT_EQ(driver.getRecord().second.getPosition(), 3);
+
+  ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryNext),
+            BtrieveError::Success);
+  ASSERT_EQ(driver.getRecord().second.getPosition(), 4);
+
+  ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryNext),
+            BtrieveError::InvalidPositioning);
+  ASSERT_EQ(driver.getRecord().second.getPosition(), 4);
+
+  // let's go backwards now
+  ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryPrevious),
+            BtrieveError::Success);
+  ASSERT_EQ(driver.getRecord().second.getPosition(), 3);
+
+  ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryPrevious),
+            BtrieveError::Success);
+  ASSERT_EQ(driver.getRecord().second.getPosition(), 2);
+
+  ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryPrevious),
+            BtrieveError::Success);
+  ASSERT_EQ(driver.getRecord().second.getPosition(), 1);
+
+  ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryPrevious),
+            BtrieveError::InvalidPositioning);
+  ASSERT_EQ(driver.getRecord().second.getPosition(), 1);
+
+  // forward for one last test
+  ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryNext),
+            BtrieveError::Success);
+  ASSERT_EQ(driver.getRecord().second.getPosition(), 2);
+  // back one last time to test in-middle previous
+  ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryPrevious),
+            BtrieveError::Success);
+  ASSERT_EQ(driver.getRecord().second.getPosition(), 1);
 }

@@ -41,7 +41,7 @@ public:
 private:
   void seekTo(unsigned int position) {
     while (reader->read()) {
-      auto cursorPosition = reader->getInt32(0);
+      unsigned int cursorPosition = reader->getInt32(0);
       if (cursorPosition == position) {
         return;
       }

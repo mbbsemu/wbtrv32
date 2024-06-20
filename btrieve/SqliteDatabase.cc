@@ -749,4 +749,8 @@ BtrieveError SqliteDatabase::getByKeyNext(Query *query) {
   return nextReader(query, CursorDirection::Forward);
 }
 
+BtrieveError SqliteDatabase::getByKeyPrevious(Query *query) {
+  return nextReader(query, CursorDirection::Reverse);
+}
+
 } // namespace btrieve
