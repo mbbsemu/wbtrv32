@@ -1,6 +1,7 @@
 #ifndef __BTRIEVE_DRIVER_H_
 #define __BTRIEVE_DRIVER_H_
 
+#include "ErrorCode.h"
 #include "OperationCode.h"
 #include "Record.h"
 #include "SqlDatabase.h"
@@ -58,12 +59,13 @@ public:
     return sqlDatabase->updateRecord(id, record);
   }
 
-  bool performOperation(unsigned int keyNumber,
-                        std::basic_string_view<uint8_t> key,
-                        OperationCode operationCode);
+  BtrieveError performOperation(int keyNumber,
+                                std::basic_string_view<uint8_t> key,
+                                OperationCode operationCode);
 
 private:
   std::unique_ptr<SqlDatabase> sqlDatabase;
+  std::unique_ptr<Query> previousQuery;
 };
 } // namespace btrieve
 #endif

@@ -12,7 +12,15 @@ public:
 
   BindableValue() : type(Type::Null) {}
 
+  BindableValue(int32_t value) : type(Type::Integer), int_value(value) {}
+
+  BindableValue(uint32_t value) : type(Type::Integer), int_value(value) {}
+
+  BindableValue(int64_t value) : type(Type::Integer), int_value(value) {}
+
   BindableValue(uint64_t value) : type(Type::Integer), int_value(value) {}
+
+  BindableValue(double value) : type(Type::Double), double_value(value) {}
 
   BindableValue(const std::vector<uint8_t> &data)
       : type(Type::Blob), blob_value(new std::vector<uint8_t>(data)) {}
@@ -32,6 +40,7 @@ public:
 
   BindableValue(const std::string_view data)
       : type(Type::Text), text_value(new std::string(data)) {}
+
   // deep copy
   BindableValue(const BindableValue &value) : type(value.type) {
     switch (value.type) {
@@ -83,6 +92,32 @@ public:
     } else if (type == Type::Text && text_value != nullptr) {
       delete text_value;
     }
+  }
+
+  BindableValue &operator=(BindableValue &&value) {
+    type = value.type;
+    switch (value.type) {
+    case Type::Null:
+      break;
+    case Type::Integer:
+      int_value = value.int_value;
+      value.int_value = -1;
+      break;
+    case Type::Double:
+      double_value = value.double_value;
+      value.double_value = -1;
+      break;
+    case Type::Text:
+      text_value = value.text_value;
+      value.text_value = NULL;
+      break;
+    case Type::Blob:
+      blob_value = value.blob_value;
+      value.blob_value = NULL;
+    }
+
+    value.type = Type::Null;
+    return *this;
   }
 
   Type getType() const { return type; }

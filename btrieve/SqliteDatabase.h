@@ -51,15 +51,15 @@ private:
   void loadSqliteMetadata(std::string &acsName, std::vector<char> &acs);
   void loadSqliteKeys(const std::string &acsName, const std::vector<char> &acs);
 
-  virtual bool stepFirst() override;
-  virtual bool stepLast() override;
-  virtual bool stepNext() override;
-  virtual bool stepPrevious() override;
-  virtual bool deleteRecord() override;
+  virtual BtrieveError stepFirst() override;
+  virtual BtrieveError stepLast() override;
+  virtual BtrieveError stepNext() override;
+  virtual BtrieveError stepPrevious() override;
+  virtual BtrieveError deleteRecord() override;
 
   virtual unsigned int getRecordCount() const override;
 
-  virtual bool deleteAll() override;
+  virtual BtrieveError deleteAll() override;
 
   virtual unsigned int
   insertRecord(std::basic_string_view<uint8_t> record) override;
@@ -68,12 +68,23 @@ private:
   updateRecord(unsigned int offset,
                std::basic_string_view<uint8_t> record) override;
 
-  bool insertAutoincrementValues(std::vector<uint8_t> &record);
+  virtual BtrieveError getByKeyEqual(Query *query) override;
+  virtual BtrieveError getByKeyNext(Query *query) override;
+
+  virtual std::unique_ptr<Query>
+  newQuery(unsigned int position, const Key *key,
+           std::basic_string_view<uint8_t> keyData) override;
+
+  BtrieveError insertAutoincrementValues(std::vector<uint8_t> &record);
+
+  BtrieveError nextReader(Query *query, CursorDirection cursorDirection);
 
   unsigned int openFlags;
   mutable std::unordered_map<std::string, SqlitePreparedStatement>
       preparedStatements;
   std::shared_ptr<sqlite3> database;
+
+  friend class SqliteQuery;
 };
 
 } // namespace btrieve

@@ -2,6 +2,7 @@
 #define __RECORD__H_
 
 #include <cstdint>
+#include <memory>
 #include <string_view>
 #include <vector>
 

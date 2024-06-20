@@ -5,6 +5,7 @@
 #include "ErrorCode.h"
 #include "LRUCache.h"
 #include "OperationCode.h"
+#include "Query.h"
 #include <memory>
 
 namespace btrieve {
@@ -61,16 +62,23 @@ public:
     return ret;
   }
 
-  virtual bool stepFirst() = 0;
-  virtual bool stepLast() = 0;
-  virtual bool stepPrevious() = 0;
-  virtual bool stepNext() = 0;
+  virtual BtrieveError stepFirst() = 0;
+  virtual BtrieveError stepLast() = 0;
+  virtual BtrieveError stepPrevious() = 0;
+  virtual BtrieveError stepNext() = 0;
   virtual unsigned int getRecordCount() const = 0;
-  virtual bool deleteAll() = 0;
-  virtual bool deleteRecord() = 0;
+  virtual BtrieveError deleteAll() = 0;
+  virtual BtrieveError deleteRecord() = 0;
   virtual unsigned int insertRecord(std::basic_string_view<uint8_t> record) = 0;
   virtual BtrieveError updateRecord(unsigned int offset,
                                     std::basic_string_view<uint8_t> record) = 0;
+
+  virtual BtrieveError getByKeyEqual(Query *query) = 0;
+  virtual BtrieveError getByKeyNext(Query *query) = 0;
+
+  virtual std::unique_ptr<Query>
+  newQuery(unsigned int position, const Key *key,
+           std::basic_string_view<uint8_t> keyData) = 0;
 
 protected:
   virtual std::pair<bool, Record> selectRecord(unsigned int position) = 0;

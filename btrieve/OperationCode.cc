@@ -52,6 +52,7 @@ bool usesPreviousQuery(OperationCode operationCode) {
   case OperationCode::StepPreviousExtended:
   case OperationCode::QueryNext:
   case OperationCode::QueryPrevious:
+    return true;
   default:
     return false;
   }

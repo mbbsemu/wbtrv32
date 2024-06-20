@@ -1,13 +1,16 @@
 #ifndef __SQLITE_READER_H_
 #define __SQLITE_READER_H_
 
+#include "Reader.h"
 #include "SqliteUtil.h"
 #include "sqlite/sqlite3.h"
 
 namespace btrieve {
-class SqliteReader {
+class SqliteReader : public Reader {
 public:
-  bool read() {
+  virtual ~SqliteReader() {}
+
+  virtual bool read() override {
     int errorCode = sqlite3_step(statement);
     if (errorCode == SQLITE_ROW) {
       return true;
@@ -18,23 +21,23 @@ public:
     return false;
   }
 
-  int getInt32(unsigned int columnOrdinal) const {
+  virtual int getInt32(unsigned int columnOrdinal) const override {
     return sqlite3_column_int(statement, columnOrdinal);
   }
 
-  int64_t getInt64(unsigned int columnOrdinal) const {
+  virtual int64_t getInt64(unsigned int columnOrdinal) const override {
     return sqlite3_column_int64(statement, columnOrdinal);
   }
 
-  bool getBoolean(unsigned int columnOrdinal) const {
+  virtual bool getBoolean(unsigned int columnOrdinal) const override {
     return getInt32(columnOrdinal) != 0;
   }
 
-  bool isDBNull(unsigned int columnOrdinal) const {
+  virtual bool isDBNull(unsigned int columnOrdinal) const override {
     return sqlite3_column_type(statement, columnOrdinal) == SQLITE_NULL;
   }
 
-  std::string getString(unsigned int columnOrdinal) const {
+  virtual std::string getString(unsigned int columnOrdinal) const override {
     const char *str = reinterpret_cast<const char *>(
         sqlite3_column_text(statement, columnOrdinal));
 
@@ -45,7 +48,8 @@ public:
     }
   }
 
-  std::vector<uint8_t> getBlob(unsigned int columnOrdinal) const {
+  virtual std::vector<uint8_t>
+  getBlob(unsigned int columnOrdinal) const override {
     int bytes = sqlite3_column_bytes(statement, columnOrdinal);
     std::vector<uint8_t> ret(bytes);
     if (bytes > 0) {
@@ -53,6 +57,32 @@ public:
       memcpy(ret.data(), data, bytes);
     }
     return ret;
+  }
+
+  virtual BindableValue
+  getBindableValue(unsigned int columnOrdinal) const override {
+    int bytes;
+    const uint8_t *data;
+    int columnType = sqlite3_column_type(statement, columnOrdinal);
+
+    switch (columnType) {
+    case SQLITE_INTEGER:
+      return BindableValue(static_cast<uint64_t>(
+          sqlite3_column_int64(statement, columnOrdinal)));
+    case SQLITE_FLOAT:
+      return BindableValue(sqlite3_column_double(statement, columnOrdinal));
+    case SQLITE_TEXT:
+      return BindableValue(reinterpret_cast<const char *>(
+          sqlite3_column_text(statement, columnOrdinal)));
+    case SQLITE_BLOB:
+      bytes = sqlite3_column_bytes(statement, columnOrdinal);
+      data = reinterpret_cast<const uint8_t *>(
+          sqlite3_column_blob(statement, columnOrdinal));
+      return BindableValue(std::basic_string_view<uint8_t>(data, bytes));
+    case SQLITE_NULL:
+    default:
+      return BindableValue();
+    }
   }
 
 private:

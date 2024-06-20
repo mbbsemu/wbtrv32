@@ -2,6 +2,7 @@
 #include "BindableValue.h"
 #include "BtrieveException.h"
 #include "SqlitePreparedStatement.h"
+#include "SqliteQuery.h"
 #include "SqliteTransaction.h"
 #include "SqliteUtil.h"
 #include "sqlite/sqlite3.h"
@@ -357,33 +358,33 @@ SqliteDatabase::getPreparedStatement(const char *sql) const {
   return iter->second;
 }
 
-bool SqliteDatabase::stepFirst() {
+BtrieveError SqliteDatabase::stepFirst() {
   SqlitePreparedStatement &command =
       getPreparedStatement("SELECT id, data FROM data_t ORDER BY id LIMIT 1");
   auto reader = command.executeReader();
   if (!reader->read()) {
-    return false;
+    return BtrieveError::InvalidPositioning;
   }
 
   position = reader->getInt32(0);
   cacheBtrieveRecord(position, *reader, 1);
-  return true;
+  return BtrieveError::Success;
 }
 
-bool SqliteDatabase::stepLast() {
+BtrieveError SqliteDatabase::stepLast() {
   SqlitePreparedStatement &command = getPreparedStatement(
       "SELECT id, data FROM data_t ORDER BY id DESC LIMIT 1");
   auto reader = command.executeReader();
   if (!reader->read()) {
-    return false;
+    return BtrieveError::InvalidPositioning;
   }
 
   position = reader->getInt32(0);
   cacheBtrieveRecord(position, *reader, 1);
-  return true;
+  return BtrieveError::Success;
 }
 
-bool SqliteDatabase::stepNext() {
+BtrieveError SqliteDatabase::stepNext() {
   SqlitePreparedStatement &command = getPreparedStatement(
       "SELECT id, data FROM data_t WHERE id > @position ORDER BY id LIMIT 1");
 
@@ -391,15 +392,15 @@ bool SqliteDatabase::stepNext() {
 
   auto reader = command.executeReader();
   if (!reader->read()) {
-    return false;
+    return BtrieveError::InvalidPositioning;
   }
 
   position = reader->getInt32(0);
   cacheBtrieveRecord(position, *reader, 1);
-  return true;
+  return BtrieveError::Success;
 }
 
-bool SqliteDatabase::stepPrevious() {
+BtrieveError SqliteDatabase::stepPrevious() {
   SqlitePreparedStatement &command =
       getPreparedStatement("SELECT id, data FROM data_t WHERE id < @position "
                            "ORDER BY id DESC LIMIT 1");
@@ -408,12 +409,12 @@ bool SqliteDatabase::stepPrevious() {
 
   auto reader = command.executeReader();
   if (!reader->read()) {
-    return false;
+    return BtrieveError::InvalidPositioning;
   }
 
   position = reader->getInt32(0);
   cacheBtrieveRecord(position, *reader, 1);
-  return true;
+  return BtrieveError::Success;
 }
 
 const Record &SqliteDatabase::cacheBtrieveRecord(unsigned int position,
@@ -450,7 +451,7 @@ unsigned int SqliteDatabase::getRecordCount() const {
   return reader->getInt32(0);
 }
 
-bool SqliteDatabase::deleteAll() {
+BtrieveError SqliteDatabase::deleteAll() {
   bool ret = getPreparedStatement("DELETE FROM data_t").executeNoThrow();
 
   if (ret) {
@@ -458,10 +459,10 @@ bool SqliteDatabase::deleteAll() {
     setPosition(0);
   }
 
-  return ret;
+  return ret ? BtrieveError::Success : BtrieveError::IOError;
 }
 
-bool SqliteDatabase::deleteRecord() {
+BtrieveError SqliteDatabase::deleteRecord() {
   cache.remove(position);
 
   SqlitePreparedStatement &command =
@@ -469,14 +470,17 @@ bool SqliteDatabase::deleteRecord() {
   command.bindParameter(1, BindableValue(position));
   bool ret = command.executeNoThrow();
   if (!ret) {
-    return false;
+    return BtrieveError::IOError;
   }
 
-  return sqlite3_changes(database.get()) == 1;
+  return sqlite3_changes(database.get()) == 1
+             ? BtrieveError::Success
+             : BtrieveError::InvalidPositioning;
 }
 
 unsigned int
 SqliteDatabase::insertRecord(std::basic_string_view<uint8_t> record) {
+  BtrieveError error;
   std::vector<uint8_t> data(record.size());
   memcpy(data.data(), record.data(), record.size());
 
@@ -490,9 +494,10 @@ SqliteDatabase::insertRecord(std::basic_string_view<uint8_t> record) {
 
   SqliteTransaction transaction(database);
 
-  if (!insertAutoincrementValues(data)) {
+  error = insertAutoincrementValues(data);
+  if (error != BtrieveError::Success) {
     transaction.rollback();
-    return 0;
+    return error;
   }
 
   std::string insertSql;
@@ -544,7 +549,8 @@ SqliteDatabase::insertRecord(std::basic_string_view<uint8_t> record) {
   return lastInsertRowId;
 }
 
-bool SqliteDatabase::insertAutoincrementValues(std::vector<uint8_t> &record) {
+BtrieveError
+SqliteDatabase::insertAutoincrementValues(std::vector<uint8_t> &record) {
   // first we need to fetch the next autoincrement values
   std::list<std::string> zeroedKeyAutoincrementedClauses;
   std::list<const Key *> autoincrementedKeys;
@@ -561,7 +567,7 @@ bool SqliteDatabase::insertAutoincrementValues(std::vector<uint8_t> &record) {
   }
 
   if (zeroedKeyAutoincrementedClauses.size() == 0) {
-    return true;
+    return BtrieveError::Success;
   }
 
   std::stringstream sb;
@@ -577,7 +583,7 @@ bool SqliteDatabase::insertAutoincrementValues(std::vector<uint8_t> &record) {
   if (!reader->read()) {
     //_logger.Error("Unable to query for MAX autoincremented values, unable to
     // update");
-    return false;
+    return BtrieveError::IOError;
   }
 
   // and once we have the values, insert them into the record so it ends up
@@ -602,12 +608,11 @@ bool SqliteDatabase::insertAutoincrementValues(std::vector<uint8_t> &record) {
         record.data()[keyDefinition.getOffset()] = value & 0xFF;
         break;
       default:
-        throw BtrieveException("Key integer length not supported: %d",
-                               keyDefinition.getLength());
+        return BtrieveError::BadKeyLength;
       }
     }
   }
-  return true;
+  return BtrieveError::Success;
 }
 
 BtrieveError
@@ -615,6 +620,7 @@ SqliteDatabase::updateRecord(unsigned int id,
                              std::basic_string_view<uint8_t> record) {
   std::vector<uint8_t> data(record.size());
   memcpy(data.data(), record.data(), record.size());
+  BtrieveError error;
 
   if (!variableLengthRecords && record.size() != recordLength) {
     //_logger.Warn(
@@ -626,9 +632,10 @@ SqliteDatabase::updateRecord(unsigned int id,
 
   SqliteTransaction transaction(database);
 
-  if (!insertAutoincrementValues(data)) {
+  error = insertAutoincrementValues(data);
+  if (error != BtrieveError::Success) {
     transaction.rollback();
-    return BtrieveError::DuplicateKeyValue;
+    return error;
   }
 
   std::string updateSql;
@@ -692,6 +699,54 @@ SqliteDatabase::updateRecord(unsigned int id,
 
   cache.cache(id, Record(id, data));
   return BtrieveError::Success;
+}
+
+std::unique_ptr<Query>
+SqliteDatabase::newQuery(unsigned int position, const Key *key,
+                         std::basic_string_view<uint8_t> keyData) {
+  return std::unique_ptr<Query>(new SqliteQuery(this, position, key, keyData));
+}
+
+BtrieveError SqliteDatabase::nextReader(Query *query,
+                                        CursorDirection cursorDirection) {
+  auto record = query->next(cursorDirection);
+
+  if (!record.first) {
+    return BtrieveError::InvalidPositioning;
+  }
+
+  position = query->getPosition();
+  cache.cache(position, record.second);
+  return BtrieveError::Success;
+}
+
+BtrieveError SqliteDatabase::getByKeyEqual(Query *query) {
+  std::stringstream sql;
+
+  auto sqliteObject =
+      query->getKey()->keyDataToSqliteObject(query->getKeyData());
+
+  sql << "SELECT id, " << query->getKey()->getSqliteKeyName()
+      << ", data FROM data_t WHERE " << query->getKey()->getSqliteKeyName();
+  if (sqliteObject.isNull()) {
+    sql << " IS NULL";
+  } else {
+    sql << " = @value ORDER BY " << query->getKey()->getSqliteKeyName()
+        << " ASC";
+  }
+
+  SqlitePreparedStatement &command = getPreparedStatement(sql.str().c_str());
+  if (!sqliteObject.isNull()) {
+    command.bindParameter(1, sqliteObject);
+  }
+
+  static_cast<SqliteQuery *>(query)->setReader(command.executeReader());
+  query->setCursorDirection(CursorDirection::Seek);
+  return nextReader(query, CursorDirection::Seek);
+}
+
+BtrieveError SqliteDatabase::getByKeyNext(Query *query) {
+  return nextReader(query, CursorDirection::Forward);
 }
 
 } // namespace btrieve

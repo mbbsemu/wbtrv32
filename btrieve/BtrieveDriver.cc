@@ -82,9 +82,10 @@ void BtrieveDriver::close() {
   sqlDatabase.reset(nullptr);
 }
 
-bool BtrieveDriver::performOperation(unsigned int keyNumber,
-                                     std::basic_string_view<uint8_t> key,
-                                     OperationCode operationCode) {
+BtrieveError
+BtrieveDriver::performOperation(int keyNumber,
+                                std::basic_string_view<uint8_t> keyData,
+                                OperationCode operationCode) {
   switch (operationCode) {
   case OperationCode::Delete:
     return sqlDatabase->deleteRecord();
@@ -99,10 +100,73 @@ bool BtrieveDriver::performOperation(unsigned int keyNumber,
   case OperationCode::StepPreviousExtended:
     return sqlDatabase->stepPrevious();
   default:
-    return false;
+      // fall through
+      ;
   }
 
-  return false;
+  bool newQuery = !usesPreviousQuery(operationCode);
+  if (newQuery || !previousQuery) {
+    const Key *key = nullptr;
+    if (keyNumber >= 0 &&
+        static_cast<size_t>(keyNumber) < sqlDatabase->getKeys().size()) {
+      key = &(sqlDatabase->getKeys()[keyNumber]);
+    }
+
+    previousQuery = std::move(
+        sqlDatabase->newQuery(sqlDatabase->getPosition(), key, keyData));
+  } else if (!previousQuery) {
+    return BtrieveError::InvalidKeyPosition;
+  }
+
+  // always using previousQuery from this point onward
+  switch (operationCode) {
+  case OperationCode::AcquireEqual:
+  case OperationCode::QueryEqual:
+    return sqlDatabase->getByKeyEqual(previousQuery.get());
+  case OperationCode::AcquireNext:
+  case OperationCode::QueryNext:
+    return sqlDatabase->getByKeyNext(previousQuery.get());
+  default:
+    return BtrieveError::OperationNotAllowed;
+  }
+
+  /*
+  return btrieveOperationCode switch
+  {
+      EnumBtrieveOperationCodes.AcquireEqual => GetByKeyEqual(currentQuery),
+      EnumBtrieveOperationCodes.QueryEqual => GetByKeyEqual(currentQuery),
+
+      EnumBtrieveOperationCodes.AcquireFirst => GetByKeyFirst(currentQuery),
+      EnumBtrieveOperationCodes.QueryFirst => GetByKeyFirst(currentQuery),
+
+      EnumBtrieveOperationCodes.AcquireLast => GetByKeyLast(currentQuery),
+      EnumBtrieveOperationCodes.QueryLast => GetByKeyLast(currentQuery),
+
+      EnumBtrieveOperationCodes.AcquireGreater => GetByKeyGreater(currentQuery,
+  ">"), EnumBtrieveOperationCodes.QueryGreater => GetByKeyGreater(currentQuery,
+  ">"), EnumBtrieveOperationCodes.AcquireGreaterOrEqual =>
+  GetByKeyGreater(currentQuery, ">="),
+      EnumBtrieveOperationCodes.QueryGreaterOrEqual =>
+  GetByKeyGreater(currentQuery, ">="),
+
+      EnumBtrieveOperationCodes.AcquireLess => GetByKeyLess(currentQuery, "<"),
+      EnumBtrieveOperationCodes.QueryLess => GetByKeyLess(currentQuery, "<"),
+      EnumBtrieveOperationCodes.AcquireLessOrEqual => GetByKeyLess(currentQuery,
+  "<="), EnumBtrieveOperationCodes.QueryLessOrEqual =>
+  GetByKeyLess(currentQuery, "<="),
+
+      EnumBtrieveOperationCodes.AcquireNext => GetByKeyNext(currentQuery),
+      EnumBtrieveOperationCodes.QueryNext => GetByKeyNext(currentQuery),
+
+      EnumBtrieveOperationCodes.AcquirePrevious =>
+  GetByKeyPrevious(currentQuery), EnumBtrieveOperationCodes.QueryPrevious =>
+  GetByKeyPrevious(currentQuery),
+
+      _ => throw new Exception($"Unsupported Operation Code:
+  {
+    btrieveOperationCode}")
+  };
+  */
 }
 
 } // namespace btrieve

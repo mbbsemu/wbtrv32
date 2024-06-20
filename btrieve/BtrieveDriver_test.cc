@@ -379,7 +379,7 @@ TEST_F(BtrieveDriverTest, StepNext) {
 
   ASSERT_EQ(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
                                     OperationCode::StepFirst),
-            true);
+            BtrieveError::Success);
 
   ASSERT_EQ(driver.getPosition(), 1);
   std::pair<bool, Record> data(driver.getRecord());
@@ -392,7 +392,7 @@ TEST_F(BtrieveDriverTest, StepNext) {
 
   ASSERT_EQ(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
                                     OperationCode::StepNext),
-            true);
+            BtrieveError::Success);
 
   ASSERT_EQ(driver.getPosition(), 2);
   data = std::move(driver.getRecord());
@@ -405,7 +405,7 @@ TEST_F(BtrieveDriverTest, StepNext) {
 
   ASSERT_EQ(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
                                     OperationCode::StepNext),
-            true);
+            BtrieveError::Success);
 
   ASSERT_EQ(driver.getPosition(), 3);
   data = std::move(driver.getRecord());
@@ -418,7 +418,7 @@ TEST_F(BtrieveDriverTest, StepNext) {
 
   ASSERT_EQ(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
                                     OperationCode::StepNext),
-            true);
+            BtrieveError::Success);
 
   ASSERT_EQ(driver.getPosition(), 4);
   data = std::move(driver.getRecord());
@@ -431,7 +431,7 @@ TEST_F(BtrieveDriverTest, StepNext) {
 
   ASSERT_EQ(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
                                     OperationCode::StepNext),
-            false);
+            BtrieveError::InvalidPositioning);
 
   ASSERT_EQ(driver.getPosition(), 4);
 }
@@ -444,7 +444,7 @@ TEST_F(BtrieveDriverTest, StepPrevious) {
 
   ASSERT_EQ(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
                                     OperationCode::StepLast),
-            true);
+            BtrieveError::Success);
 
   ASSERT_EQ(driver.getPosition(), 4);
   std::pair<bool, Record> data(driver.getRecord());
@@ -457,7 +457,7 @@ TEST_F(BtrieveDriverTest, StepPrevious) {
 
   ASSERT_EQ(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
                                     OperationCode::StepPrevious),
-            true);
+            BtrieveError::Success);
 
   ASSERT_EQ(driver.getPosition(), 3);
   data = std::move(driver.getRecord());
@@ -470,7 +470,7 @@ TEST_F(BtrieveDriverTest, StepPrevious) {
 
   ASSERT_EQ(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
                                     OperationCode::StepPrevious),
-            true);
+            BtrieveError::Success);
 
   ASSERT_EQ(driver.getPosition(), 2);
   data = std::move(driver.getRecord());
@@ -483,7 +483,7 @@ TEST_F(BtrieveDriverTest, StepPrevious) {
 
   ASSERT_EQ(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
                                     OperationCode::StepPrevious),
-            true);
+            BtrieveError::Success);
 
   ASSERT_EQ(driver.getPosition(), 1);
   data = std::move(driver.getRecord());
@@ -496,7 +496,7 @@ TEST_F(BtrieveDriverTest, StepPrevious) {
 
   ASSERT_EQ(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
                                     OperationCode::StepPrevious),
-            false);
+            BtrieveError::InvalidPositioning);
 
   ASSERT_EQ(driver.getPosition(), 1);
 }
@@ -585,7 +585,7 @@ TEST_F(BtrieveDriverTest, DeleteAll) {
 
   ASSERT_EQ(driver.getRecordCount(), 4);
 
-  ASSERT_TRUE(driver.deleteAll());
+  ASSERT_EQ(driver.deleteAll(), BtrieveError::Success);
 
   ASSERT_EQ(driver.getRecordCount(), 0);
   ASSERT_EQ(driver.getPosition(), 0);
@@ -601,13 +601,15 @@ TEST_F(BtrieveDriverTest, Delete) {
 
   ASSERT_EQ(driver.getRecordCount(), 4);
 
-  ASSERT_TRUE(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
-                                      OperationCode::Delete));
+  ASSERT_EQ(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
+                                    OperationCode::Delete),
+            BtrieveError::Success);
   ASSERT_EQ(driver.getPosition(), 2);
   ASSERT_EQ(driver.getRecordCount(), 3);
 
-  ASSERT_FALSE(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
-                                       OperationCode::Delete));
+  ASSERT_EQ(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
+                                    OperationCode::Delete),
+            BtrieveError::InvalidPositioning);
   ASSERT_EQ(driver.getPosition(), 2);
   ASSERT_EQ(driver.getRecordCount(), 3);
 
@@ -622,11 +624,13 @@ TEST_F(BtrieveDriverTest, RecordDeleteOneIteration) {
 
   driver.setPosition(2);
 
-  ASSERT_TRUE(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
-                                      OperationCode::Delete));
+  ASSERT_EQ(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
+                                    OperationCode::Delete),
+            BtrieveError::Success);
 
-  ASSERT_TRUE(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
-                                      OperationCode::StepFirst));
+  ASSERT_EQ(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
+                                    OperationCode::StepFirst),
+            BtrieveError::Success);
 
   ASSERT_EQ(driver.getPosition(), 1);
   std::pair<bool, Record> data(driver.getRecord());
@@ -637,8 +641,9 @@ TEST_F(BtrieveDriverTest, RecordDeleteOneIteration) {
                 ->key1,
             3444);
 
-  ASSERT_TRUE(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
-                                      OperationCode::StepNext));
+  ASSERT_EQ(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
+                                    OperationCode::StepNext),
+            BtrieveError::Success);
 
   ASSERT_EQ(driver.getPosition(), 3);
   data = std::move(driver.getRecord());
@@ -649,8 +654,9 @@ TEST_F(BtrieveDriverTest, RecordDeleteOneIteration) {
                 ->key1,
             1052234073);
 
-  ASSERT_TRUE(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
-                                      OperationCode::StepNext));
+  ASSERT_EQ(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
+                                    OperationCode::StepNext),
+            BtrieveError::Success);
 
   ASSERT_EQ(driver.getPosition(), 4);
   data = std::move(driver.getRecord());
@@ -661,8 +667,9 @@ TEST_F(BtrieveDriverTest, RecordDeleteOneIteration) {
                 ->key1,
             -615634567);
 
-  ASSERT_FALSE(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
-                                       OperationCode::StepNext));
+  ASSERT_EQ(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
+                                    OperationCode::StepNext),
+            BtrieveError::InvalidPositioning);
 
   ASSERT_EQ(driver.getPosition(), 4);
 }
@@ -937,4 +944,51 @@ TEST_F(BtrieveDriverTest, UpdateInvalidKeyNumber) {
             BtrieveError::InvalidPositioning);
 
   ASSERT_EQ(driver.getRecordCount(), 4);
+}
+
+TEST_F(BtrieveDriverTest, SeekByKeyStringDuplicates) {
+  BtrieveDriver driver(new SqliteDatabase());
+
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  driver.open(mbbsEmuDb.c_str());
+
+  ASSERT_EQ(driver.performOperation(
+                0,
+                std::basic_string_view<uint8_t>(
+                    reinterpret_cast<const uint8_t *>("Sysop"), 5),
+                OperationCode::QueryEqual),
+            BtrieveError::Success);
+  ASSERT_EQ(driver.getRecord().second.getPosition(), 1);
+
+  ASSERT_EQ(driver.performOperation(
+                0,
+                std::basic_string_view<uint8_t>(
+                    reinterpret_cast<const uint8_t *>("Sysop"), 5),
+                OperationCode::QueryNext),
+            BtrieveError::Success);
+  ASSERT_EQ(driver.getRecord().second.getPosition(), 2);
+
+  ASSERT_EQ(driver.performOperation(
+                0,
+                std::basic_string_view<uint8_t>(
+                    reinterpret_cast<const uint8_t *>("Sysop"), 5),
+                OperationCode::QueryNext),
+            BtrieveError::Success);
+  ASSERT_EQ(driver.getRecord().second.getPosition(), 3);
+
+  ASSERT_EQ(driver.performOperation(
+                0,
+                std::basic_string_view<uint8_t>(
+                    reinterpret_cast<const uint8_t *>("Sysop"), 5),
+                OperationCode::QueryNext),
+            BtrieveError::Success);
+  ASSERT_EQ(driver.getRecord().second.getPosition(), 4);
+
+  ASSERT_EQ(driver.performOperation(
+                0,
+                std::basic_string_view<uint8_t>(
+                    reinterpret_cast<const uint8_t *>("Sysop"), 5),
+                OperationCode::QueryNext),
+            BtrieveError::InvalidPositioning);
+  ASSERT_EQ(driver.getRecord().second.getPosition(), 4);
 }
