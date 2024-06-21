@@ -137,8 +137,11 @@ private:
   void deleteAllFiles(const char *filePath) {
     std::list<std::string> filesToUnlink;
     {
-      std::unique_ptr<DIR, decltype(&closedir)> dir(opendir(filePath),
-                                                    &closedir);
+      struct closedir_deleter {
+        void operator()(DIR *d) const { closedir(d); }
+      };
+
+      std::unique_ptr<DIR, closedir_deleter> dir(opendir(filePath));
       if (dir) {
         struct dirent *d;
 
