@@ -113,6 +113,17 @@ bool Key::isNullKeyInRecord(std::basic_string_view<uint8_t> record) const {
       getPrimarySegment().getNullValue());
 }
 
+static bool isBigEndian() {
+  union {
+    uint32_t i;
+    char c[4];
+  } bint = {0x01020304};
+
+  return bint.c[0] == 1;
+}
+
+static bool bigEndian = isBigEndian();
+
 BindableValue
 Key::keyDataToSqliteObject(std::basic_string_view<uint8_t> keyData) const {
   if (isNullable() &&
@@ -128,12 +139,13 @@ Key::keyDataToSqliteObject(std::basic_string_view<uint8_t> keyData) const {
 
   const uint8_t *data = modifiedKeyData.data();
   uint64_t value = 0;
+  uint8_t *subValue = reinterpret_cast<uint8_t *>(&value);
 
   switch (getPrimarySegment().getDataType()) {
   case KeyDataType::AutoInc:
   case KeyDataType::Integer:
     // extend sign bit
-    if (data[getPrimarySegment().getLength() - 1] & 0xF0) {
+    if (data[getPrimarySegment().getLength() - 1] & 0x80) {
       value = -1;
     }
     // fall through on purpose
@@ -142,17 +154,20 @@ Key::keyDataToSqliteObject(std::basic_string_view<uint8_t> keyData) const {
   case KeyDataType::OldBinary:
     if (getPrimarySegment().getLength() > 0 &&
         getPrimarySegment().getLength() <= 8) {
-      uint64_t mask = 0xFFFFFFFFFFFFFF00u;
       for (int i = 0; i < getPrimarySegment().getLength(); ++i) {
-        value &= mask;
-        mask = mask << 8 | ((mask & 0xFF00000000000000u) >> 56);
-        value |= static_cast<uint64_t>(*(data++)) << (8 * i);
+        if (bigEndian) {
+          subValue[7 - i] = data[i];
+        } else {
+          subValue[i] = data[i];
+        }
       }
-      return BindableValue(static_cast<uint64_t>(value));
+      return BindableValue(value);
     } else {
+      // integers with size > 8 are unsupported on sqlite, so we have to convert
+      // to blobs.
       // data is LSB, sqlite blobs compare msb (using memcmp), so swap bytes
       // prior to insert
-      std::vector<uint8_t> copy(data, data + keyData.size());
+      std::vector<uint8_t> copy(data, data + modifiedKeyData.size());
       std::reverse(copy.begin(), copy.end());
       return BindableValue(copy);
     }

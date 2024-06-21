@@ -122,7 +122,7 @@ public:
 
   Type getType() const { return type; }
 
-  uint64_t getIntegerValue() const { return int_value; }
+  int64_t getIntegerValue() const { return int_value; }
 
   double getDoubleValue() const { return double_value; }
 
@@ -135,7 +135,7 @@ public:
 private:
   Type type;
   union {
-    uint64_t int_value;
+    int64_t int_value;
     double double_value;
     std::string *text_value;
     std::vector<uint8_t> *blob_value;

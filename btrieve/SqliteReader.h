@@ -67,8 +67,8 @@ public:
 
     switch (columnType) {
     case SQLITE_INTEGER:
-      return BindableValue(static_cast<uint64_t>(
-          sqlite3_column_int64(statement, columnOrdinal)));
+      return BindableValue(
+          static_cast<int64_t>(sqlite3_column_int64(statement, columnOrdinal)));
     case SQLITE_FLOAT:
       return BindableValue(sqlite3_column_double(statement, columnOrdinal));
     case SQLITE_TEXT:

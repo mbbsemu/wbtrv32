@@ -1078,3 +1078,47 @@ TEST_F(BtrieveDriverTest, SeekByKeyString) {
             BtrieveError::InvalidPositioning);
   ASSERT_EQ(driver.getRecord().second.getPosition(), 1);
 }
+
+TEST_F(BtrieveDriverTest, SeekByKeyInteger) {
+  BtrieveDriver driver(new SqliteDatabase());
+
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  driver.open(mbbsEmuDb.c_str());
+
+  uint32_t value = 1052234073;
+
+  auto key = std::basic_string_view<uint8_t>(
+      reinterpret_cast<const uint8_t *>(&value), sizeof(value));
+
+  ASSERT_EQ(driver.performOperation(1, key, OperationCode::QueryEqual),
+            BtrieveError::Success);
+  ASSERT_EQ(driver.getRecord().second.getPosition(), 3);
+
+  std::pair<bool, Record> data(driver.getRecord());
+  ASSERT_TRUE(data.first);
+  ASSERT_EQ(data.second.getData().size(), 74);
+  const MBBSEmuRecordStruct *dbRecord =
+      reinterpret_cast<const MBBSEmuRecordStruct *>(
+          data.second.getData().data());
+
+  ASSERT_EQ(dbRecord->key1, 1052234073);
+
+  ASSERT_EQ(driver.performOperation(1, key, OperationCode::QueryNext),
+            BtrieveError::InvalidPositioning);
+
+  ASSERT_EQ(driver.performOperation(1, key, OperationCode::QueryPrevious),
+            BtrieveError::Success);
+  ASSERT_EQ(driver.getRecord().second.getPosition(), 2);
+
+  ASSERT_EQ(driver.performOperation(1, key, OperationCode::QueryPrevious),
+            BtrieveError::Success);
+  ASSERT_EQ(driver.getRecord().second.getPosition(), 1);
+
+  ASSERT_EQ(driver.performOperation(1, key, OperationCode::QueryPrevious),
+            BtrieveError::Success);
+  ASSERT_EQ(driver.getRecord().second.getPosition(), 4);
+
+  ASSERT_EQ(driver.performOperation(1, key, OperationCode::QueryPrevious),
+            BtrieveError::InvalidPositioning);
+  ASSERT_EQ(driver.getRecord().second.getPosition(), 4);
+}
