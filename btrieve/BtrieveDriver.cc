@@ -120,6 +120,9 @@ BtrieveDriver::performOperation(int keyNumber,
 
   // always using previousQuery from this point onward
   switch (operationCode) {
+  case OperationCode::AcquireFirst:
+  case OperationCode::QueryFirst:
+    return sqlDatabase->getByKeyFirst(previousQuery.get());
   case OperationCode::AcquireEqual:
   case OperationCode::QueryEqual:
     return sqlDatabase->getByKeyEqual(previousQuery.get());

@@ -73,6 +73,7 @@ public:
   virtual BtrieveError updateRecord(unsigned int offset,
                                     std::basic_string_view<uint8_t> record) = 0;
 
+  virtual BtrieveError getByKeyFirst(Query *query) = 0;
   virtual BtrieveError getByKeyEqual(Query *query) = 0;
   virtual BtrieveError getByKeyNext(Query *query) = 0;
   virtual BtrieveError getByKeyPrevious(Query *query) = 0;
