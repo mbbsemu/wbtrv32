@@ -1153,22 +1153,51 @@ TEST_F(BtrieveDriverTest, SeekByKeyFirstString) {
   ASSERT_EQ(driver.performOperation(2, std::basic_string_view<uint8_t>(),
                                     OperationCode::QueryFirst),
             BtrieveError::Success);
-  ASSERT_EQ(driver.getPosition(), 1);
+  std::pair<bool, Record> data(driver.getRecord());
+  ASSERT_TRUE(data.first);
+  ASSERT_EQ(data.second.getData().size(), 74);
+  const MBBSEmuRecordStruct *dbRecord =
+      reinterpret_cast<const MBBSEmuRecordStruct *>(
+          data.second.getData().data());
+
+  ASSERT_STREQ(dbRecord->key2, "3444");
 
   ASSERT_EQ(driver.performOperation(2, std::basic_string_view<uint8_t>(),
                                     OperationCode::QueryNext),
             BtrieveError::Success);
-  ASSERT_EQ(driver.getPosition(), 2);
+  data = driver.getRecord();
+  ASSERT_TRUE(data.first);
+  ASSERT_EQ(data.second.getData().size(), 74);
+  dbRecord = reinterpret_cast<const MBBSEmuRecordStruct *>(
+      data.second.getData().data());
+
+  ASSERT_STREQ(dbRecord->key2, "7776");
 
   ASSERT_EQ(driver.performOperation(2, std::basic_string_view<uint8_t>(),
                                     OperationCode::QueryNext),
             BtrieveError::Success);
   ASSERT_EQ(driver.getPosition(), 3);
 
+  data = driver.getRecord();
+  ASSERT_TRUE(data.first);
+  ASSERT_EQ(data.second.getData().size(), 74);
+  dbRecord = reinterpret_cast<const MBBSEmuRecordStruct *>(
+      data.second.getData().data());
+
+  ASSERT_STREQ(dbRecord->key2, "StringValue");
+
   ASSERT_EQ(driver.performOperation(2, std::basic_string_view<uint8_t>(),
                                     OperationCode::QueryNext),
             BtrieveError::Success);
   ASSERT_EQ(driver.getPosition(), 4);
+
+  data = driver.getRecord();
+  ASSERT_TRUE(data.first);
+  ASSERT_EQ(data.second.getData().size(), 74);
+  dbRecord = reinterpret_cast<const MBBSEmuRecordStruct *>(
+      data.second.getData().data());
+
+  ASSERT_STREQ(dbRecord->key2, "stringValue");
 
   ASSERT_EQ(driver.performOperation(2, std::basic_string_view<uint8_t>(),
                                     OperationCode::QueryNext),
