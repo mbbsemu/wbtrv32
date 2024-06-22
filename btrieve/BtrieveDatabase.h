@@ -31,6 +31,16 @@ public:
         recordCount(database.recordCount), fileLength(database.fileLength),
         variableLengthRecords(database.variableLengthRecords) {}
 
+  BtrieveDatabase(const std::vector<Key> &keys_, uint16_t pageLength_,
+                  unsigned int pageCount_, unsigned int recordLength_,
+                  unsigned int physicalRecordLength_, unsigned int recordCount_,
+                  unsigned int fileLength_, bool variableLengthRecords_)
+      : keys(keys_), pageLength(pageLength_), pageCount(pageCount_),
+        recordLength(recordLength_),
+        physicalRecordLength(physicalRecordLength_), recordCount(recordCount_),
+        fileLength(fileLength_), variableLengthRecords(variableLengthRecords_) {
+  }
+
   // Returns the set of keys contained in this Btrieve database.
   const std::vector<Key> &getKeys() const { return keys; }
 

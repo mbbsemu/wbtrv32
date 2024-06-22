@@ -66,38 +66,45 @@ static bool isAllSameByteValue(std::basic_string_view<uint8_t> data,
   return found == std::string::npos;
 }
 
+static const char *createDefaultACS() {
+  static uint8_t INTERNAL_DEFAULT_ACS[ACS_LENGTH];
+  for (unsigned int i = 0; i < ACS_LENGTH; ++i) {
+    INTERNAL_DEFAULT_ACS[i] = i;
+  }
+  return reinterpret_cast<const char *>(INTERNAL_DEFAULT_ACS);
+}
+
 std::vector<uint8_t>
 Key::applyACS(std::basic_string_view<uint8_t> keyData) const {
+  static const char *DEFAULT_ACS = createDefaultACS();
+
   if (!requiresACS()) {
     return std::vector(keyData.data(), keyData.data() + keyData.size());
   }
 
-  std::vector<uint8_t> dst(keyData.size());
-  int offset = 0;
-  for (auto &segment : segments) {
-    uint8_t *dstSpan = dst.data() + offset;
-    const uint8_t *key = keyData.data() + offset;
-    if (segment.requiresACS()) {
-      const auto acs = segment.getACS();
-      for (int i = 0; i < segment.getLength(); ++i) {
-        dstSpan[i] = acs[key[i]];
-      }
-    } else {
-      // simple copy
-      memcpy(dstSpan, key, segment.getLength());
-    }
+  std::vector<uint8_t> ret(keyData.size());
+  const uint8_t *src = keyData.data();
+  const uint8_t *end = src + keyData.size();
+  uint8_t *dst = ret.data();
 
-    offset += segment.getLength();
+  for (auto &segment : segments) {
+    const auto *acs = segment.requiresACS() ? segment.getACS() : DEFAULT_ACS;
+    for (int i = 0; i < segment.getLength(); ++i) {
+      *(dst++) = acs[*(src++)];
+      if (src >= end) {
+        return ret;
+      }
+    }
   }
 
-  return dst;
+  return ret;
 }
 
 static std::string
 extractNullTerminatedString(const std::vector<uint8_t> &keyData) {
   auto found = std::find(keyData.begin(), keyData.end(), 0);
   size_t strlen;
-  if (found == keyData.begin() || found == keyData.end()) {
+  if (found == keyData.end()) {
     strlen = keyData.size();
   } else {
     strlen = found - keyData.begin();

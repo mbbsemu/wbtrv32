@@ -1821,3 +1821,108 @@ TEST_F(BtrieveDriverTest, SeekByKeyLessOrEqualNotFound) {
   ASSERT_EQ(driver.performOperation(1, key, OperationCode::QueryLessOrEqual),
             BtrieveError::InvalidPositioning);
 }
+
+// TODO add tests for queryEqual/Less/Greater when there are duplicates
+
+const unsigned int ACS_RECORD_LENGTH = 128;
+
+static std::vector<char> upperACS() {
+  std::vector<char> ret(ACS_LENGTH);
+  char *acs = ret.data();
+
+  for (int i = 0; i < ACS_LENGTH; ++i) {
+    acs[i] = (char)i;
+  }
+  // make uppercase
+  for (int i = 'a'; i <= 'z'; ++i) {
+    acs[i] = toupper(acs[i]);
+  }
+
+  return ret;
+}
+
+static std::vector<uint8_t> createRecord(const char *username) {
+  std::vector<uint8_t> record(ACS_RECORD_LENGTH);
+
+  memset(record.data(), 0xFF, record.size());
+  strcpy(reinterpret_cast<char *>(record.data() + 2), username);
+
+  return record;
+}
+
+static BtrieveDatabase createACSBtrieveDatabase() {
+  std::vector<Key> keys;
+  uint16_t pageLength = 512;
+  unsigned int pageCount = 1;
+  unsigned int recordLength = ACS_RECORD_LENGTH;
+  unsigned int physicalRecordLength = ACS_RECORD_LENGTH;
+  unsigned int recordCount = 0;
+  unsigned int fileLength = pageCount * pageLength;
+
+  std::vector<char> acs = upperACS();
+
+  KeyDefinition keyDefinition(0, 30, 2, KeyDataType::String,
+                              UseExtendedDataType | NumberedACS, false, 0, 0, 0,
+                              "acsName", acs);
+
+  keys.push_back(Key(&keyDefinition, 1));
+
+  return BtrieveDatabase(keys, pageLength, pageCount, recordLength,
+                         physicalRecordLength, recordCount, fileLength,
+                         /* variableLengthRecords= */ false);
+}
+
+TEST_F(BtrieveDriverTest, ACSSeekByKey) {
+  SqliteDatabase *database = new SqliteDatabase(SQLITE_OPEN_MEMORY);
+  BtrieveDriver driver(database);
+
+  auto recordLoader = database->create("unused.db", createACSBtrieveDatabase());
+  recordLoader->onRecordsComplete();
+
+  ASSERT_EQ(database->insertRecord(std::basic_string_view<uint8_t>(
+                createRecord("Sysop").data(), ACS_RECORD_LENGTH)),
+            1);
+
+  ASSERT_EQ(database->insertRecord(std::basic_string_view<uint8_t>(
+                createRecord("Paladine").data(), ACS_RECORD_LENGTH)),
+            2);
+
+  ASSERT_EQ(database->insertRecord(std::basic_string_view<uint8_t>(
+                createRecord("Testing").data(), ACS_RECORD_LENGTH)),
+            3);
+
+  std::basic_string_view<uint8_t> key(
+      reinterpret_cast<const uint8_t *>("paladine"), 8);
+
+  ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryEqual),
+            BtrieveError::Success);
+  auto data = driver.getRecord();
+  ASSERT_TRUE(data.first);
+  ASSERT_EQ(driver.getPosition(), 2);
+  ASSERT_EQ(data.second.getData().size(), ACS_RECORD_LENGTH);
+  ASSERT_EQ(memcmp(data.second.getData().data() + 2, "Paladine", 8), 0);
+}
+
+TEST_F(BtrieveDriverTest, ACSInsertDuplicateFails) {
+  SqliteDatabase *database = new SqliteDatabase(SQLITE_OPEN_MEMORY);
+  BtrieveDriver driver(database);
+
+  auto recordLoader = database->create("unused.db", createACSBtrieveDatabase());
+  recordLoader->onRecordsComplete();
+
+  ASSERT_EQ(database->insertRecord(std::basic_string_view<uint8_t>(
+                createRecord("Sysop").data(), ACS_RECORD_LENGTH)),
+            1);
+
+  ASSERT_EQ(database->insertRecord(std::basic_string_view<uint8_t>(
+                createRecord("sysop").data(), ACS_RECORD_LENGTH)),
+            0);
+
+  ASSERT_EQ(database->insertRecord(std::basic_string_view<uint8_t>(
+                createRecord("SysOp").data(), ACS_RECORD_LENGTH)),
+            0);
+
+  ASSERT_EQ(database->insertRecord(std::basic_string_view<uint8_t>(
+                createRecord("SysoP").data(), ACS_RECORD_LENGTH)),
+            0);
+}

@@ -27,6 +27,27 @@ public:
 
   virtual void close() override;
 
+  virtual BtrieveError stepFirst() override;
+  virtual BtrieveError stepLast() override;
+  virtual BtrieveError stepNext() override;
+  virtual BtrieveError stepPrevious() override;
+  virtual BtrieveError deleteRecord() override;
+
+  virtual unsigned int getRecordCount() const override;
+
+  virtual BtrieveError deleteAll() override;
+
+  virtual unsigned int
+  insertRecord(std::basic_string_view<uint8_t> record) override;
+
+  virtual BtrieveError
+  updateRecord(unsigned int offset,
+               std::basic_string_view<uint8_t> record) override;
+
+  virtual BtrieveError getByKeyFirst(Query *query) override;
+  virtual BtrieveError getByKeyLast(Query *query) override;
+  virtual BtrieveError getByKeyEqual(Query *query) override;
+
 protected:
   virtual std::pair<bool, Record> selectRecord(unsigned int position) override;
 
@@ -51,26 +72,6 @@ private:
   void loadSqliteMetadata(std::string &acsName, std::vector<char> &acs);
   void loadSqliteKeys(const std::string &acsName, const std::vector<char> &acs);
 
-  virtual BtrieveError stepFirst() override;
-  virtual BtrieveError stepLast() override;
-  virtual BtrieveError stepNext() override;
-  virtual BtrieveError stepPrevious() override;
-  virtual BtrieveError deleteRecord() override;
-
-  virtual unsigned int getRecordCount() const override;
-
-  virtual BtrieveError deleteAll() override;
-
-  virtual unsigned int
-  insertRecord(std::basic_string_view<uint8_t> record) override;
-
-  virtual BtrieveError
-  updateRecord(unsigned int offset,
-               std::basic_string_view<uint8_t> record) override;
-
-  virtual BtrieveError getByKeyFirst(Query *query) override;
-  virtual BtrieveError getByKeyLast(Query *query) override;
-  virtual BtrieveError getByKeyEqual(Query *query) override;
   BtrieveError getByKeyGreater(Query *query, const char *opurator);
   virtual BtrieveError getByKeyGreater(Query *query) override {
     return getByKeyGreater(query, ">");
