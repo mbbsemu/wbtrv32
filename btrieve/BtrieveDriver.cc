@@ -132,6 +132,9 @@ BtrieveDriver::performOperation(int keyNumber,
   case OperationCode::AcquireGreater:
   case OperationCode::QueryGreater:
     return sqlDatabase->getByKeyGreater(previousQuery.get());
+  case OperationCode::AcquireGreaterOrEqual:
+  case OperationCode::QueryGreaterOrEqual:
+    return sqlDatabase->getByKeyGreaterOrEqual(previousQuery.get());
   case OperationCode::AcquireNext:
   case OperationCode::QueryNext:
     return sqlDatabase->getByKeyNext(previousQuery.get());

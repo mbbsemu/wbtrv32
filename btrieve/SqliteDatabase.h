@@ -75,6 +75,9 @@ private:
   virtual BtrieveError getByKeyGreater(Query *query) override {
     return getByKeyGreater(query, ">");
   };
+  virtual BtrieveError getByKeyGreaterOrEqual(Query *query) override {
+    return getByKeyGreater(query, ">=");
+  }
   virtual BtrieveError getByKeyNext(Query *query) override;
   virtual BtrieveError getByKeyPrevious(Query *query) override;
 
