@@ -69,6 +69,7 @@ private:
                std::basic_string_view<uint8_t> record) override;
 
   virtual BtrieveError getByKeyFirst(Query *query) override;
+  virtual BtrieveError getByKeyLast(Query *query) override;
   virtual BtrieveError getByKeyEqual(Query *query) override;
   virtual BtrieveError getByKeyNext(Query *query) override;
   virtual BtrieveError getByKeyPrevious(Query *query) override;

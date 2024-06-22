@@ -765,4 +765,17 @@ BtrieveError SqliteDatabase::getByKeyFirst(Query *query) {
   query->setCursorDirection(CursorDirection::Forward);
   return nextReader(query, CursorDirection::Forward);
 }
+
+BtrieveError SqliteDatabase::getByKeyLast(Query *query) {
+  std::stringstream sql;
+
+  sql << "SELECT id, " << query->getKey()->getSqliteKeyName()
+      << ", data FROM data_t ORDER BY " << query->getKey()->getSqliteKeyName()
+      << " DESC";
+  SqlitePreparedStatement &command = getPreparedStatement(sql.str().c_str());
+
+  static_cast<SqliteQuery *>(query)->setReader(command.executeReader());
+  query->setCursorDirection(CursorDirection::Reverse);
+  return nextReader(query, CursorDirection::Reverse);
+}
 } // namespace btrieve
