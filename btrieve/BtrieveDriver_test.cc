@@ -1204,3 +1204,66 @@ TEST_F(BtrieveDriverTest, SeekByKeyFirstString) {
             BtrieveError::InvalidPositioning);
   ASSERT_EQ(driver.getPosition(), 4);
 }
+
+TEST_F(BtrieveDriverTest, SeekByKeyFirstInteger) {
+  BtrieveDriver driver(new SqliteDatabase());
+
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  driver.open(mbbsEmuDb.c_str());
+
+  ASSERT_EQ(driver.performOperation(1, std::basic_string_view<uint8_t>(),
+                                    OperationCode::QueryFirst),
+            BtrieveError::Success);
+  std::pair<bool, Record> data(driver.getRecord());
+  ASSERT_TRUE(data.first);
+  ASSERT_EQ(driver.getPosition(), 4);
+  ASSERT_EQ(data.second.getData().size(), 74);
+  const MBBSEmuRecordStruct *dbRecord =
+      reinterpret_cast<const MBBSEmuRecordStruct *>(
+          data.second.getData().data());
+
+  ASSERT_EQ(dbRecord->key1, -615634567);
+
+  ASSERT_EQ(driver.performOperation(1, std::basic_string_view<uint8_t>(),
+                                    OperationCode::QueryNext),
+            BtrieveError::Success);
+  data = driver.getRecord();
+  ASSERT_TRUE(data.first);
+  ASSERT_EQ(driver.getPosition(), 1);
+  ASSERT_EQ(data.second.getData().size(), 74);
+  dbRecord = reinterpret_cast<const MBBSEmuRecordStruct *>(
+      data.second.getData().data());
+
+  ASSERT_EQ(dbRecord->key1, 3444);
+
+  ASSERT_EQ(driver.performOperation(1, std::basic_string_view<uint8_t>(),
+                                    OperationCode::QueryNext),
+            BtrieveError::Success);
+
+  data = driver.getRecord();
+  ASSERT_TRUE(data.first);
+  ASSERT_EQ(driver.getPosition(), 2);
+  ASSERT_EQ(data.second.getData().size(), 74);
+  dbRecord = reinterpret_cast<const MBBSEmuRecordStruct *>(
+      data.second.getData().data());
+
+  ASSERT_EQ(dbRecord->key1, 7776);
+
+  ASSERT_EQ(driver.performOperation(1, std::basic_string_view<uint8_t>(),
+                                    OperationCode::QueryNext),
+            BtrieveError::Success);
+
+  data = driver.getRecord();
+  ASSERT_TRUE(data.first);
+  ASSERT_EQ(driver.getPosition(), 3);
+  ASSERT_EQ(data.second.getData().size(), 74);
+  dbRecord = reinterpret_cast<const MBBSEmuRecordStruct *>(
+      data.second.getData().data());
+
+  ASSERT_EQ(dbRecord->key1, 1052234073);
+
+  ASSERT_EQ(driver.performOperation(1, std::basic_string_view<uint8_t>(),
+                                    OperationCode::QueryNext),
+            BtrieveError::InvalidPositioning);
+  ASSERT_EQ(driver.getPosition(), 3);
+}
