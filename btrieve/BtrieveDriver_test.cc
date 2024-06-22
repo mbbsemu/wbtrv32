@@ -1439,3 +1439,92 @@ TEST_F(BtrieveDriverTest, SeekByKeyLastNotFound) {
                                     OperationCode::QueryPrevious),
             BtrieveError::InvalidPositioning);
 }
+
+TEST_F(BtrieveDriverTest, SeekByKeyGreaterString) {
+  BtrieveDriver driver(new SqliteDatabase());
+
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  driver.open(mbbsEmuDb.c_str());
+
+  auto key = std::basic_string_view<uint8_t>(
+      reinterpret_cast<const uint8_t *>("7776"), 4);
+
+  ASSERT_EQ(driver.performOperation(2, key, OperationCode::QueryGreater),
+            BtrieveError::Success);
+
+  auto data = driver.getRecord();
+  ASSERT_TRUE(data.first);
+  ASSERT_EQ(driver.getPosition(), 3);
+  ASSERT_EQ(data.second.getData().size(), 74);
+  const auto *dbRecord = reinterpret_cast<const MBBSEmuRecordStruct *>(
+      data.second.getData().data());
+
+  ASSERT_STREQ(dbRecord->key2, "StringValue");
+
+  ASSERT_EQ(driver.performOperation(2, key, OperationCode::QueryNext),
+            BtrieveError::Success);
+  data = driver.getRecord();
+  ASSERT_TRUE(data.first);
+  ASSERT_EQ(driver.getPosition(), 4);
+  ASSERT_EQ(data.second.getData().size(), 74);
+  dbRecord = reinterpret_cast<const MBBSEmuRecordStruct *>(
+      data.second.getData().data());
+
+  ASSERT_STREQ(dbRecord->key2, "stringValue");
+
+  ASSERT_EQ(driver.performOperation(2, key, OperationCode::QueryNext),
+            BtrieveError::InvalidPositioning);
+  ASSERT_EQ(driver.getPosition(), 4);
+}
+
+TEST_F(BtrieveDriverTest, SeekByKeyGreaterInteger) {
+  BtrieveDriver driver(new SqliteDatabase());
+
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  driver.open(mbbsEmuDb.c_str());
+
+  uint32_t value = 3444;
+  auto key = std::basic_string_view<uint8_t>(
+      reinterpret_cast<const uint8_t *>(&value), 4);
+
+  ASSERT_EQ(driver.performOperation(1, key, OperationCode::QueryGreater),
+            BtrieveError::Success);
+
+  auto data = driver.getRecord();
+  ASSERT_TRUE(data.first);
+  ASSERT_EQ(driver.getPosition(), 2);
+  ASSERT_EQ(data.second.getData().size(), 74);
+  const auto *dbRecord = reinterpret_cast<const MBBSEmuRecordStruct *>(
+      data.second.getData().data());
+
+  ASSERT_EQ(dbRecord->key1, 7776);
+
+  ASSERT_EQ(driver.performOperation(1, key, OperationCode::QueryNext),
+            BtrieveError::Success);
+  data = driver.getRecord();
+  ASSERT_TRUE(data.first);
+  ASSERT_EQ(driver.getPosition(), 3);
+  ASSERT_EQ(data.second.getData().size(), 74);
+  dbRecord = reinterpret_cast<const MBBSEmuRecordStruct *>(
+      data.second.getData().data());
+
+  ASSERT_EQ(dbRecord->key1, 1052234073);
+
+  ASSERT_EQ(driver.performOperation(1, key, OperationCode::QueryNext),
+            BtrieveError::InvalidPositioning);
+  ASSERT_EQ(driver.getPosition(), 3);
+}
+
+TEST_F(BtrieveDriverTest, SeekByKeyGreaterNotFound) {
+  BtrieveDriver driver(new SqliteDatabase());
+
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  driver.open(mbbsEmuDb.c_str());
+
+  uint32_t value = 2000000000;
+  auto key = std::basic_string_view<uint8_t>(
+      reinterpret_cast<const uint8_t *>(&value), sizeof(value));
+
+  ASSERT_EQ(driver.performOperation(1, key, OperationCode::QueryGreater),
+            BtrieveError::InvalidPositioning);
+}
