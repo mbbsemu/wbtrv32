@@ -1267,3 +1267,24 @@ TEST_F(BtrieveDriverTest, SeekByKeyFirstInteger) {
             BtrieveError::InvalidPositioning);
   ASSERT_EQ(driver.getPosition(), 3);
 }
+
+TEST_F(BtrieveDriverTest, SeekByKeyFirstNotFound) {
+  BtrieveDriver driver(new SqliteDatabase());
+
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  driver.open(mbbsEmuDb.c_str());
+
+  driver.deleteAll();
+
+  ASSERT_EQ(driver.performOperation(0, std::basic_string_view<uint8_t>(),
+                                    OperationCode::QueryFirst),
+            BtrieveError::InvalidPositioning);
+
+  ASSERT_EQ(driver.performOperation(0, std::basic_string_view<uint8_t>(),
+                                    OperationCode::QueryNext),
+            BtrieveError::InvalidPositioning);
+
+  ASSERT_EQ(driver.performOperation(0, std::basic_string_view<uint8_t>(),
+                                    OperationCode::QueryPrevious),
+            BtrieveError::InvalidPositioning);
+}
