@@ -78,6 +78,13 @@ private:
   virtual BtrieveError getByKeyGreaterOrEqual(Query *query) override {
     return getByKeyGreater(query, ">=");
   }
+  BtrieveError getByKeyLess(Query *query, const char *opurator);
+  virtual BtrieveError getByKeyLess(Query *query) override {
+    return getByKeyLess(query, "<");
+  };
+  virtual BtrieveError getByKeyLessOrEqual(Query *query) override {
+    return getByKeyLess(query, "<=");
+  }
   virtual BtrieveError getByKeyNext(Query *query) override;
   virtual BtrieveError getByKeyPrevious(Query *query) override;
 

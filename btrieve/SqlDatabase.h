@@ -78,6 +78,8 @@ public:
   virtual BtrieveError getByKeyEqual(Query *query) = 0;
   virtual BtrieveError getByKeyGreater(Query *query) = 0;
   virtual BtrieveError getByKeyGreaterOrEqual(Query *query) = 0;
+  virtual BtrieveError getByKeyLess(Query *query) = 0;
+  virtual BtrieveError getByKeyLessOrEqual(Query *query) = 0;
   virtual BtrieveError getByKeyNext(Query *query) = 0;
   virtual BtrieveError getByKeyPrevious(Query *query) = 0;
 
