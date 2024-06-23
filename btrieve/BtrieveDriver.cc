@@ -104,13 +104,15 @@ BtrieveDriver::performOperation(int keyNumber,
       ;
   }
 
+  // TODO check if usesPreviousQuery == true && key numbers don't match
   bool newQuery = !usesPreviousQuery(operationCode);
   if (newQuery || !previousQuery) {
-    const Key *key = nullptr;
-    if (keyNumber >= 0 &&
-        static_cast<size_t>(keyNumber) < sqlDatabase->getKeys().size()) {
-      key = &(sqlDatabase->getKeys()[keyNumber]);
+    if (keyNumber < 0 ||
+        static_cast<unsigned int>(keyNumber) >= sqlDatabase->getKeys().size()) {
+      return BtrieveError::InvalidKeyNumber;
     }
+
+    const Key *key = &(sqlDatabase->getKeys()[keyNumber]);
 
     previousQuery = std::move(
         sqlDatabase->newQuery(sqlDatabase->getPosition(), key, keyData));

@@ -237,8 +237,13 @@ void SqliteDatabase::createSqliteMetadataTable(
   command.bindParameter(3, BindableValue(database.getPageLength()));
   command.bindParameter(4, BindableValue(database.isVariableLengthRecords()));
   command.bindParameter(5, BindableValue(CURRENT_VERSION));
-  command.bindParameter(6, BindableValue(database.getKeys()[0].getACSName()));
-  command.bindParameter(7, BindableValue(database.getKeys()[0].getACS()));
+  if (!database.getKeys().empty()) {
+    command.bindParameter(6, BindableValue(database.getKeys()[0].getACSName()));
+    command.bindParameter(7, BindableValue(database.getKeys()[0].getACS()));
+  } else {
+    command.bindParameter(6, BindableValue());
+    command.bindParameter(7, BindableValue());
+  }
 
   command.execute();
 }

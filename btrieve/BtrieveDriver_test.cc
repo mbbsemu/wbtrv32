@@ -1926,3 +1926,99 @@ TEST_F(BtrieveDriverTest, ACSInsertDuplicateFails) {
                 createRecord("SysoP").data(), ACS_RECORD_LENGTH)),
             0);
 }
+
+static BtrieveDatabase createKeylessBtrieveDatabase() {
+  std::vector<Key> keys;
+  uint16_t pageLength = 512;
+  unsigned int pageCount = 1;
+  unsigned int recordLength = ACS_RECORD_LENGTH;
+  unsigned int physicalRecordLength = ACS_RECORD_LENGTH;
+  unsigned int recordCount = 0;
+  unsigned int fileLength = pageCount * pageLength;
+
+  return BtrieveDatabase(keys, pageLength, pageCount, recordLength,
+                         physicalRecordLength, recordCount, fileLength,
+                         /* variableLengthRecords= */ false);
+}
+
+TEST_F(BtrieveDriverTest, KeylessDatabaseEnumeration) {
+  SqliteDatabase *database = new SqliteDatabase(SQLITE_OPEN_MEMORY);
+  BtrieveDriver driver(database);
+
+  auto recordLoader =
+      database->create("unused.db", createKeylessBtrieveDatabase());
+  recordLoader->onRecordLoaded(std::basic_string_view<uint8_t>(
+      createRecord("Sysop").data(), ACS_RECORD_LENGTH));
+  recordLoader->onRecordLoaded(std::basic_string_view<uint8_t>(
+      createRecord("Paladine").data(), ACS_RECORD_LENGTH));
+  recordLoader->onRecordLoaded(std::basic_string_view<uint8_t>(
+      createRecord("Testing").data(), ACS_RECORD_LENGTH));
+  recordLoader->onRecordsComplete();
+
+  ASSERT_EQ(database->insertRecord(std::basic_string_view<uint8_t>(
+                createRecord("paladine").data(), ACS_RECORD_LENGTH)),
+            4);
+
+  ASSERT_EQ(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
+                                    OperationCode::StepFirst),
+            BtrieveError::Success);
+  auto data = driver.getRecord();
+  ASSERT_TRUE(data.first);
+  ASSERT_EQ(driver.getPosition(), 1);
+  ASSERT_EQ(data.second.getData().size(), ACS_RECORD_LENGTH);
+  ASSERT_EQ(memcmp(data.second.getData().data() + 2, "Sysop", 5), 0);
+
+  ASSERT_EQ(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
+                                    OperationCode::StepPrevious),
+            BtrieveError::InvalidPositioning);
+
+  ASSERT_EQ(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
+                                    OperationCode::StepNext),
+            BtrieveError::Success);
+  data = driver.getRecord();
+  ASSERT_TRUE(data.first);
+  ASSERT_EQ(driver.getPosition(), 2);
+  ASSERT_EQ(data.second.getData().size(), ACS_RECORD_LENGTH);
+  ASSERT_EQ(memcmp(data.second.getData().data() + 2, "Paladine", 8), 0);
+
+  ASSERT_EQ(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
+                                    OperationCode::StepNext),
+            BtrieveError::Success);
+  data = driver.getRecord();
+  ASSERT_TRUE(data.first);
+  ASSERT_EQ(driver.getPosition(), 3);
+  ASSERT_EQ(data.second.getData().size(), ACS_RECORD_LENGTH);
+  ASSERT_EQ(memcmp(data.second.getData().data() + 2, "Testing", 7), 0);
+
+  ASSERT_EQ(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
+                                    OperationCode::StepNext),
+            BtrieveError::Success);
+  data = driver.getRecord();
+  ASSERT_TRUE(data.first);
+  ASSERT_EQ(driver.getPosition(), 4);
+  ASSERT_EQ(data.second.getData().size(), ACS_RECORD_LENGTH);
+  ASSERT_EQ(memcmp(data.second.getData().data() + 2, "paladine", 5), 0);
+
+  ASSERT_EQ(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
+                                    OperationCode::StepNext),
+            BtrieveError::InvalidPositioning);
+}
+
+TEST_F(BtrieveDriverTest, KeylessDataQueryFails) {
+  SqliteDatabase *database = new SqliteDatabase(SQLITE_OPEN_MEMORY);
+  BtrieveDriver driver(database);
+
+  auto recordLoader =
+      database->create("unused.db", createKeylessBtrieveDatabase());
+  recordLoader->onRecordLoaded(std::basic_string_view<uint8_t>(
+      createRecord("Sysop").data(), ACS_RECORD_LENGTH));
+  recordLoader->onRecordLoaded(std::basic_string_view<uint8_t>(
+      createRecord("Paladine").data(), ACS_RECORD_LENGTH));
+  recordLoader->onRecordLoaded(std::basic_string_view<uint8_t>(
+      createRecord("Testing").data(), ACS_RECORD_LENGTH));
+  recordLoader->onRecordsComplete();
+
+  ASSERT_EQ(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
+                                    OperationCode::QueryEqual),
+            BtrieveError::InvalidKeyNumber);
+}
