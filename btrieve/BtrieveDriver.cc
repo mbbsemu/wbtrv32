@@ -104,7 +104,6 @@ BtrieveDriver::performOperation(int keyNumber,
       ;
   }
 
-  // TODO check if usesPreviousQuery == true && key numbers don't match
   bool newQuery = !usesPreviousQuery(operationCode);
   if (newQuery || !previousQuery) {
     if (keyNumber < 0 ||
@@ -118,6 +117,8 @@ BtrieveDriver::performOperation(int keyNumber,
         sqlDatabase->newQuery(sqlDatabase->getPosition(), key, keyData));
   } else if (!previousQuery) {
     return BtrieveError::InvalidKeyPosition;
+  } else if (previousQuery->getKey()->getNumber() != keyNumber) {
+    return BtrieveError::DifferentKeyNumber;
   }
 
   // always using previousQuery from this point onward

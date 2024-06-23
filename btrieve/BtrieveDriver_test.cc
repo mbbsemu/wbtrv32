@@ -2022,3 +2022,52 @@ TEST_F(BtrieveDriverTest, KeylessDataQueryFails) {
                                     OperationCode::QueryEqual),
             BtrieveError::InvalidKeyNumber);
 }
+
+TEST_F(BtrieveDriverTest, SeekByKeyChangeKeyNumbers) {
+  BtrieveDriver driver(new SqliteDatabase());
+
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  driver.open(mbbsEmuDb.c_str());
+
+  uint32_t value = 7776;
+  auto key = std::basic_string_view<uint8_t>(
+      reinterpret_cast<const uint8_t *>(&value), 4);
+
+  ASSERT_EQ(driver.performOperation(1, key, OperationCode::QueryLessOrEqual),
+            BtrieveError::Success);
+
+  auto data = driver.getRecord();
+  ASSERT_TRUE(data.first);
+  ASSERT_EQ(driver.getPosition(), 2);
+  ASSERT_EQ(data.second.getData().size(), 74);
+  const auto *dbRecord = reinterpret_cast<const MBBSEmuRecordStruct *>(
+      data.second.getData().data());
+
+  ASSERT_EQ(dbRecord->key1, 7776);
+
+  ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryNext),
+            BtrieveError::DifferentKeyNumber);
+  ASSERT_EQ(driver.performOperation(2, key, OperationCode::QueryNext),
+            BtrieveError::DifferentKeyNumber);
+  ASSERT_EQ(driver.performOperation(3, key, OperationCode::QueryNext),
+            BtrieveError::DifferentKeyNumber);
+  ASSERT_EQ(driver.performOperation(4, key, OperationCode::QueryNext),
+            BtrieveError::DifferentKeyNumber);
+}
+
+TEST_F(BtrieveDriverTest, SeekByKeyInvalidKey) {
+  BtrieveDriver driver(new SqliteDatabase());
+
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  driver.open(mbbsEmuDb.c_str());
+
+  uint32_t value = 7776;
+  auto key = std::basic_string_view<uint8_t>(
+      reinterpret_cast<const uint8_t *>(&value), 4);
+
+  ASSERT_EQ(driver.performOperation(-1, key, OperationCode::QueryLessOrEqual),
+            BtrieveError::InvalidKeyNumber);
+
+  ASSERT_EQ(driver.performOperation(4, key, OperationCode::QueryLessOrEqual),
+            BtrieveError::InvalidKeyNumber);
+}
