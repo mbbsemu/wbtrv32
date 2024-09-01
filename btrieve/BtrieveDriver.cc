@@ -7,7 +7,7 @@
 #ifdef _WIN32
 #include <io.h>
 #include <stdio.h>
-#define WIN32_LEAN_AND_MEAN             // Exclude rarely-used stuff from Windows headers
+#define WIN32_LEAN_AND_MEAN // Exclude rarely-used stuff from Windows headers
 #include <windows.h>
 #else
 #include <unistd.h>
@@ -16,19 +16,34 @@
 namespace btrieve {
 BtrieveDriver::~BtrieveDriver() { close(); }
 
-static inline bool fileExists(const tchar *filename, int64_t &fileModificationNanos) {
+static inline bool fileExists(const tchar *filename,
+                              int64_t &fileModificationNanos) {
+#ifdef WIN32
   WIN32_FILE_ATTRIBUTE_DATA fileAttributeData;
 
-  if (GetFileAttributesEx(filename, GetFileExInfoStandard, &fileAttributeData) == 0) {
+  if (GetFileAttributesEx(filename, GetFileExInfoStandard,
+                          &fileAttributeData) == 0) {
     return false;
   }
 
-  fileModificationNanos = *reinterpret_cast<int64_t*>(&fileAttributeData.ftLastWriteTime);
+  // TODO check this
+  fileModificationNanos =
+      *reinterpret_cast<int64_t *>(&fileAttributeData.ftLastWriteTime);
   return true;
+#else
+  struct stat stbuf;
+  if (stat(filename, &stbuf)) {
+    return false;
+  }
+
+  fileModificationNanos =
+      (stbuf.st_mtim.tv_sec * 1000000000l) + stbuf.st_mtim.tv_nsec;
+  return true;
+#endif
 }
 
-static std::wstring toUpper(const std::wstring &value) {
-  std::wstring ret(value);
+static std::basic_string<tchar> toUpper(const std::basic_string<tchar> &value) {
+  std::basic_string<tchar> ret(value);
   for (size_t i = 0; i < ret.size(); ++i) {
     ret[i] = toupper(ret[i]);
   }
@@ -168,44 +183,6 @@ BtrieveDriver::performOperation(int keyNumber,
   default:
     return BtrieveError::OperationNotAllowed;
   }
-
-  /*
-  return btrieveOperationCode switch
-  {
-      EnumBtrieveOperationCodes.AcquireEqual => GetByKeyEqual(currentQuery),
-      EnumBtrieveOperationCodes.QueryEqual => GetByKeyEqual(currentQuery),
-
-      EnumBtrieveOperationCodes.AcquireFirst => GetByKeyFirst(currentQuery),
-      EnumBtrieveOperationCodes.QueryFirst => GetByKeyFirst(currentQuery),
-
-      EnumBtrieveOperationCodes.AcquireLast => GetByKeyLast(currentQuery),
-      EnumBtrieveOperationCodes.QueryLast => GetByKeyLast(currentQuery),
-
-      EnumBtrieveOperationCodes.AcquireGreater => GetByKeyGreater(currentQuery,
-  ">"), EnumBtrieveOperationCodes.QueryGreater => GetByKeyGreater(currentQuery,
-  ">"), EnumBtrieveOperationCodes.AcquireGreaterOrEqual =>
-  GetByKeyGreater(currentQuery, ">="),
-      EnumBtrieveOperationCodes.QueryGreaterOrEqual =>
-  GetByKeyGreater(currentQuery, ">="),
-
-      EnumBtrieveOperationCodes.AcquireLess => GetByKeyLess(currentQuery, "<"),
-      EnumBtrieveOperationCodes.QueryLess => GetByKeyLess(currentQuery, "<"),
-      EnumBtrieveOperationCodes.AcquireLessOrEqual => GetByKeyLess(currentQuery,
-  "<="), EnumBtrieveOperationCodes.QueryLessOrEqual =>
-  GetByKeyLess(currentQuery, "<="),
-
-      EnumBtrieveOperationCodes.AcquireNext => GetByKeyNext(currentQuery),
-      EnumBtrieveOperationCodes.QueryNext => GetByKeyNext(currentQuery),
-
-      EnumBtrieveOperationCodes.AcquirePrevious =>
-  GetByKeyPrevious(currentQuery), EnumBtrieveOperationCodes.QueryPrevious =>
-  GetByKeyPrevious(currentQuery),
-
-      _ => throw new Exception($"Unsupported Operation Code:
-  {
-    btrieveOperationCode}")
-  };
-  */
 }
 
 } // namespace btrieve

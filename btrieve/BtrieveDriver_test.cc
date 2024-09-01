@@ -10,9 +10,9 @@
 #define _WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #endif
+#include "TestBase.h"
 #include <filesystem>
 #include <sys/types.h>
-#include "TestBase.h"
 
 /* Data layout as follows:
 
@@ -41,7 +41,7 @@ static int sqlite_exec(sqlite3 *db, const char *sql,
       &onData, nullptr);
 }
 
-static std::string fromPath(const std::filesystem::path& path) {
+static std::string fromPath(const std::filesystem::path &path) {
 #ifdef WIN32
   char ret[MAX_PATH];
   size_t unused;
@@ -72,7 +72,8 @@ TEST_F(BtrieveDriverTest, LoadsAndConverts) {
     convertedDbPath = fromPath(dbPath);
 
 #ifdef WIN32
-    ASSERT_NE(GetFileAttributesA(convertedDbPath.c_str()), INVALID_FILE_ATTRIBUTES);
+    ASSERT_NE(GetFileAttributesA(convertedDbPath.c_str()),
+              INVALID_FILE_ATTRIBUTES);
 #else
     ASSERT_EQ(stat(dbPath.c_str(), &statbuf), 0);
 #endif
@@ -480,7 +481,8 @@ TEST_F(BtrieveDriverTest, DeleteAll) {
 TEST_F(BtrieveDriverTest, Delete) {
   BtrieveDriver driver(new SqliteDatabase());
 
-  auto mbbsEmuDb = tempPath->copyToTempPath("assets" PATH_SEPARATOR "MBBSEMU.DB");
+  auto mbbsEmuDb =
+      tempPath->copyToTempPath("assets" PATH_SEPARATOR "MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
 
   driver.setPosition(2);
@@ -1759,7 +1761,8 @@ TEST_F(BtrieveDriverTest, ACSSeekByKey) {
   SqliteDatabase *database = new SqliteDatabase(SQLITE_OPEN_MEMORY);
   BtrieveDriver driver(database);
 
-  auto recordLoader = database->create(TEXT("unused.db"), createACSBtrieveDatabase());
+  auto recordLoader =
+      database->create(TEXT("unused.db"), createACSBtrieveDatabase());
   recordLoader->onRecordsComplete();
 
   ASSERT_EQ(database->insertRecord(std::basic_string_view<uint8_t>(
@@ -1790,7 +1793,8 @@ TEST_F(BtrieveDriverTest, ACSInsertDuplicateFails) {
   SqliteDatabase *database = new SqliteDatabase(SQLITE_OPEN_MEMORY);
   BtrieveDriver driver(database);
 
-  auto recordLoader = database->create(TEXT("unused.db"), createACSBtrieveDatabase());
+  auto recordLoader =
+      database->create(TEXT("unused.db"), createACSBtrieveDatabase());
   recordLoader->onRecordsComplete();
 
   ASSERT_EQ(database->insertRecord(std::basic_string_view<uint8_t>(

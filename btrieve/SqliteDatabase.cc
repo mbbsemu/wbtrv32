@@ -189,8 +189,8 @@ std::unique_ptr<RecordLoader>
 SqliteDatabase::create(const tchar *fileName, const BtrieveDatabase &database) {
   sqlite3 *db;
   int errorCode = sqlite3_open_v2(
-      toStdString(fileName).c_str(), &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | openFlags,
-      nullptr);
+      toStdString(fileName).c_str(), &db,
+      SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | openFlags, nullptr);
   if (errorCode != SQLITE_OK) {
     throwException(errorCode);
   }
@@ -535,7 +535,8 @@ SqliteDatabase::insertRecord(std::basic_string_view<uint8_t> record) {
   }
 
   int numRowsAffected = sqlite3_changes(database.get());
-  unsigned int lastInsertRowId = static_cast<unsigned int>(sqlite3_last_insert_rowid(database.get()));
+  unsigned int lastInsertRowId =
+      static_cast<unsigned int>(sqlite3_last_insert_rowid(database.get()));
 
   try {
     transaction.commit();

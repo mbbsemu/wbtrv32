@@ -18,6 +18,12 @@ int main(int argc, const char **argv) {
 
       printf("Successfully read all %d records from %s\n", recordCount,
              argv[i]);
+
+      for (auto &key : database.getKeys()) {
+        for (auto &segment : key.getSegments()) {
+         printf("Key datatype %d\n", segment.getDataType());
+        }
+      }
     } catch (btrieve::BtrieveException &ex) {
       fprintf(stderr, "Error while parsing %s: %s\n", argv[i],
               ex.getErrorMessage().c_str());

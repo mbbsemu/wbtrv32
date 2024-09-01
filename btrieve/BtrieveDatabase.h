@@ -3,10 +3,10 @@
 
 #include "Key.h"
 #include "Text.h"
+#include <functional>
 #include <string>
 #include <unordered_set>
 #include <vector>
-#include <functional>
 
 namespace btrieve {
 class BtrieveDatabase {

@@ -1,4 +1,4 @@
-TEST_SRCS = glob(["*_test.cc"])
+TEST_SRCS = glob(["*_test.cc"]) + ["TestBase.cc"]
 
 SQLITE_DATABASE_SRCS = ["SqliteDatabase.cc", "SqliteUtil.cc"]
 

@@ -61,7 +61,7 @@ public:
       break;
     case BindableValue::Type::Text: {
       const std::string &text = value.getStringValue();
-      char *copy = _strdup(text.c_str());
+      char *copy = strdup(text.c_str());
       errorCode = sqlite3_bind_text(statement.get(), parameter, copy,
                                     static_cast<int>(text.length()), ::free);
       if (errorCode != SQLITE_OK) {

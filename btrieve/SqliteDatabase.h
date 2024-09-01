@@ -19,7 +19,7 @@ public:
 
   virtual ~SqliteDatabase() { close(); }
 
-  virtual const tchar *getFileExtension() override { return L"db"; };
+  virtual const tchar *getFileExtension() override { return TEXT("db"); };
 
   virtual void open(const tchar *fileName) override;
 
