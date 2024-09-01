@@ -6,6 +6,10 @@
 #include "sqlite/sqlite3.h"
 #include <memory>
 
+#ifndef WIN32
+#define _strdup strdup
+#endif
+
 namespace btrieve {
 class SqlitePreparedStatement {
 public:
@@ -61,7 +65,7 @@ public:
       break;
     case BindableValue::Type::Text: {
       const std::string &text = value.getStringValue();
-      char *copy = strdup(text.c_str());
+      char *copy = _strdup(text.c_str());
       errorCode = sqlite3_bind_text(statement.get(), parameter, copy,
                                     static_cast<int>(text.length()), ::free);
       if (errorCode != SQLITE_OK) {
