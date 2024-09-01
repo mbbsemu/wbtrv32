@@ -6,6 +6,7 @@
 #include "SqlDatabase.h"
 #include "SqlitePreparedStatement.h"
 #include "SqliteTransaction.h"
+#include "Text.h"
 #include "sqlite/sqlite3.h"
 #include <memory>
 
@@ -18,12 +19,12 @@ public:
 
   virtual ~SqliteDatabase() { close(); }
 
-  virtual const char *getFileExtension() override { return "db"; };
+  virtual const tchar *getFileExtension() override { return L"db"; };
 
-  virtual void open(const char *fileName) override;
+  virtual void open(const tchar *fileName) override;
 
   virtual std::unique_ptr<RecordLoader>
-  create(const char *fileName, const BtrieveDatabase &database) override;
+  create(const tchar *fileName, const BtrieveDatabase &database) override;
 
   virtual void close() override;
 

@@ -61,9 +61,9 @@ public:
       break;
     case BindableValue::Type::Text: {
       const std::string &text = value.getStringValue();
-      char *copy = strdup(text.c_str());
+      char *copy = _strdup(text.c_str());
       errorCode = sqlite3_bind_text(statement.get(), parameter, copy,
-                                    text.length(), ::free);
+                                    static_cast<int>(text.length()), ::free);
       if (errorCode != SQLITE_OK) {
         throwException(errorCode);
       }
@@ -74,7 +74,7 @@ public:
       memcpy(copy, blob.data(), blob.size());
 
       errorCode = sqlite3_bind_blob(statement.get(), parameter, copy,
-                                    blob.size(), ::free);
+                                    static_cast<int>(blob.size()), ::free);
       if (errorCode != SQLITE_OK) {
         throwException(errorCode);
       }

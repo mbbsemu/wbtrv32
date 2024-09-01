@@ -3,9 +3,16 @@
 #include "SqliteDatabase.h"
 #include "gtest/gtest.h"
 #include <cstdio>
+#include <stdlib.h>
+#ifndef WIN32
 #include <dirent.h>
+#else
+#define _WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
 #include <filesystem>
 #include <sys/types.h>
+#include "TestBase.h"
 
 /* Data layout as follows:
 
@@ -34,152 +41,18 @@ static int sqlite_exec(sqlite3 *db, const char *sql,
       &onData, nullptr);
 }
 
-#pragma pack(push, 1)
-typedef struct _taguuid {
-  uint32_t a;
-  uint16_t b;
-  uint16_t c;
-  uint16_t d;
-  uint16_t e;
-  uint32_t f;
-} uuid;
-#pragma pack(pop)
+static std::string fromPath(const std::filesystem::path& path) {
+#ifdef WIN32
+  char ret[MAX_PATH];
+  size_t unused;
+  wcstombs_s(&unused, ret, path.c_str(), _TRUNCATE);
+  return std::string(ret);
+#else
+  return path.c_str();
+#endif
+}
 
-static_assert(sizeof(uuid) == 16);
-
-class TempPath {
-public:
-  TempPath() = default;
-
-  bool create() {
-    char buf[64];
-    uuid id;
-    std::unique_ptr<FILE, decltype(&fclose)> f(fopen("/dev/random", "r"),
-                                               &fclose);
-    if (!f) {
-      return false;
-    }
-
-    if (fread(&id, 1, sizeof(id), f.get()) != sizeof(id)) {
-      return false;
-    }
-
-    snprintf(buf, sizeof(buf), "%X-%X-%X-%X-%X%X", id.a, id.b, id.c, id.d, id.e,
-             id.f);
-    buf[sizeof(buf) - 1] = 0;
-
-    tempFolder = buf;
-
-    std::string tempPath = getTempPath();
-    int result = mkdir(tempPath.c_str(), 0700);
-
-    if (result == 0) {
-      return true;
-    } else if (result == EEXIST) {
-      deleteAllFiles(tempPath.c_str());
-      return true;
-    }
-
-    return false;
-  }
-
-  ~TempPath() {
-    auto tempPath = getTempPath();
-
-    deleteAllFiles(tempPath.c_str());
-
-    rmdir(tempPath.c_str());
-  }
-
-  std::string getTempPath() {
-    std::filesystem::path tempPath(testing::TempDir());
-    tempPath /= std::filesystem::path(tempFolder.c_str());
-
-    return tempPath.c_str();
-  }
-
-  std::string copyToTempPath(const char *filePath) {
-    const size_t bufferSize = 32 * 1024;
-
-    std::filesystem::path destPath(getTempPath());
-    destPath /= std::filesystem::path(filePath).filename();
-
-    {
-      std::unique_ptr<FILE, decltype(&fclose)> sourceFile(fopen(filePath, "r"),
-                                                          &fclose);
-      if (!sourceFile) {
-        throw BtrieveException("Can't open %s\n", filePath);
-      }
-
-      std::unique_ptr<FILE, decltype(&fclose)> destFile(
-          fopen(destPath.c_str(), "w"), &fclose);
-      if (!destFile) {
-        throw BtrieveException("Can't open %s\n", destPath.c_str());
-      }
-
-      size_t numRead;
-      size_t numWritten;
-      std::unique_ptr<uint8_t> buffer(new uint8_t[bufferSize]);
-      while ((numRead = fread(reinterpret_cast<void *>(buffer.get()), 1,
-                              bufferSize, sourceFile.get())) > 0) {
-        numWritten = fwrite(reinterpret_cast<void *>(buffer.get()), 1, numRead,
-                            destFile.get());
-        if (numWritten != numRead) {
-          throw BtrieveException("Can't write data\n");
-        }
-      }
-    }
-
-    return destPath;
-  }
-
-private:
-  void deleteAllFiles(const char *filePath) {
-    std::list<std::string> filesToUnlink;
-    {
-      struct closedir_deleter {
-        void operator()(DIR *d) const { closedir(d); }
-      };
-
-      std::unique_ptr<DIR, closedir_deleter> dir(opendir(filePath));
-      if (dir) {
-        struct dirent *d;
-
-        while ((d = readdir(dir.get()))) {
-          if (strcmp(d->d_name, ".") && strcmp(d->d_name, "..")) {
-            filesToUnlink.push_back(d->d_name);
-          }
-        }
-      }
-    }
-
-    for (auto &fileName : filesToUnlink) {
-      std::filesystem::path path(filePath);
-      path /= fileName;
-
-      EXPECT_EQ(unlink(path.c_str()), 0);
-    }
-  }
-
-  std::string tempFolder;
-};
-
-class BtrieveDriverTest : public ::testing::Test {
-protected:
-  TempPath *tempPath;
-
-public:
-  BtrieveDriverTest() = default;
-
-  virtual ~BtrieveDriverTest() = default;
-
-  virtual void SetUp() {
-    tempPath = new TempPath();
-    ASSERT_TRUE(tempPath->create());
-  }
-
-  virtual void TearDown() { delete tempPath; }
-};
+class BtrieveDriverTest : public TestBase {};
 
 TEST_F(BtrieveDriverTest, LoadsAndConverts) {
   std::string convertedDbPath;
@@ -196,9 +69,13 @@ TEST_F(BtrieveDriverTest, LoadsAndConverts) {
     std::filesystem::path dbPath(mbbsEmuDat);
     dbPath.remove_filename();
     dbPath /= "MBBSEMU.db";
-    convertedDbPath = dbPath.c_str();
+    convertedDbPath = fromPath(dbPath);
 
+#ifdef WIN32
+    ASSERT_NE(GetFileAttributesA(convertedDbPath.c_str()), INVALID_FILE_ATTRIBUTES);
+#else
     ASSERT_EQ(stat(dbPath.c_str(), &statbuf), 0);
+#endif
 
     EXPECT_EQ(driver.getRecordLength(), 74);
     EXPECT_FALSE(driver.isVariableLengthRecords());
@@ -594,10 +471,16 @@ TEST_F(BtrieveDriverTest, DeleteAll) {
   ASSERT_EQ(driver.getPosition(), 0);
 }
 
+#ifdef WIN32
+#define PATH_SEPARATOR "\\"
+#else
+#define PATH_SEPARATOR "/"
+#endif
+
 TEST_F(BtrieveDriverTest, Delete) {
   BtrieveDriver driver(new SqliteDatabase());
 
-  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets" PATH_SEPARATOR "MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
 
   driver.setPosition(2);
@@ -1876,7 +1759,7 @@ TEST_F(BtrieveDriverTest, ACSSeekByKey) {
   SqliteDatabase *database = new SqliteDatabase(SQLITE_OPEN_MEMORY);
   BtrieveDriver driver(database);
 
-  auto recordLoader = database->create("unused.db", createACSBtrieveDatabase());
+  auto recordLoader = database->create(TEXT("unused.db"), createACSBtrieveDatabase());
   recordLoader->onRecordsComplete();
 
   ASSERT_EQ(database->insertRecord(std::basic_string_view<uint8_t>(
@@ -1907,7 +1790,7 @@ TEST_F(BtrieveDriverTest, ACSInsertDuplicateFails) {
   SqliteDatabase *database = new SqliteDatabase(SQLITE_OPEN_MEMORY);
   BtrieveDriver driver(database);
 
-  auto recordLoader = database->create("unused.db", createACSBtrieveDatabase());
+  auto recordLoader = database->create(TEXT("unused.db"), createACSBtrieveDatabase());
   recordLoader->onRecordsComplete();
 
   ASSERT_EQ(database->insertRecord(std::basic_string_view<uint8_t>(
@@ -1946,7 +1829,7 @@ TEST_F(BtrieveDriverTest, KeylessDatabaseEnumeration) {
   BtrieveDriver driver(database);
 
   auto recordLoader =
-      database->create("unused.db", createKeylessBtrieveDatabase());
+      database->create(TEXT("unused.db"), createKeylessBtrieveDatabase());
   recordLoader->onRecordLoaded(std::basic_string_view<uint8_t>(
       createRecord("Sysop").data(), ACS_RECORD_LENGTH));
   recordLoader->onRecordLoaded(std::basic_string_view<uint8_t>(
@@ -2009,7 +1892,7 @@ TEST_F(BtrieveDriverTest, KeylessDataQueryFails) {
   BtrieveDriver driver(database);
 
   auto recordLoader =
-      database->create("unused.db", createKeylessBtrieveDatabase());
+      database->create(TEXT("unused.db"), createKeylessBtrieveDatabase());
   recordLoader->onRecordLoaded(std::basic_string_view<uint8_t>(
       createRecord("Sysop").data(), ACS_RECORD_LENGTH));
   recordLoader->onRecordLoaded(std::basic_string_view<uint8_t>(

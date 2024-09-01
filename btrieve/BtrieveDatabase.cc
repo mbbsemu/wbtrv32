@@ -59,7 +59,7 @@ static void getRecordPointerList(FILE *f, uint32_t first,
 static inline uint32_t
 getPageFromVariableLengthRecordPointer(std::basic_string_view<uint8_t> data) {
   // high low mid, yep - it's stupid
-  return (uint)data[0] << 16 | (uint)data[1] | (uint)data[2] << 8;
+  return static_cast<uint32_t>(data[0]) << 16 | static_cast<uint32_t>(data[1]) | static_cast<uint32_t>(data[2]) << 8;
 }
 
 static uint16_t
@@ -70,14 +70,14 @@ getPageOffsetFromFragmentArray(std::basic_string_view<uint8_t> arrayEntry,
     return 0xFFFF;
   }
 
-  uint16_t offset = (uint)arrayEntry[0] | ((uint)arrayEntry[1] & 0x7F) << 8;
+  uint16_t offset = static_cast<uint16_t>(arrayEntry[0]) | (static_cast<uint16_t>(arrayEntry[1]) & 0x7F) << 8;
   nextPointerExists = (arrayEntry[1] & 0x80) != 0;
   return offset;
 }
 
 static void append(std::vector<uint8_t> &vector,
                    std::basic_string_view<uint8_t> data) {
-  unsigned int vectorSize = vector.size();
+  size_t vectorSize = vector.size();
   vector.resize(vectorSize + data.size());
   memcpy(vector.data() + vectorSize, data.data(), data.size());
 }
@@ -233,12 +233,12 @@ void BtrieveDatabase::loadRecords(
 }
 
 void BtrieveDatabase::parseDatabase(
-    const char *fileName, std::function<bool()> onMetadataLoaded,
+    const tchar *fileName, std::function<bool()> onMetadataLoaded,
     std::function<bool(const std::basic_string_view<uint8_t>)> onRecordLoaded,
     std::function<void()> onRecordsComplete) {
-  FILE *f = fopen(fileName, "rb");
+  FILE *f = _wfopen(fileName, TEXT("rb"));
   if (f == nullptr) {
-    fprintf(stderr, "Couldn't open %s\n", fileName);
+    fwprintf(stderr, TEXT("Couldn't open %s\n"), fileName);
     return;
   }
 
@@ -285,7 +285,7 @@ void BtrieveDatabase::loadKeyDefinitions(FILE *f, const uint8_t *firstPage,
   unsigned int keyDefinitionBase = 0x110;
   const auto keyDefinitionLength = 0x1E;
 
-  unsigned int totalKeys = keys.size();
+  size_t totalKeys = keys.size();
   unsigned int currentKeyNumber = 0;
   while (currentKeyNumber < totalKeys) {
     auto data = std::basic_string_view<uint8_t>(firstPage + keyDefinitionBase,
@@ -305,7 +305,7 @@ void BtrieveDatabase::loadKeyDefinitions(FILE *f, const uint8_t *firstPage,
         /* offset= */ toUint16(data.data() + 0x14), dataType, attributes,
         /* segment= */ attributes & SegmentedKey,
         /* segmentOf= */
-        (attributes & SegmentedKey) ? currentKeyNumber : (ushort)0,
+        (attributes & SegmentedKey) ? currentKeyNumber : static_cast<uint16_t>(0),
         /* segmentIndex= */ 0,
         /* nullValue= */ data[0x1D], acsName, acs);
 

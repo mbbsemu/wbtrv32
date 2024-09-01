@@ -1,3 +1,7 @@
 bazel-*
 MODULE.bazel.lock
 .vscode/
+bin/
+obj/
+vstudio/packages/
+vstudio/.vs/

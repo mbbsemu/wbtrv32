@@ -10,14 +10,14 @@ TEST(BtrieveDatabase, LoadsMBBSEmuDat) {
   std::vector<char> blankACS;
 
   database.parseDatabase(
-      "assets/MBBSEMU.DAT", []() { return true; },
+      TEXT("assets/MBBSEMU.DAT"), []() { return true; },
       [&database, &recordCount](std::basic_string_view<uint8_t> record) {
         EXPECT_EQ(record.size(), database.getRecordLength());
         ++recordCount;
         return true;
       });
 
-  EXPECT_EQ(database.getKeys().size(), 4);
+  ASSERT_EQ(database.getKeys().size(), 4);
   EXPECT_EQ(database.getRecordLength(), 74);
   EXPECT_EQ(database.getRecordCount(), 4);
   EXPECT_EQ(database.getPhysicalRecordLength(), 90);
@@ -65,7 +65,7 @@ TEST(BtrieveDatabase, LoadsVariableDat) {
   std::vector<char> blankACS;
 
   database.parseDatabase(
-      "assets/VARIABLE.DAT", []() { return true; },
+      TEXT("assets/VARIABLE.DAT"), []() { return true; },
       [&database, &recordCount](std::basic_string_view<uint8_t> record) {
         EXPECT_GT(record.size(), database.getRecordLength() - 1);
 
@@ -84,7 +84,7 @@ TEST(BtrieveDatabase, LoadsVariableDat) {
         return true;
       });
 
-  EXPECT_EQ(database.getKeys().size(), 2);
+  ASSERT_EQ(database.getKeys().size(), 2);
   EXPECT_EQ(database.getRecordLength(), 8);
   EXPECT_EQ(database.getRecordCount(), 1024);
   EXPECT_EQ(database.getPhysicalRecordLength(), 20);

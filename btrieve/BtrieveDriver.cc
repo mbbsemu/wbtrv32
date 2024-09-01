@@ -4,41 +4,56 @@
 #include <memory>
 #include <sys/stat.h>
 #include <sys/types.h>
+#ifdef _WIN32
+#include <io.h>
+#include <stdio.h>
+#define WIN32_LEAN_AND_MEAN             // Exclude rarely-used stuff from Windows headers
+#include <windows.h>
+#else
 #include <unistd.h>
+#endif
 
 namespace btrieve {
 BtrieveDriver::~BtrieveDriver() { close(); }
 
-static inline uint64_t toNanos(struct timespec *ts) {
-  return static_cast<uint64_t>(ts->tv_sec) * 1000000 + ts->tv_nsec;
+static inline bool fileExists(const tchar *filename, int64_t &fileModificationNanos) {
+  WIN32_FILE_ATTRIBUTE_DATA fileAttributeData;
+
+  if (GetFileAttributesEx(filename, GetFileExInfoStandard, &fileAttributeData) == 0) {
+    return false;
+  }
+
+  fileModificationNanos = *reinterpret_cast<int64_t*>(&fileAttributeData.ftLastWriteTime);
+  return true;
 }
 
-static std::string toUpper(const std::string &value) {
-  std::string ret(value);
+static std::wstring toUpper(const std::wstring &value) {
+  std::wstring ret(value);
   for (size_t i = 0; i < ret.size(); ++i) {
     ret[i] = toupper(ret[i]);
   }
   return ret;
 }
 
-void BtrieveDriver::open(const char *fileName) {
-  struct stat statbufdat;
-  struct stat statbufdb;
+#ifdef _WIN32
+#define unlink _wunlink
+#endif
 
-  memset(&statbufdat, 0, sizeof(statbufdat));
-  memset(&statbufdb, 0, sizeof(statbufdb));
+void BtrieveDriver::open(const tchar *fileName) {
+  int64_t fileModificationTimeDat;
+  int64_t fileModificationTimeDb;
 
   std::filesystem::path dbPath =
       std::filesystem::path(fileName).replace_extension(
           sqlDatabase->getFileExtension());
 
-  bool datExists = stat(fileName, &statbufdat) == 0;
-  bool dbExists = stat(dbPath.c_str(), &statbufdb) == 0;
+  bool datExists = fileExists(fileName, fileModificationTimeDat);
+  bool dbExists = fileExists(dbPath.c_str(), fileModificationTimeDb);
   if (!dbExists) {
     // failed to find db, let's uppercase and try again
     std::filesystem::path dbPathUpper = dbPath;
     dbPathUpper.replace_extension(toUpper(sqlDatabase->getFileExtension()));
-    dbExists = stat(dbPathUpper.c_str(), &statbufdb) == 0;
+    dbExists = fileExists(dbPathUpper.c_str(), fileModificationTimeDb);
     if (dbExists) {
       dbPath = dbPathUpper;
     }
@@ -47,7 +62,7 @@ void BtrieveDriver::open(const char *fileName) {
   // if both DAT/DB exist, check if the DAT has an a newer time, if so
   // we want to reconvert it by deleting the DB
   if (datExists && dbExists &&
-      toNanos(&statbufdat.st_mtim) > toNanos(&statbufdb.st_mtim)) {
+      fileModificationTimeDat > fileModificationTimeDb) {
     //_logger.Warn($"{fullPathDAT} is newer than {fullPathDB}, reconverting the
     // DAT -> DB");
     unlink(dbPath.c_str());

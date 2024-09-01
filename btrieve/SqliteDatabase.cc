@@ -91,9 +91,9 @@ private:
 
 // Opens a Btrieve database as a sql backed file. Will convert a legacy file
 // in place if required. Throws a BtrieveException if something fails.
-void SqliteDatabase::open(const char *fileName) {
+void SqliteDatabase::open(const tchar *fileName) {
   sqlite3 *db;
-  int errorCode = sqlite3_open_v2(fileName, &db,
+  int errorCode = sqlite3_open_v2(toStdString(fileName).c_str(), &db,
                                   SQLITE_OPEN_READWRITE | openFlags, nullptr);
   if (errorCode != SQLITE_OK) {
     throwException(errorCode);
@@ -186,10 +186,10 @@ void SqliteDatabase::loadSqliteKeys(const std::string &acsName,
 }
 
 std::unique_ptr<RecordLoader>
-SqliteDatabase::create(const char *fileName, const BtrieveDatabase &database) {
+SqliteDatabase::create(const tchar *fileName, const BtrieveDatabase &database) {
   sqlite3 *db;
   int errorCode = sqlite3_open_v2(
-      fileName, &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | openFlags,
+      toStdString(fileName).c_str(), &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | openFlags,
       nullptr);
   if (errorCode != SQLITE_OK) {
     throwException(errorCode);
@@ -426,8 +426,7 @@ const Record &SqliteDatabase::cacheBtrieveRecord(unsigned int position,
                                                  const SqliteReader &reader,
                                                  unsigned int columnOrdinal) {
   const Record &record = readRecord(position, reader, columnOrdinal);
-  cache.cache(position, record);
-  return record;
+  return cache.cache(position, record);
 }
 
 std::pair<bool, Record> SqliteDatabase::selectRecord(unsigned int position) {
@@ -536,7 +535,7 @@ SqliteDatabase::insertRecord(std::basic_string_view<uint8_t> record) {
   }
 
   int numRowsAffected = sqlite3_changes(database.get());
-  unsigned int lastInsertRowId = sqlite3_last_insert_rowid(database.get());
+  unsigned int lastInsertRowId = static_cast<unsigned int>(sqlite3_last_insert_rowid(database.get()));
 
   try {
     transaction.commit();

@@ -13,7 +13,7 @@ template <typename K, typename V> class LRUCache {
 public:
   LRUCache(size_t maxSize_) : maxSize(maxSize_) {}
 
-  void cache(const K &key, const V &value) {
+  V &cache(const K &key, const V &value) {
     auto pos = keyValuesMap.find(key);
     if (pos == keyValuesMap.end()) {
       orderedKeys.push_front(key);
@@ -23,6 +23,8 @@ public:
         keyValuesMap.erase(orderedKeys.back());
         orderedKeys.pop_back();
       }
+
+      return *(keyValuesMap.find(key)->second.first);
     } else {
       orderedKeys.erase(pos->second.second);
       orderedKeys.push_front(key);
@@ -30,6 +32,8 @@ public:
       // update the values in keyValuesMap
       pos->second.first = std::shared_ptr<V>(new V(value));
       pos->second.second = orderedKeys.begin();
+
+      return *(pos->second.first);
     }
   }
 

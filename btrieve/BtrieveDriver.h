@@ -5,6 +5,7 @@
 #include "OperationCode.h"
 #include "Record.h"
 #include "SqlDatabase.h"
+#include "Text.h"
 #include <memory>
 
 namespace btrieve {
@@ -19,7 +20,7 @@ public:
 
   ~BtrieveDriver();
 
-  void open(const char *fileName);
+  void open(const tchar *fileName);
 
   // Closes an opened database.
   void close();

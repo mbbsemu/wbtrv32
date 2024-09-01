@@ -6,6 +6,7 @@
 #include "LRUCache.h"
 #include "OperationCode.h"
 #include "Query.h"
+#include "Text.h"
 #include <memory>
 
 namespace btrieve {
@@ -27,14 +28,14 @@ public:
 
   virtual ~SqlDatabase() = default;
 
-  virtual const char *getFileExtension() = 0;
+  virtual const tchar *getFileExtension() = 0;
 
   // Opens a Btrieve database as a sql backed file.
-  virtual void open(const char *fileName) = 0;
+  virtual void open(const tchar *fileName) = 0;
 
   // Creates a new sql backed file using database as the source of records
   virtual std::unique_ptr<RecordLoader>
-  create(const char *fileName, const BtrieveDatabase &database) = 0;
+  create(const tchar *fileName, const BtrieveDatabase &database) = 0;
 
   // Closes an opened database.
   virtual void close() = 0;
