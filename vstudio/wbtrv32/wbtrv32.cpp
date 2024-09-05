@@ -6,6 +6,7 @@
 #include "btrieve\SqliteDatabase.h"
 #include "combaseapi.h"
 #include "framework.h"
+#include "wbtrv32.h"
 
 static std::unordered_map<std::wstring, std::unique_ptr<btrieve::BtrieveDriver>>
     _openFiles;
@@ -70,6 +71,19 @@ static btrieve::BtrieveError Open(BtrieveCommand &command) {
   }
 }
 
+static btrieve::BtrieveDriver* getOpenDatabase(LPVOID lpPositioningBlock) {
+  WCHAR guidStr[64];
+  StringFromGUID2(*reinterpret_cast<GUID*>(lpPositioningBlock), guidStr,
+    ARRAYSIZE(guidStr));
+
+  auto iterator = _openFiles.find(std::wstring(guidStr));
+  if (iterator == _openFiles.end()) {
+    return nullptr;
+  }
+  return iterator->second.get();
+  
+}
+
 static btrieve::BtrieveError Close(BtrieveCommand &command) {
   WCHAR guidStr[64];
   StringFromGUID2(*reinterpret_cast<GUID *>(command.lpPositionBlock), guidStr,
@@ -83,6 +97,79 @@ static btrieve::BtrieveError Close(BtrieveCommand &command) {
   return btrieve::BtrieveError::Success;
 }
 
+static btrieve::BtrieveError Stat(BtrieveCommand& command) {
+  auto btrieveDriver = getOpenDatabase(command.lpPositionBlock);
+  if (btrieveDriver == nullptr) {
+    return btrieve::BtrieveError::FileNotOpen;
+  }
+
+  if (command.lpKeyBuffer && command.lpKeyBufferLength > 0) {
+    *reinterpret_cast<uint8_t*>(command.lpKeyBuffer) = 0;
+  }
+
+  unsigned int requiredSize = sizeof(wbtrv32::FILESPEC) + (btrieveDriver->getKeys().size() * sizeof(wbtrv32::KEYSPEC));
+  if (*command.lpdwDataBufferLength < requiredSize) {
+    return btrieve::BtrieveError::DataBufferLengthOverrun;
+  }
+  
+  *command.lpdwDataBufferLength = requiredSize;
+
+  wbtrv32::LPFILESPEC lpFileSpec = reinterpret_cast<wbtrv32::LPFILESPEC>(command.lpDataBuffer);
+  lpFileSpec->logicalFixedRecordLength = btrieveDriver->getRecordLength();
+  lpFileSpec->pageSize = 512; // doesn't matter, not needed for sqlite
+  lpFileSpec->numberOfKeys = btrieveDriver->getKeys().size();
+  lpFileSpec->fileVersion = 0x60; // this is 6.0
+  lpFileSpec->recordCount = btrieveDriver->getRecordCount();
+  lpFileSpec->fileFlags = btrieveDriver->isVariableLengthRecords() ? 1 : 0;
+  lpFileSpec->numExtraPointers = 0;
+  lpFileSpec->physicalPageSize = 1; // in 512-byte blocks
+  lpFileSpec->preallocatedPages = 0;
+
+  wbtrv32::LPKEYSPEC lpKeySpec = reinterpret_cast<wbtrv32::LPKEYSPEC>(lpFileSpec + 1);
+  for (auto key : btrieveDriver->getKeys()) {
+    lpKeySpec->position = key.getPrimarySegment().getOffset();
+    lpKeySpec->length = key.getLength();
+    lpKeySpec->attributes = key.getPrimarySegment().getAttributes();
+    lpKeySpec->uniqueKeys = 0;
+    lpKeySpec->extendedDataType = key.getPrimarySegment().getDataType();
+    lpKeySpec->nullValue = key.getPrimarySegment().getNullValue();
+    lpKeySpec->reserved = 0;
+    lpKeySpec->number = 0;
+    lpKeySpec->acsNumber = key.getACS() != nullptr ? 1 : 0;
+    ++lpKeySpec;
+  }
+  
+  return btrieve::BtrieveError::Success;
+}
+
+/*
+* private (BtrieveError, ushort) Stat(BtrieveCommand command)
+        {
+            var db = GetOpenDatabase(command);
+            if (db == null)
+                return (BtrieveError.FileNotOpen, command.data_buffer_length);
+
+            // if they specify space for the expanded file name, null it out since we
+            // don't support spanning
+            if (command.key_buffer_length > 0)
+                _memory.SetByte(command.key_buffer_segment, command.key_buffer_offset, 0);
+
+            var requiredSize = (ushort) (Marshal.SizeOf(typeof(BtrieveFileSpec)) + (db.Keys.Count * Marshal.SizeOf(typeof(BtrieveKeySpec))));
+            if (command.data_buffer_length < requiredSize)
+                return (BtrieveError.DataBufferLengthOverrun, command.data_buffer_length);
+
+            // now write all this data
+            var ptr = new FarPtr(command.data_buffer_segment, command.data_buffer_offset);
+            ptr += new BtrieveFileSpec(db).WriteTo(_memory, ptr);
+            for (var i = (ushort)0; i < db.Keys.Count; ++i)
+            {
+                ptr += new BtrieveKeySpec(db.Keys[i].PrimarySegment).WriteTo(_memory, ptr);
+            }
+
+            return (BtrieveError.Success, requiredSize);
+        }
+        */
+
 static btrieve::BtrieveError handle(BtrieveCommand &command) {
   switch (command.operation) {
   case btrieve::OperationCode::Open:
@@ -90,7 +177,7 @@ static btrieve::BtrieveError handle(BtrieveCommand &command) {
   case btrieve::OperationCode::Close:
     return Close(command);
   case btrieve::OperationCode::Stat:
-    // return Stat(command);
+    return Stat(command);
   case btrieve::OperationCode::Delete:
     // return Delete(command);
   case btrieve::OperationCode::StepFirst:
