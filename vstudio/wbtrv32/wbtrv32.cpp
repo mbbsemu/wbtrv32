@@ -142,33 +142,14 @@ static btrieve::BtrieveError Stat(BtrieveCommand& command) {
   return btrieve::BtrieveError::Success;
 }
 
-/*
-* private (BtrieveError, ushort) Stat(BtrieveCommand command)
-        {
-            var db = GetOpenDatabase(command);
-            if (db == null)
-                return (BtrieveError.FileNotOpen, command.data_buffer_length);
+static btrieve::BtrieveError Delete(BtrieveCommand& command) {
+  auto btrieveDriver = getOpenDatabase(command.lpPositionBlock);
+  if (btrieveDriver == nullptr) {
+    return btrieve::BtrieveError::FileNotOpen;
+  }
 
-            // if they specify space for the expanded file name, null it out since we
-            // don't support spanning
-            if (command.key_buffer_length > 0)
-                _memory.SetByte(command.key_buffer_segment, command.key_buffer_offset, 0);
-
-            var requiredSize = (ushort) (Marshal.SizeOf(typeof(BtrieveFileSpec)) + (db.Keys.Count * Marshal.SizeOf(typeof(BtrieveKeySpec))));
-            if (command.data_buffer_length < requiredSize)
-                return (BtrieveError.DataBufferLengthOverrun, command.data_buffer_length);
-
-            // now write all this data
-            var ptr = new FarPtr(command.data_buffer_segment, command.data_buffer_offset);
-            ptr += new BtrieveFileSpec(db).WriteTo(_memory, ptr);
-            for (var i = (ushort)0; i < db.Keys.Count; ++i)
-            {
-                ptr += new BtrieveKeySpec(db.Keys[i].PrimarySegment).WriteTo(_memory, ptr);
-            }
-
-            return (BtrieveError.Success, requiredSize);
-        }
-        */
+  return btrieveDriver->performOperation(-1, std::basic_string_view<uint8_t>(), btrieve::OperationCode::Delete);
+}
 
 static btrieve::BtrieveError handle(BtrieveCommand &command) {
   switch (command.operation) {
@@ -179,7 +160,7 @@ static btrieve::BtrieveError handle(BtrieveCommand &command) {
   case btrieve::OperationCode::Stat:
     return Stat(command);
   case btrieve::OperationCode::Delete:
-    // return Delete(command);
+    return Delete(command);
   case btrieve::OperationCode::StepFirst:
   case btrieve::OperationCode::StepLast:
   case btrieve::OperationCode::StepNext:

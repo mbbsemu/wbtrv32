@@ -177,3 +177,34 @@ TEST_F(wbtrv32Test, StatsTooSmallBuffer) {
       btrieve::BtrieveError::DataBufferLengthOverrun);
   }
 }
+
+TEST_F(wbtrv32Test, Delete) {
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  ASSERT_FALSE(mbbsEmuDb.empty());
+
+  unsigned char posBlock[128];
+  unsigned char buffer[80];
+  DWORD dwDataBufferLength = sizeof(buffer);
+
+  char filename[MAX_PATH] = "assets/MBBSEMU.DB";
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr,
+    &dwDataBufferLength, filename, -1, 0),
+    btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Stat, posBlock, buffer,
+    &dwDataBufferLength, nullptr, 0, 0),
+    btrieve::BtrieveError::Success);
+
+  wbtrv32::LPFILESPEC lpFileSpec = reinterpret_cast<wbtrv32::LPFILESPEC>(buffer);
+  ASSERT_EQ(lpFileSpec->recordCount, 4);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Delete, posBlock, nullptr, nullptr, nullptr, 0, 0), btrieve::BtrieveError::Success);
+
+  dwDataBufferLength = sizeof(buffer);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Stat, posBlock, buffer,
+    &dwDataBufferLength, nullptr, 0, 0),
+    btrieve::BtrieveError::Success);
+
+  lpFileSpec = reinterpret_cast<wbtrv32::LPFILESPEC>(buffer);
+  ASSERT_EQ(lpFileSpec->recordCount, 3);
+}
