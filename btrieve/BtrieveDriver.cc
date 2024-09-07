@@ -119,15 +119,45 @@ BtrieveDriver::performOperation(int keyNumber,
   switch (operationCode) {
   case OperationCode::Delete:
     return sqlDatabase->deleteRecord();
+    /* lock biases, which we don't support / care about
+    +100 Single wait record lock.
+    +200 Single no-wait record lock.
+    +300 Multiple wait record lock.
+    +400 Multiple no-wait record lock.
+    */
   case OperationCode::StepFirst:
+  case OperationCode::StepFirst + 100:
+  case OperationCode::StepFirst + 200:
+  case OperationCode::StepFirst + 300:
+  case OperationCode::StepFirst + 400:
     return sqlDatabase->stepFirst();
   case OperationCode::StepLast:
+  case OperationCode::StepLast + 100:
+  case OperationCode::StepLast + 200:
+  case OperationCode::StepLast + 300:
+  case OperationCode::StepLast + 400:
     return sqlDatabase->stepLast();
   case OperationCode::StepNext:
+  case OperationCode::StepNext + 100:
+  case OperationCode::StepNext + 200:
+  case OperationCode::StepNext + 300:
+  case OperationCode::StepNext + 400:
   case OperationCode::StepNextExtended:
+  case OperationCode::StepNextExtended + 100:
+  case OperationCode::StepNextExtended + 200:
+  case OperationCode::StepNextExtended + 300:
+  case OperationCode::StepNextExtended + 400:
     return sqlDatabase->stepNext();
   case OperationCode::StepPrevious:
+  case OperationCode::StepPrevious + 100:
+  case OperationCode::StepPrevious + 200:
+  case OperationCode::StepPrevious + 300:
+  case OperationCode::StepPrevious + 400:
   case OperationCode::StepPreviousExtended:
+  case OperationCode::StepPreviousExtended + 100:
+  case OperationCode::StepPreviousExtended + 200:
+  case OperationCode::StepPreviousExtended + 300:
+  case OperationCode::StepPreviousExtended + 400:
     return sqlDatabase->stepPrevious();
   default:
       // fall through

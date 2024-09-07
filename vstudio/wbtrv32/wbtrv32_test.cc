@@ -17,7 +17,9 @@ typedef int(__stdcall* BTRCALL)(WORD wOperation, LPVOID lpPositionBlock,
 
 class wbtrv32Test : public TestBase {
 public:
-  wbtrv32Test() : TestBase(), dll(nullptr, &FreeLibrary) {}
+  wbtrv32Test() : TestBase(), dll(nullptr, &FreeLibrary) {
+    memset(posBlock, 0, sizeof(posBlock));
+  }
 
   virtual void SetUp() override {
     TestBase::SetUp();
@@ -27,10 +29,23 @@ public:
     btrcall =
       reinterpret_cast<BTRCALL>(GetProcAddress(dll.get(), "BTRCALL"));
   }
+
+  virtual void TearDown() override {
+    for (int i = 0; i < sizeof(posBlock); ++i) {
+      if (posBlock[i]) {
+        btrcall(btrieve::OperationCode::Close, posBlock, nullptr,
+          0, nullptr, 0, 0);
+      }
+    }
+
+    TestBase::TearDown();
+  }
+
 protected:
   std::unique_ptr<std::remove_pointer<HMODULE>::type, decltype(&FreeLibrary)>
     dll;
   BTRCALL btrcall;
+  uint8_t posBlock[POSBLOCK_LENGTH];
 };
 
 TEST_F(wbtrv32Test, LoadsAndUnloadsDll) {
@@ -39,7 +54,6 @@ TEST_F(wbtrv32Test, LoadsAndUnloadsDll) {
 }
 
 TEST_F(wbtrv32Test, CannotCloseUnopenedDatabase) {
-  unsigned char posBlock[128];
   DWORD dwDataBufferLength = 0;
 
   ASSERT_EQ(btrcall(btrieve::OperationCode::Close, posBlock, nullptr,
@@ -51,12 +65,10 @@ TEST_F(wbtrv32Test, LoadsAndClosesDatabase) {
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   ASSERT_FALSE(mbbsEmuDb.empty());
 
-  unsigned char posBlock[128];
   DWORD dwDataBufferLength = 0;
 
-  char filename[MAX_PATH] = "assets/MBBSEMU.DB";
   ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr,
-                    &dwDataBufferLength, filename, -1, 0),
+                    &dwDataBufferLength, const_cast<LPVOID>(reinterpret_cast<LPCVOID>(toStdString(mbbsEmuDb.c_str()).c_str())), -1, 0),
             btrieve::BtrieveError::Success);
 
   ASSERT_EQ(btrcall(btrieve::OperationCode::Close, posBlock, nullptr,
@@ -68,7 +80,6 @@ TEST_F(wbtrv32Test, LoadsAndClosesDatabase) {
 }
 
 TEST_F(wbtrv32Test, CannotStatUnopenedDatabase) {
-  unsigned char posBlock[128];
   unsigned char buffer[256];
   char fileName[MAX_PATH] = "test";
   DWORD dwDataBufferLength = sizeof(buffer);
@@ -82,14 +93,12 @@ TEST_F(wbtrv32Test, StatsDatabase) {
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   ASSERT_FALSE(mbbsEmuDb.empty());
 
-  unsigned char posBlock[128];
   unsigned char buffer[80];
   char fileName[MAX_PATH] = "test";
   DWORD dwDataBufferLength = sizeof(buffer);
 
-  char filename[MAX_PATH] = "assets/MBBSEMU.DB";
   ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr,
-    &dwDataBufferLength, filename, -1, 0),
+    &dwDataBufferLength, const_cast<LPVOID>(reinterpret_cast<LPCVOID>(toStdString(mbbsEmuDb.c_str()).c_str())), -1, 0),
     btrieve::BtrieveError::Success);
 
   ASSERT_EQ(btrcall(btrieve::OperationCode::Stat, posBlock, buffer,
@@ -160,18 +169,19 @@ TEST_F(wbtrv32Test, StatsTooSmallBuffer) {
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   ASSERT_FALSE(mbbsEmuDb.empty());
 
-  unsigned char posBlock[128];
   unsigned char buffer[80];
   char fileName[MAX_PATH] = "test";
   DWORD dwDataBufferLength;
 
-  char filename[MAX_PATH] = "assets/MBBSEMU.DB";
   ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr,
-    &dwDataBufferLength, filename, -1, 0),
+    &dwDataBufferLength, const_cast<LPVOID>(reinterpret_cast<LPCVOID>(toStdString(mbbsEmuDb.c_str()).c_str())), -1, 0),
     btrieve::BtrieveError::Success);
 
   for (DWORD i = 0; i < 80; ++i) {
+    char fileName[MAX_PATH];
+    
     dwDataBufferLength = i;
+    
     ASSERT_EQ(btrcall(btrieve::OperationCode::Stat, posBlock, buffer,
       &dwDataBufferLength, fileName, sizeof(fileName), 0),
       btrieve::BtrieveError::DataBufferLengthOverrun);
@@ -182,13 +192,11 @@ TEST_F(wbtrv32Test, Delete) {
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   ASSERT_FALSE(mbbsEmuDb.empty());
 
-  unsigned char posBlock[128];
   unsigned char buffer[80];
   DWORD dwDataBufferLength = sizeof(buffer);
 
-  char filename[MAX_PATH] = "assets/MBBSEMU.DB";
   ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr,
-    &dwDataBufferLength, filename, -1, 0),
+    &dwDataBufferLength, const_cast<LPVOID>(reinterpret_cast<LPCVOID>(toStdString(mbbsEmuDb.c_str()).c_str())), -1, 0),
     btrieve::BtrieveError::Success);
 
   ASSERT_EQ(btrcall(btrieve::OperationCode::Stat, posBlock, buffer,
@@ -207,4 +215,148 @@ TEST_F(wbtrv32Test, Delete) {
 
   lpFileSpec = reinterpret_cast<wbtrv32::LPFILESPEC>(buffer);
   ASSERT_EQ(lpFileSpec->recordCount, 3);
+}
+
+#pragma pack(push, 1)
+typedef struct _tagRECORD {
+  uint16_t unused;
+  char string1[32];
+  uint32_t int1;
+  char string2[32];
+  uint32_t int2;
+} RECORD, * LPRECORD;
+#pragma pack(pop)
+
+static_assert(sizeof(RECORD) == 74);
+
+/* Data layout as follows:
+
+sqlite> select * from data_t;
+    id          data        key_0       key_1       key_2       key_3
+    ----------  ----------  ----------  ----------  ----------  ----------
+    1                       Sysop       3444        3444        1
+    2                       Sysop       7776        7776        2
+    3                       Sysop       1052234073  StringValu  3
+    4                       Sysop       -615634567  stringValu  4
+*/
+TEST_F(wbtrv32Test, StepFirst) {
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  ASSERT_FALSE(mbbsEmuDb.empty());
+
+  RECORD record;
+  uint32_t position = 0;
+  DWORD dwDataBufferLength = sizeof(record);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr,
+    &dwDataBufferLength, const_cast<LPVOID>(reinterpret_cast<LPCVOID>(toStdString(mbbsEmuDb.c_str()).c_str())), -1, 0),
+    btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::StepFirst, posBlock, &record, &dwDataBufferLength, nullptr, 0, 0), btrieve::BtrieveError::Success);
+  ASSERT_STREQ(record.string1, "Sysop");
+  ASSERT_EQ(record.int1, 3444);
+  ASSERT_STREQ(record.string2, "3444");
+  ASSERT_EQ(record.int2, 1);
+
+  dwDataBufferLength = sizeof(uint32_t);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::GetPosition, posBlock, &position,
+    &dwDataBufferLength, nullptr, 0, 0),
+    btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(position, 1);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::StepPrevious, posBlock, &record, &dwDataBufferLength, nullptr, 0, 0), btrieve::BtrieveError::InvalidPositioning);
+
+  dwDataBufferLength = sizeof(record);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::StepNext, posBlock, &record, &dwDataBufferLength, nullptr, 0, 0), btrieve::BtrieveError::Success);
+  ASSERT_STREQ(record.string1, "Sysop");
+  ASSERT_EQ(record.int1, 7776);
+  ASSERT_STREQ(record.string2, "7776");
+  ASSERT_EQ(record.int2, 2);
+
+  dwDataBufferLength = sizeof(uint32_t);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::GetPosition, posBlock, &position,
+    &dwDataBufferLength, nullptr, 0, 0),
+    btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(position, 2);
+}
+
+TEST_F(wbtrv32Test, StepDataUnderrun) {
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  ASSERT_FALSE(mbbsEmuDb.empty());
+
+  RECORD record;
+  uint32_t position = 0;
+  DWORD dwDataBufferLength = sizeof(record);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr,
+    &dwDataBufferLength, const_cast<LPVOID>(reinterpret_cast<LPCVOID>(toStdString(mbbsEmuDb.c_str()).c_str())), -1, 0),
+    btrieve::BtrieveError::Success);
+
+  const unsigned int codesToTest[] = {
+    btrieve::OperationCode::StepFirst,
+    btrieve::OperationCode::StepFirst + 100,
+    btrieve::OperationCode::StepFirst + 200,
+    btrieve::OperationCode::StepFirst + 300,
+    btrieve::OperationCode::StepFirst + 400,
+    btrieve::OperationCode::StepLast,
+    btrieve::OperationCode::StepLast + 100,
+    btrieve::OperationCode::StepLast + 200,
+    btrieve::OperationCode::StepLast + 300,
+    btrieve::OperationCode::StepLast + 400,
+    btrieve::OperationCode::StepNext,
+    btrieve::OperationCode::StepNext + 100,
+    btrieve::OperationCode::StepNext + 200,
+    btrieve::OperationCode::StepNext + 300,
+    btrieve::OperationCode::StepNext + 400,
+    // not testing StepPrevious, since by default we're at beginning so StepPrevious
+    // will return InvalidPositioning and not go into the DataBufferLengthOverrun
+  };
+
+  for (int i = 0; i < ARRAYSIZE(codesToTest); ++i) {
+    DWORD dwDataBufferLength = sizeof(record) - 1;
+    ASSERT_EQ(btrcall(codesToTest[i], posBlock, &record, &dwDataBufferLength, nullptr, 0, 0), btrieve::BtrieveError::DataBufferLengthOverrun);
+  }
+}
+
+TEST_F(wbtrv32Test, StepLast) {
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  ASSERT_FALSE(mbbsEmuDb.empty());
+
+  RECORD record;
+  uint32_t position = 0;
+  DWORD dwDataBufferLength = sizeof(record);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr,
+    &dwDataBufferLength, const_cast<LPVOID>(reinterpret_cast<LPCVOID>(toStdString(mbbsEmuDb.c_str()).c_str())), -1, 0),
+    btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::StepLast, posBlock, &record, &dwDataBufferLength, nullptr, 0, 0), btrieve::BtrieveError::Success);
+  ASSERT_STREQ(record.string1, "Sysop");
+  ASSERT_EQ(record.int1, -615634567);
+  ASSERT_STREQ(record.string2, "stringValue");
+  ASSERT_EQ(record.int2, 4);
+
+  dwDataBufferLength = sizeof(uint32_t);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::GetPosition, posBlock, &position,
+    &dwDataBufferLength, nullptr, 0, 0),
+    btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(position, 4);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::StepNext, posBlock, &record, &dwDataBufferLength, nullptr, 0, 0), btrieve::BtrieveError::InvalidPositioning);
+
+  dwDataBufferLength = sizeof(record);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::StepPrevious, posBlock, &record, &dwDataBufferLength, nullptr, 0, 0), btrieve::BtrieveError::Success);
+  ASSERT_STREQ(record.string1, "Sysop");
+  ASSERT_EQ(record.int1, 1052234073);
+  ASSERT_STREQ(record.string2, "StringValue");
+  ASSERT_EQ(record.int2, 3);
+
+  dwDataBufferLength = sizeof(uint32_t);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::GetPosition, posBlock, &position,
+    &dwDataBufferLength, nullptr, 0, 0),
+    btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(position, 3);
 }

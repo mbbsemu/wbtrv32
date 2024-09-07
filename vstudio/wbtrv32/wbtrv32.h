@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 
+#define POSBLOCK_LENGTH 128
+
 namespace wbtrv32 {
 #pragma pack(push, 1)
   typedef struct _tagFILESPEC {

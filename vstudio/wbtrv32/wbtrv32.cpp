@@ -94,6 +94,7 @@ static btrieve::BtrieveError Close(BtrieveCommand &command) {
   }
 
   _openFiles.erase(guidStr);
+  memset(command.lpPositionBlock, 0, POSBLOCK_LENGTH);
   return btrieve::BtrieveError::Success;
 }
 
@@ -151,6 +152,52 @@ static btrieve::BtrieveError Delete(BtrieveCommand& command) {
   return btrieveDriver->performOperation(-1, std::basic_string_view<uint8_t>(), btrieve::OperationCode::Delete);
 }
 
+static btrieve::BtrieveError Step(BtrieveCommand& command) {
+  auto btrieveDriver = getOpenDatabase(command.lpPositionBlock);
+  if (btrieveDriver == nullptr) {
+    return btrieve::BtrieveError::FileNotOpen;
+  }
+
+  auto oldPosition = btrieveDriver->getPosition();
+  auto result = btrieveDriver->performOperation(-1, std::basic_string_view<uint8_t>(), command.operation);
+  if (result != btrieve::BtrieveError::Success) {
+    return result;
+  }
+
+  auto record = btrieveDriver->getRecord();
+  if (!record.first) {
+    btrieveDriver->setPosition(oldPosition);
+    return btrieve::BtrieveError::IOError;
+  }
+
+  if (*command.lpdwDataBufferLength < record.second.getData().size()) {
+    btrieveDriver->setPosition(oldPosition);
+    return btrieve::BtrieveError::DataBufferLengthOverrun;
+  }
+
+  *command.lpdwDataBufferLength = record.second.getData().size();
+  memcpy(command.lpDataBuffer, record.second.getData().data(), record.second.getData().size());
+
+  return btrieve::BtrieveError::Success;
+}
+
+static btrieve::BtrieveError GetPosition(BtrieveCommand& command) {
+  auto btrieveDriver = getOpenDatabase(command.lpPositionBlock);
+  if (btrieveDriver == nullptr) {
+    return btrieve::BtrieveError::FileNotOpen;
+  }
+  
+  if (*command.lpdwDataBufferLength < sizeof(uint32_t)) {
+    return btrieve::BtrieveError::DataBufferLengthOverrun;
+  }
+
+  *command.lpdwDataBufferLength = sizeof(uint32_t);
+  *reinterpret_cast<uint32_t*>(command.lpDataBuffer) = btrieveDriver->getPosition();
+  
+  // TODO can this be InvalidPositioning, say on an empty file?
+  return btrieve::BtrieveError::Success;
+}
+
 static btrieve::BtrieveError handle(BtrieveCommand &command) {
   switch (command.operation) {
   case btrieve::OperationCode::Open:
@@ -162,10 +209,26 @@ static btrieve::BtrieveError handle(BtrieveCommand &command) {
   case btrieve::OperationCode::Delete:
     return Delete(command);
   case btrieve::OperationCode::StepFirst:
+  case btrieve::OperationCode::StepFirst + 100:
+  case btrieve::OperationCode::StepFirst + 200:
+  case btrieve::OperationCode::StepFirst + 300:
+  case btrieve::OperationCode::StepFirst + 400:
   case btrieve::OperationCode::StepLast:
+  case btrieve::OperationCode::StepLast + 100:
+  case btrieve::OperationCode::StepLast + 200:
+  case btrieve::OperationCode::StepLast + 300:
+  case btrieve::OperationCode::StepLast + 400:
   case btrieve::OperationCode::StepNext:
+  case btrieve::OperationCode::StepNext + 100:
+  case btrieve::OperationCode::StepNext + 200:
+  case btrieve::OperationCode::StepNext + 300:
+  case btrieve::OperationCode::StepNext + 400:
   case btrieve::OperationCode::StepPrevious:
-    // return Step(command);
+  case btrieve::OperationCode::StepPrevious + 100:
+  case btrieve::OperationCode::StepPrevious + 200:
+  case btrieve::OperationCode::StepPrevious + 300:
+  case btrieve::OperationCode::StepPrevious + 400:
+    return Step(command);
   case btrieve::OperationCode::AcquireFirst:
   case btrieve::OperationCode::AcquireLast:
   case btrieve::OperationCode::AcquireNext:
@@ -186,7 +249,7 @@ static btrieve::BtrieveError handle(BtrieveCommand &command) {
   case btrieve::OperationCode::QueryLessOrEqual:
     // return Query(command);
   case btrieve::OperationCode::GetPosition:
-    // return GetPosition(command);
+    return GetPosition(command);
   case btrieve::OperationCode::GetDirectChunkOrRecord:
     // return GetDirectRecord(command);
   case btrieve::OperationCode::Update:
