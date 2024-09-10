@@ -1,22 +1,24 @@
-#include "../../btrieve/ErrorCode.h"
-#include "../../btrieve/TestBase.h"
-#include "../../btrieve/KeyDataType.h"
-#include "../../btrieve/AttributeMask.h"
 #include "wbtrv32.h"
+
+#include <memory>
+
+#include "../../btrieve/AttributeMask.h"
+#include "../../btrieve/ErrorCode.h"
+#include "../../btrieve/KeyDataType.h"
+#include "../../btrieve/TestBase.h"
 #include "btrieve/OperationCode.h"
 #include "gtest/gtest.h"
-#include <memory>
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
 
 typedef int(__stdcall* BTRCALL)(WORD wOperation, LPVOID lpPositionBlock,
-  LPVOID lpDataBuffer,
-  LPDWORD lpdwDataBufferLength,
-  LPVOID lpKeyBuffer, BYTE bKeyLength,
-  CHAR sbKeyNumber);
+                                LPVOID lpDataBuffer,
+                                LPDWORD lpdwDataBufferLength,
+                                LPVOID lpKeyBuffer, BYTE bKeyLength,
+                                CHAR sbKeyNumber);
 
 class wbtrv32Test : public TestBase {
-public:
+ public:
   wbtrv32Test() : TestBase(), dll(nullptr, &FreeLibrary) {
     memset(posBlock, 0, sizeof(posBlock));
   }
@@ -26,24 +28,23 @@ public:
 
     dll.reset(LoadLibrary(TEXT("wbtrv32.dll")));
 
-    btrcall =
-      reinterpret_cast<BTRCALL>(GetProcAddress(dll.get(), "BTRCALL"));
+    btrcall = reinterpret_cast<BTRCALL>(GetProcAddress(dll.get(), "BTRCALL"));
   }
 
   virtual void TearDown() override {
     for (int i = 0; i < sizeof(posBlock); ++i) {
       if (posBlock[i]) {
-        btrcall(btrieve::OperationCode::Close, posBlock, nullptr,
-          0, nullptr, 0, 0);
+        btrcall(btrieve::OperationCode::Close, posBlock, nullptr, 0, nullptr, 0,
+                0);
       }
     }
 
     TestBase::TearDown();
   }
 
-protected:
+ protected:
   std::unique_ptr<std::remove_pointer<HMODULE>::type, decltype(&FreeLibrary)>
-    dll;
+      dll;
   BTRCALL btrcall;
   uint8_t posBlock[POSBLOCK_LENGTH];
 };
@@ -68,7 +69,10 @@ TEST_F(wbtrv32Test, LoadsAndClosesDatabase) {
   DWORD dwDataBufferLength = 0;
 
   ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr,
-                    &dwDataBufferLength, const_cast<LPVOID>(reinterpret_cast<LPCVOID>(toStdString(mbbsEmuDb.c_str()).c_str())), -1, 0),
+                    &dwDataBufferLength,
+                    const_cast<LPVOID>(reinterpret_cast<LPCVOID>(
+                        toStdString(mbbsEmuDb.c_str()).c_str())),
+                    -1, 0),
             btrieve::BtrieveError::Success);
 
   ASSERT_EQ(btrcall(btrieve::OperationCode::Close, posBlock, nullptr,
@@ -85,8 +89,8 @@ TEST_F(wbtrv32Test, CannotStatUnopenedDatabase) {
   DWORD dwDataBufferLength = sizeof(buffer);
 
   ASSERT_EQ(btrcall(btrieve::OperationCode::Stat, posBlock, buffer,
-    &dwDataBufferLength, fileName, ARRAYSIZE(fileName), 0),
-    btrieve::BtrieveError::FileNotOpen);
+                    &dwDataBufferLength, fileName, ARRAYSIZE(fileName), 0),
+            btrieve::BtrieveError::FileNotOpen);
 }
 
 TEST_F(wbtrv32Test, StatsDatabase) {
@@ -98,18 +102,22 @@ TEST_F(wbtrv32Test, StatsDatabase) {
   DWORD dwDataBufferLength = sizeof(buffer);
 
   ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr,
-    &dwDataBufferLength, const_cast<LPVOID>(reinterpret_cast<LPCVOID>(toStdString(mbbsEmuDb.c_str()).c_str())), -1, 0),
-    btrieve::BtrieveError::Success);
+                    &dwDataBufferLength,
+                    const_cast<LPVOID>(reinterpret_cast<LPCVOID>(
+                        toStdString(mbbsEmuDb.c_str()).c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
 
   ASSERT_EQ(btrcall(btrieve::OperationCode::Stat, posBlock, buffer,
-    &dwDataBufferLength, fileName, sizeof(fileName), 0),
-    btrieve::BtrieveError::Success);
+                    &dwDataBufferLength, fileName, sizeof(fileName), 0),
+            btrieve::BtrieveError::Success);
 
   ASSERT_EQ(dwDataBufferLength, 80);
   // we don't support file name, so just 0 it out
   ASSERT_EQ(*fileName, 0);
 
-  wbtrv32::LPFILESPEC lpFileSpec = reinterpret_cast<wbtrv32::LPFILESPEC>(buffer);
+  wbtrv32::LPFILESPEC lpFileSpec =
+      reinterpret_cast<wbtrv32::LPFILESPEC>(buffer);
   EXPECT_EQ(lpFileSpec->logicalFixedRecordLength, 74);
   EXPECT_EQ(lpFileSpec->pageSize, 512);
   EXPECT_EQ(lpFileSpec->numberOfKeys, 4);
@@ -120,7 +128,8 @@ TEST_F(wbtrv32Test, StatsDatabase) {
   EXPECT_EQ(lpFileSpec->physicalPageSize, 1);
   EXPECT_EQ(lpFileSpec->preallocatedPages, 0);
 
-  wbtrv32::LPKEYSPEC lpKeySpec = reinterpret_cast<wbtrv32::LPKEYSPEC>(lpFileSpec + 1);
+  wbtrv32::LPKEYSPEC lpKeySpec =
+      reinterpret_cast<wbtrv32::LPKEYSPEC>(lpFileSpec + 1);
   EXPECT_EQ(lpKeySpec->position, 2);
   EXPECT_EQ(lpKeySpec->length, 32);
   EXPECT_EQ(lpKeySpec->attributes, UseExtendedDataType | Duplicates);
@@ -145,7 +154,8 @@ TEST_F(wbtrv32Test, StatsDatabase) {
   ++lpKeySpec;
   EXPECT_EQ(lpKeySpec->position, 38);
   EXPECT_EQ(lpKeySpec->length, 32);
-  EXPECT_EQ(lpKeySpec->attributes, UseExtendedDataType | Modifiable | Duplicates);
+  EXPECT_EQ(lpKeySpec->attributes,
+            UseExtendedDataType | Modifiable | Duplicates);
   EXPECT_EQ(lpKeySpec->uniqueKeys, 0);
   EXPECT_EQ(lpKeySpec->extendedDataType, btrieve::KeyDataType::Zstring);
   EXPECT_EQ(lpKeySpec->nullValue, 0);
@@ -174,17 +184,20 @@ TEST_F(wbtrv32Test, StatsTooSmallBuffer) {
   DWORD dwDataBufferLength;
 
   ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr,
-    &dwDataBufferLength, const_cast<LPVOID>(reinterpret_cast<LPCVOID>(toStdString(mbbsEmuDb.c_str()).c_str())), -1, 0),
-    btrieve::BtrieveError::Success);
+                    &dwDataBufferLength,
+                    const_cast<LPVOID>(reinterpret_cast<LPCVOID>(
+                        toStdString(mbbsEmuDb.c_str()).c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
 
   for (DWORD i = 0; i < 80; ++i) {
     char fileName[MAX_PATH];
-    
+
     dwDataBufferLength = i;
-    
+
     ASSERT_EQ(btrcall(btrieve::OperationCode::Stat, posBlock, buffer,
-      &dwDataBufferLength, fileName, sizeof(fileName), 0),
-      btrieve::BtrieveError::DataBufferLengthOverrun);
+                      &dwDataBufferLength, fileName, sizeof(fileName), 0),
+              btrieve::BtrieveError::DataBufferLengthOverrun);
   }
 }
 
@@ -196,22 +209,28 @@ TEST_F(wbtrv32Test, Delete) {
   DWORD dwDataBufferLength = sizeof(buffer);
 
   ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr,
-    &dwDataBufferLength, const_cast<LPVOID>(reinterpret_cast<LPCVOID>(toStdString(mbbsEmuDb.c_str()).c_str())), -1, 0),
-    btrieve::BtrieveError::Success);
+                    &dwDataBufferLength,
+                    const_cast<LPVOID>(reinterpret_cast<LPCVOID>(
+                        toStdString(mbbsEmuDb.c_str()).c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
 
   ASSERT_EQ(btrcall(btrieve::OperationCode::Stat, posBlock, buffer,
-    &dwDataBufferLength, nullptr, 0, 0),
-    btrieve::BtrieveError::Success);
+                    &dwDataBufferLength, nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
 
-  wbtrv32::LPFILESPEC lpFileSpec = reinterpret_cast<wbtrv32::LPFILESPEC>(buffer);
+  wbtrv32::LPFILESPEC lpFileSpec =
+      reinterpret_cast<wbtrv32::LPFILESPEC>(buffer);
   ASSERT_EQ(lpFileSpec->recordCount, 4);
 
-  ASSERT_EQ(btrcall(btrieve::OperationCode::Delete, posBlock, nullptr, nullptr, nullptr, 0, 0), btrieve::BtrieveError::Success);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Delete, posBlock, nullptr, nullptr,
+                    nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
 
   dwDataBufferLength = sizeof(buffer);
   ASSERT_EQ(btrcall(btrieve::OperationCode::Stat, posBlock, buffer,
-    &dwDataBufferLength, nullptr, 0, 0),
-    btrieve::BtrieveError::Success);
+                    &dwDataBufferLength, nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
 
   lpFileSpec = reinterpret_cast<wbtrv32::LPFILESPEC>(buffer);
   ASSERT_EQ(lpFileSpec->recordCount, 3);
@@ -224,7 +243,7 @@ typedef struct _tagRECORD {
   uint32_t int1;
   char string2[32];
   uint32_t int2;
-} RECORD, * LPRECORD;
+} RECORD, *LPRECORD;
 #pragma pack(pop)
 
 static_assert(sizeof(RECORD) == 74);
@@ -248,10 +267,15 @@ TEST_F(wbtrv32Test, StepFirst) {
   DWORD dwDataBufferLength = sizeof(record);
 
   ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr,
-    &dwDataBufferLength, const_cast<LPVOID>(reinterpret_cast<LPCVOID>(toStdString(mbbsEmuDb.c_str()).c_str())), -1, 0),
-    btrieve::BtrieveError::Success);
+                    &dwDataBufferLength,
+                    const_cast<LPVOID>(reinterpret_cast<LPCVOID>(
+                        toStdString(mbbsEmuDb.c_str()).c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
 
-  ASSERT_EQ(btrcall(btrieve::OperationCode::StepFirst, posBlock, &record, &dwDataBufferLength, nullptr, 0, 0), btrieve::BtrieveError::Success);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::StepFirst, posBlock, &record,
+                    &dwDataBufferLength, nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
   ASSERT_STREQ(record.string1, "Sysop");
   ASSERT_EQ(record.int1, 3444);
   ASSERT_STREQ(record.string2, "3444");
@@ -259,15 +283,19 @@ TEST_F(wbtrv32Test, StepFirst) {
 
   dwDataBufferLength = sizeof(uint32_t);
   ASSERT_EQ(btrcall(btrieve::OperationCode::GetPosition, posBlock, &position,
-    &dwDataBufferLength, nullptr, 0, 0),
-    btrieve::BtrieveError::Success);
+                    &dwDataBufferLength, nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
 
   ASSERT_EQ(position, 1);
 
-  ASSERT_EQ(btrcall(btrieve::OperationCode::StepPrevious, posBlock, &record, &dwDataBufferLength, nullptr, 0, 0), btrieve::BtrieveError::InvalidPositioning);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::StepPrevious, posBlock, &record,
+                    &dwDataBufferLength, nullptr, 0, 0),
+            btrieve::BtrieveError::InvalidPositioning);
 
   dwDataBufferLength = sizeof(record);
-  ASSERT_EQ(btrcall(btrieve::OperationCode::StepNext, posBlock, &record, &dwDataBufferLength, nullptr, 0, 0), btrieve::BtrieveError::Success);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::StepNext, posBlock, &record,
+                    &dwDataBufferLength, nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
   ASSERT_STREQ(record.string1, "Sysop");
   ASSERT_EQ(record.int1, 7776);
   ASSERT_STREQ(record.string2, "7776");
@@ -275,8 +303,8 @@ TEST_F(wbtrv32Test, StepFirst) {
 
   dwDataBufferLength = sizeof(uint32_t);
   ASSERT_EQ(btrcall(btrieve::OperationCode::GetPosition, posBlock, &position,
-    &dwDataBufferLength, nullptr, 0, 0),
-    btrieve::BtrieveError::Success);
+                    &dwDataBufferLength, nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
 
   ASSERT_EQ(position, 2);
 }
@@ -290,32 +318,38 @@ TEST_F(wbtrv32Test, StepDataUnderrun) {
   DWORD dwDataBufferLength = sizeof(record);
 
   ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr,
-    &dwDataBufferLength, const_cast<LPVOID>(reinterpret_cast<LPCVOID>(toStdString(mbbsEmuDb.c_str()).c_str())), -1, 0),
-    btrieve::BtrieveError::Success);
+                    &dwDataBufferLength,
+                    const_cast<LPVOID>(reinterpret_cast<LPCVOID>(
+                        toStdString(mbbsEmuDb.c_str()).c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
 
   const unsigned int codesToTest[] = {
-    btrieve::OperationCode::StepFirst,
-    btrieve::OperationCode::StepFirst + 100,
-    btrieve::OperationCode::StepFirst + 200,
-    btrieve::OperationCode::StepFirst + 300,
-    btrieve::OperationCode::StepFirst + 400,
-    btrieve::OperationCode::StepLast,
-    btrieve::OperationCode::StepLast + 100,
-    btrieve::OperationCode::StepLast + 200,
-    btrieve::OperationCode::StepLast + 300,
-    btrieve::OperationCode::StepLast + 400,
-    btrieve::OperationCode::StepNext,
-    btrieve::OperationCode::StepNext + 100,
-    btrieve::OperationCode::StepNext + 200,
-    btrieve::OperationCode::StepNext + 300,
-    btrieve::OperationCode::StepNext + 400,
-    // not testing StepPrevious, since by default we're at beginning so StepPrevious
-    // will return InvalidPositioning and not go into the DataBufferLengthOverrun
+      btrieve::OperationCode::StepFirst,
+      btrieve::OperationCode::StepFirst + 100,
+      btrieve::OperationCode::StepFirst + 200,
+      btrieve::OperationCode::StepFirst + 300,
+      btrieve::OperationCode::StepFirst + 400,
+      btrieve::OperationCode::StepLast,
+      btrieve::OperationCode::StepLast + 100,
+      btrieve::OperationCode::StepLast + 200,
+      btrieve::OperationCode::StepLast + 300,
+      btrieve::OperationCode::StepLast + 400,
+      btrieve::OperationCode::StepNext,
+      btrieve::OperationCode::StepNext + 100,
+      btrieve::OperationCode::StepNext + 200,
+      btrieve::OperationCode::StepNext + 300,
+      btrieve::OperationCode::StepNext + 400,
+      // not testing StepPrevious, since by default we're at beginning so
+      // StepPrevious will return InvalidPositioning and not go into the
+      // DataBufferLengthOverrun
   };
 
   for (int i = 0; i < ARRAYSIZE(codesToTest); ++i) {
     DWORD dwDataBufferLength = sizeof(record) - 1;
-    ASSERT_EQ(btrcall(codesToTest[i], posBlock, &record, &dwDataBufferLength, nullptr, 0, 0), btrieve::BtrieveError::DataBufferLengthOverrun);
+    ASSERT_EQ(btrcall(codesToTest[i], posBlock, &record, &dwDataBufferLength,
+                      nullptr, 0, 0),
+              btrieve::BtrieveError::DataBufferLengthOverrun);
   }
 }
 
@@ -328,10 +362,15 @@ TEST_F(wbtrv32Test, StepLast) {
   DWORD dwDataBufferLength = sizeof(record);
 
   ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr,
-    &dwDataBufferLength, const_cast<LPVOID>(reinterpret_cast<LPCVOID>(toStdString(mbbsEmuDb.c_str()).c_str())), -1, 0),
-    btrieve::BtrieveError::Success);
+                    &dwDataBufferLength,
+                    const_cast<LPVOID>(reinterpret_cast<LPCVOID>(
+                        toStdString(mbbsEmuDb.c_str()).c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
 
-  ASSERT_EQ(btrcall(btrieve::OperationCode::StepLast, posBlock, &record, &dwDataBufferLength, nullptr, 0, 0), btrieve::BtrieveError::Success);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::StepLast, posBlock, &record,
+                    &dwDataBufferLength, nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
   ASSERT_STREQ(record.string1, "Sysop");
   ASSERT_EQ(record.int1, -615634567);
   ASSERT_STREQ(record.string2, "stringValue");
@@ -339,15 +378,19 @@ TEST_F(wbtrv32Test, StepLast) {
 
   dwDataBufferLength = sizeof(uint32_t);
   ASSERT_EQ(btrcall(btrieve::OperationCode::GetPosition, posBlock, &position,
-    &dwDataBufferLength, nullptr, 0, 0),
-    btrieve::BtrieveError::Success);
+                    &dwDataBufferLength, nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
 
   ASSERT_EQ(position, 4);
 
-  ASSERT_EQ(btrcall(btrieve::OperationCode::StepNext, posBlock, &record, &dwDataBufferLength, nullptr, 0, 0), btrieve::BtrieveError::InvalidPositioning);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::StepNext, posBlock, &record,
+                    &dwDataBufferLength, nullptr, 0, 0),
+            btrieve::BtrieveError::InvalidPositioning);
 
   dwDataBufferLength = sizeof(record);
-  ASSERT_EQ(btrcall(btrieve::OperationCode::StepPrevious, posBlock, &record, &dwDataBufferLength, nullptr, 0, 0), btrieve::BtrieveError::Success);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::StepPrevious, posBlock, &record,
+                    &dwDataBufferLength, nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
   ASSERT_STREQ(record.string1, "Sysop");
   ASSERT_EQ(record.int1, 1052234073);
   ASSERT_STREQ(record.string2, "StringValue");
@@ -355,8 +398,93 @@ TEST_F(wbtrv32Test, StepLast) {
 
   dwDataBufferLength = sizeof(uint32_t);
   ASSERT_EQ(btrcall(btrieve::OperationCode::GetPosition, posBlock, &position,
-    &dwDataBufferLength, nullptr, 0, 0),
-    btrieve::BtrieveError::Success);
+                    &dwDataBufferLength, nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
 
   ASSERT_EQ(position, 3);
 }
+
+TEST_F(wbtrv32Test, GetDirectNoKeys) {
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  ASSERT_FALSE(mbbsEmuDb.empty());
+
+  RECORD record;
+  uint32_t position = 0;
+  char key[32];
+  DWORD dwDataBufferLength = sizeof(record);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr,
+                    &dwDataBufferLength,
+                    const_cast<LPVOID>(reinterpret_cast<LPCVOID>(
+                        toStdString(mbbsEmuDb.c_str()).c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
+
+  *reinterpret_cast<uint32_t*>(&record) = 1;  // get record 1
+  ASSERT_EQ(btrcall(btrieve::OperationCode::GetDirectChunkOrRecord, posBlock,
+                    &record, &dwDataBufferLength, nullptr, 0, -1),
+            btrieve::BtrieveError::Success);
+  ASSERT_STREQ(record.string1, "Sysop");
+  ASSERT_EQ(record.int1, 3444);
+  ASSERT_STREQ(record.string2, "3444");
+  ASSERT_EQ(record.int2, 1);
+}
+
+TEST_F(wbtrv32Test, GetDirectNoKeysBadPositioning) {
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  ASSERT_FALSE(mbbsEmuDb.empty());
+
+  RECORD record;
+  uint32_t position = 0;
+  char key[32];
+  DWORD dwDataBufferLength = sizeof(record);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr,
+                    &dwDataBufferLength,
+                    const_cast<LPVOID>(reinterpret_cast<LPCVOID>(
+                        toStdString(mbbsEmuDb.c_str()).c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
+
+  unsigned int badPositions[] = {0, 5};
+
+  for (int i = 0; i < ARRAYSIZE(badPositions); ++i) {
+    *reinterpret_cast<uint32_t*>(&record) = badPositions[i];
+    ASSERT_EQ(btrcall(btrieve::OperationCode::GetDirectChunkOrRecord, posBlock,
+                      &record, &dwDataBufferLength, nullptr, 0, -1),
+              btrieve::BtrieveError::InvalidRecordAddress);
+  }
+}
+
+TEST_F(wbtrv32Test, GetDirectNoKeysBufferOverrun) {
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  ASSERT_FALSE(mbbsEmuDb.empty());
+
+  RECORD record;
+  uint32_t position = 0;
+  char key[32];
+  DWORD dwDataBufferLength = sizeof(record);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr,
+                    &dwDataBufferLength,
+                    const_cast<LPVOID>(reinterpret_cast<LPCVOID>(
+                        toStdString(mbbsEmuDb.c_str()).c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
+
+  for (int i = 0; i < sizeof(record) - 1; ++i) {
+    dwDataBufferLength = i;
+    *reinterpret_cast<uint32_t*>(&record) = 1;  // get record 1
+    ASSERT_EQ(btrcall(btrieve::OperationCode::GetDirectChunkOrRecord, posBlock,
+                      &record, &dwDataBufferLength, nullptr, 0, -1),
+              btrieve::BtrieveError::DataBufferLengthOverrun);
+  }
+}
+
+// TODO implement these when Query support is added
+
+/*
+TEST_F(wbtrv32Test, GetDirectWithKey) {}
+TEST_F(wbtrv32Test, GetDirectWithKeyBufferOverrun) {}
+TEST_F(wbtrv32Test, GetDirectWithKeyKeyBufferOverrun) {}
+*/

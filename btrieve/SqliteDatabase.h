@@ -1,6 +1,8 @@
 #ifndef __SQLITE_DATABASE_H_
 #define __SQLITE_DATABASE_H_
 
+#include <memory>
+
 #include "OperationCode.h"
 #include "Record.h"
 #include "SqlDatabase.h"
@@ -8,13 +10,13 @@
 #include "SqliteTransaction.h"
 #include "Text.h"
 #include "sqlite/sqlite3.h"
-#include <memory>
 
 namespace btrieve {
 class SqliteDatabase : public SqlDatabase {
-public:
+ public:
   SqliteDatabase(unsigned int openFlags_ = 0)
-      : SqlDatabase(/* maxCacheSize= */ 64), openFlags(openFlags_),
+      : SqlDatabase(/* maxCacheSize= */ 64),
+        openFlags(openFlags_),
         database(nullptr, &sqlite3_close) {}
 
   virtual ~SqliteDatabase() { close(); }
@@ -23,8 +25,8 @@ public:
 
   virtual void open(const tchar *fileName) override;
 
-  virtual std::unique_ptr<RecordLoader>
-  create(const tchar *fileName, const BtrieveDatabase &database) override;
+  virtual std::unique_ptr<RecordLoader> create(
+      const tchar *fileName, const BtrieveDatabase &database) override;
 
   virtual void close() override;
 
@@ -38,21 +40,23 @@ public:
 
   virtual BtrieveError deleteAll() override;
 
-  virtual unsigned int
-  insertRecord(std::basic_string_view<uint8_t> record) override;
+  virtual unsigned int insertRecord(
+      std::basic_string_view<uint8_t> record) override;
 
-  virtual BtrieveError
-  updateRecord(unsigned int offset,
-               std::basic_string_view<uint8_t> record) override;
+  virtual BtrieveError updateRecord(
+      unsigned int offset, std::basic_string_view<uint8_t> record) override;
 
   virtual BtrieveError getByKeyFirst(Query *query) override;
   virtual BtrieveError getByKeyLast(Query *query) override;
   virtual BtrieveError getByKeyEqual(Query *query) override;
 
-protected:
+  virtual std::unique_ptr<Query> logicalCurrencySeek(
+      int keyNumber, unsigned int position, BtrieveError &error) override;
+
+ protected:
   virtual std::pair<bool, Record> selectRecord(unsigned int position) override;
 
-private:
+ private:
   SqlitePreparedStatement &getPreparedStatement(const char *sql) const;
 
   Record readRecord(unsigned int position, const SqliteReader &reader,
@@ -90,9 +94,9 @@ private:
   virtual BtrieveError getByKeyNext(Query *query) override;
   virtual BtrieveError getByKeyPrevious(Query *query) override;
 
-  virtual std::unique_ptr<Query>
-  newQuery(unsigned int position, const Key *key,
-           std::basic_string_view<uint8_t> keyData) override;
+  virtual std::unique_ptr<Query> newQuery(
+      unsigned int position, const Key *key,
+      std::basic_string_view<uint8_t> keyData) override;
 
   BtrieveError insertAutoincrementValues(std::vector<uint8_t> &record);
 
@@ -106,5 +110,5 @@ private:
   friend class SqliteQuery;
 };
 
-} // namespace btrieve
+}  // namespace btrieve
 #endif

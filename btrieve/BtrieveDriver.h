@@ -1,18 +1,19 @@
 #ifndef __BTRIEVE_DRIVER_H_
 #define __BTRIEVE_DRIVER_H_
 
+#include <memory>
+
 #include "ErrorCode.h"
 #include "OperationCode.h"
 #include "Record.h"
 #include "SqlDatabase.h"
 #include "Text.h"
-#include <memory>
 
 namespace btrieve {
 // Implements the Btrieve Driver functionality, e.g. querying and iterating
 // through records.
 class BtrieveDriver {
-public:
+ public:
   BtrieveDriver(SqlDatabase *sqlDatabase_) : sqlDatabase(sqlDatabase_) {}
 
   BtrieveDriver(BtrieveDriver &&driver)
@@ -64,9 +65,17 @@ public:
                                 std::basic_string_view<uint8_t> key,
                                 OperationCode operationCode);
 
-private:
+  BtrieveError logicalCurrencySeek(int keyNumber, unsigned int position) {
+    BtrieveError ret;
+
+    previousQuery = sqlDatabase->logicalCurrencySeek(keyNumber, position, ret);
+
+    return ret;
+  }
+
+ private:
   std::unique_ptr<SqlDatabase> sqlDatabase;
   std::unique_ptr<Query> previousQuery;
 };
-} // namespace btrieve
+}  // namespace btrieve
 #endif

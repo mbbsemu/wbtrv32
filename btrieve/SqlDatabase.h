@@ -1,18 +1,19 @@
 #ifndef __SQL_DATABASE_H_
 #define __SQL_DATABASE_H_
 
+#include <memory>
+
 #include "BtrieveDatabase.h"
 #include "ErrorCode.h"
 #include "LRUCache.h"
 #include "OperationCode.h"
 #include "Query.h"
 #include "Text.h"
-#include <memory>
 
 namespace btrieve {
 
 class RecordLoader {
-public:
+ public:
   virtual ~RecordLoader() = default;
 
   virtual bool onRecordLoaded(std::basic_string_view<uint8_t> record) = 0;
@@ -23,7 +24,7 @@ public:
 // An interface that abstracts a SQL-compatible implementation of
 // BtrieveDatabase.
 class SqlDatabase {
-public:
+ public:
   SqlDatabase(unsigned int maxCacheSize) : cache(maxCacheSize) {}
 
   virtual ~SqlDatabase() = default;
@@ -34,8 +35,8 @@ public:
   virtual void open(const tchar *fileName) = 0;
 
   // Creates a new sql backed file using database as the source of records
-  virtual std::unique_ptr<RecordLoader>
-  create(const tchar *fileName, const BtrieveDatabase &database) = 0;
+  virtual std::unique_ptr<RecordLoader> create(
+      const tchar *fileName, const BtrieveDatabase &database) = 0;
 
   // Closes an opened database.
   virtual void close() = 0;
@@ -84,11 +85,15 @@ public:
   virtual BtrieveError getByKeyNext(Query *query) = 0;
   virtual BtrieveError getByKeyPrevious(Query *query) = 0;
 
-  virtual std::unique_ptr<Query>
-  newQuery(unsigned int position, const Key *key,
-           std::basic_string_view<uint8_t> keyData) = 0;
+  virtual std::unique_ptr<Query> newQuery(
+      unsigned int position, const Key *key,
+      std::basic_string_view<uint8_t> keyData) = 0;
 
-protected:
+  virtual std::unique_ptr<Query> logicalCurrencySeek(int keyNumber,
+                                                     unsigned int position,
+                                                     BtrieveError &error) = 0;
+
+ protected:
   virtual std::pair<bool, Record> selectRecord(unsigned int position) = 0;
 
   unsigned int recordLength;
@@ -97,6 +102,6 @@ protected:
   std::vector<Key> keys;
   LRUCache<unsigned int, Record> cache;
 };
-} // namespace btrieve
+}  // namespace btrieve
 
 #endif

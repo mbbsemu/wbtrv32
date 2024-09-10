@@ -1,4 +1,8 @@
 #include "SqliteDatabase.h"
+
+#include <atomic>
+#include <sstream>
+
 #include "BindableValue.h"
 #include "BtrieveException.h"
 #include "SqlitePreparedStatement.h"
@@ -6,8 +10,6 @@
 #include "SqliteTransaction.h"
 #include "SqliteUtil.h"
 #include "sqlite/sqlite3.h"
-#include <atomic>
-#include <sstream>
 
 namespace btrieve {
 
@@ -29,7 +31,7 @@ static std::string commaDelimited(InputIt first, InputIt last, UnaryPred pred) {
 }
 
 class SqliteCreationRecordLoader : public RecordLoader {
-public:
+ public:
   SqliteCreationRecordLoader(std::shared_ptr<sqlite3> database_,
                              const BtrieveDatabase &database)
       : database(database_), keys(database.getKeys()) {}
@@ -58,7 +60,7 @@ public:
         new SqlitePreparedStatement(this->database, insertSql.c_str()));
   }
 
-private:
+ private:
   virtual bool onRecordLoaded(std::basic_string_view<uint8_t> record) {
     insertionCommand->reset();
     insertionCommand->bindParameter(1, record);
@@ -161,15 +163,16 @@ void SqliteDatabase::loadSqliteKeys(const std::string &acsName,
   keys.resize(numKeys);
 
   SqlitePreparedStatement command(
-      database, "SELECT number, segment, attributes, data_type, offset, length "
-                "FROM keys_t ORDER BY number, segment");
+      database,
+      "SELECT number, segment, attributes, data_type, offset, length "
+      "FROM keys_t ORDER BY number, segment");
   std::unique_ptr<SqliteReader> reader = command.executeReader();
 
   unsigned int segmentIndex = 0;
   while (reader->read()) {
     unsigned int number = reader->getInt32(0);
 
-    uint8_t nullValue = 0; // TODO why isn't this in database?
+    uint8_t nullValue = 0;  // TODO why isn't this in database?
 
     KeyDefinition keyDefinition(
         number, reader->getInt32(5), reader->getInt32(4),
@@ -185,8 +188,8 @@ void SqliteDatabase::loadSqliteKeys(const std::string &acsName,
   }
 }
 
-std::unique_ptr<RecordLoader>
-SqliteDatabase::create(const tchar *fileName, const BtrieveDatabase &database) {
+std::unique_ptr<RecordLoader> SqliteDatabase::create(
+    const tchar *fileName, const BtrieveDatabase &database) {
   sqlite3 *db;
   int errorCode = sqlite3_open_v2(
       toStdString(fileName).c_str(), &db,
@@ -350,8 +353,8 @@ void SqliteDatabase::close() {
   database.reset();
 }
 
-SqlitePreparedStatement &
-SqliteDatabase::getPreparedStatement(const char *sql) const {
+SqlitePreparedStatement &SqliteDatabase::getPreparedStatement(
+    const char *sql) const {
   auto iter = preparedStatements.find(sql);
   if (iter == preparedStatements.end()) {
     iter =
@@ -359,7 +362,7 @@ SqliteDatabase::getPreparedStatement(const char *sql) const {
             .first;
   }
 
-  iter->second.reset(); // reset it before we return it
+  iter->second.reset();  // reset it before we return it
   return iter->second;
 }
 
@@ -406,9 +409,9 @@ BtrieveError SqliteDatabase::stepNext() {
 }
 
 BtrieveError SqliteDatabase::stepPrevious() {
-  SqlitePreparedStatement &command =
-      getPreparedStatement("SELECT id, data FROM data_t WHERE id < @position "
-                           "ORDER BY id DESC LIMIT 1");
+  SqlitePreparedStatement &command = getPreparedStatement(
+      "SELECT id, data FROM data_t WHERE id < @position "
+      "ORDER BY id DESC LIMIT 1");
 
   command.bindParameter(1, position);
 
@@ -482,8 +485,8 @@ BtrieveError SqliteDatabase::deleteRecord() {
              : BtrieveError::InvalidPositioning;
 }
 
-unsigned int
-SqliteDatabase::insertRecord(std::basic_string_view<uint8_t> record) {
+unsigned int SqliteDatabase::insertRecord(
+    std::basic_string_view<uint8_t> record) {
   BtrieveError error;
   std::vector<uint8_t> data(record.size());
   memcpy(data.data(), record.data(), record.size());
@@ -554,8 +557,8 @@ SqliteDatabase::insertRecord(std::basic_string_view<uint8_t> record) {
   return lastInsertRowId;
 }
 
-BtrieveError
-SqliteDatabase::insertAutoincrementValues(std::vector<uint8_t> &record) {
+BtrieveError SqliteDatabase::insertAutoincrementValues(
+    std::vector<uint8_t> &record) {
   // first we need to fetch the next autoincrement values
   std::list<std::string> zeroedKeyAutoincrementedClauses;
   std::list<const Key *> autoincrementedKeys;
@@ -598,31 +601,30 @@ SqliteDatabase::insertAutoincrementValues(std::vector<uint8_t> &record) {
     for (const KeyDefinition &keyDefinition : key->getSegments()) {
       uint64_t value = reader->getInt64(i++);
       switch (keyDefinition.getLength()) {
-      case 8:
-        record.data()[keyDefinition.getOffset() + 7] = (value >> 56) & 0xFF;
-        record.data()[keyDefinition.getOffset() + 6] = (value >> 48) & 0xFF;
-        record.data()[keyDefinition.getOffset() + 5] = (value >> 40) & 0xFF;
-        record.data()[keyDefinition.getOffset() + 4] = (value >> 32) & 0xFF;
-        // fall through
-      case 4:
-        record.data()[keyDefinition.getOffset() + 3] = (value >> 24) & 0xFF;
-        record.data()[keyDefinition.getOffset() + 2] = (value >> 16) & 0xFF;
-        // fall through
-      case 2:
-        record.data()[keyDefinition.getOffset() + 1] = (value >> 8) & 0xFF;
-        record.data()[keyDefinition.getOffset()] = value & 0xFF;
-        break;
-      default:
-        return BtrieveError::BadKeyLength;
+        case 8:
+          record.data()[keyDefinition.getOffset() + 7] = (value >> 56) & 0xFF;
+          record.data()[keyDefinition.getOffset() + 6] = (value >> 48) & 0xFF;
+          record.data()[keyDefinition.getOffset() + 5] = (value >> 40) & 0xFF;
+          record.data()[keyDefinition.getOffset() + 4] = (value >> 32) & 0xFF;
+          // fall through
+        case 4:
+          record.data()[keyDefinition.getOffset() + 3] = (value >> 24) & 0xFF;
+          record.data()[keyDefinition.getOffset() + 2] = (value >> 16) & 0xFF;
+          // fall through
+        case 2:
+          record.data()[keyDefinition.getOffset() + 1] = (value >> 8) & 0xFF;
+          record.data()[keyDefinition.getOffset()] = value & 0xFF;
+          break;
+        default:
+          return BtrieveError::BadKeyLength;
       }
     }
   }
   return BtrieveError::Success;
 }
 
-BtrieveError
-SqliteDatabase::updateRecord(unsigned int id,
-                             std::basic_string_view<uint8_t> record) {
+BtrieveError SqliteDatabase::updateRecord(
+    unsigned int id, std::basic_string_view<uint8_t> record) {
   std::vector<uint8_t> data(record.size());
   memcpy(data.data(), record.data(), record.size());
   BtrieveError error;
@@ -706,9 +708,9 @@ SqliteDatabase::updateRecord(unsigned int id,
   return BtrieveError::Success;
 }
 
-std::unique_ptr<Query>
-SqliteDatabase::newQuery(unsigned int position, const Key *key,
-                         std::basic_string_view<uint8_t> keyData) {
+std::unique_ptr<Query> SqliteDatabase::newQuery(
+    unsigned int position, const Key *key,
+    std::basic_string_view<uint8_t> keyData) {
   return std::unique_ptr<Query>(new SqliteQuery(this, position, key, keyData));
 }
 
@@ -823,4 +825,26 @@ BtrieveError SqliteDatabase::getByKeyLess(Query *query, const char *opurator) {
   return nextReader(query, CursorDirection::Reverse);
 }
 
-} // namespace btrieve
+std::unique_ptr<Query> SqliteDatabase::logicalCurrencySeek(
+    int keyNumber, unsigned int position, BtrieveError &error) {
+  if (keyNumber >= keys.size()) {
+    error = BtrieveError::InvalidKeyNumber;
+    return nullptr;
+  }
+
+  auto record = getRecord(position);
+  if (!record.first) {
+    error = BtrieveError::InvalidPositioning;
+    return nullptr;
+  }
+
+  auto keyBytes = keys.at(keyNumber).extractKeyDataFromRecord(
+      std::basic_string_view<uint8_t>(record.second.getData().data(),
+                                      record.second.getData().size()));
+
+  error = BtrieveError::Success;
+  return newQuery(
+      position, &keys.at(keyNumber),
+      std::basic_string_view<uint8_t>(keyBytes.data(), keyBytes.size()));
+}
+}  // namespace btrieve
