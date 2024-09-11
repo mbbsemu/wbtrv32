@@ -258,6 +258,64 @@ static btrieve::BtrieveError GetDirectRecord(BtrieveCommand &command) {
   return btrieve::BtrieveError::Success;
 }
 
+static btrieve::BtrieveError Query(BtrieveCommand &command) {
+  auto btrieveDriver = getOpenDatabase(command.lpPositionBlock);
+  if (btrieveDriver == nullptr) {
+    return btrieve::BtrieveError::FileNotOpen;
+  }
+
+  std::basic_string_view<uint8_t> keyData;
+
+  if (btrieve::requiresKey(command.operation)) {
+    if (command.keyNumber >= btrieveDriver->getKeys().size()) {
+      return btrieve::BtrieveError::InvalidKeyNumber;
+    }
+
+    keyData = std::basic_string_view<uint8_t>(
+        reinterpret_cast<uint8_t *>(command.lpKeyBuffer),
+        command.lpKeyBufferLength);
+  }
+
+  btrieve::BtrieveError error = btrieveDriver->performOperation(
+      command.keyNumber, keyData, command.operation);
+
+  if (error != btrieve::BtrieveError::Success) {
+    return error;
+  }
+
+  auto record = btrieveDriver->getRecord();
+  if (!record.first) {
+    return btrieve::requiresKey(command.operation)
+               ? btrieve::BtrieveError::KeyValueNotFound
+               : btrieve::BtrieveError::EndOfFile;
+  }
+
+  // always copy the key
+  if (command.lpKeyBufferLength <
+      btrieveDriver->getKeys().at(command.keyNumber).getLength()) {
+    return btrieve::BtrieveError::KeyBufferTooShort;
+  }
+
+  auto keyDataVector =
+      btrieveDriver->getKeys()
+          .at(command.keyNumber)
+          .extractKeyDataFromRecord(std::basic_string_view<uint8_t>(
+              record.second.getData().data(), record.second.getData().size()));
+
+  memcpy(command.lpKeyBuffer, keyDataVector.data(), keyDataVector.size());
+
+  if (btrieve::acquiresData(command.operation)) {
+    if (*command.lpdwDataBufferLength < record.second.getData().size()) {
+      return btrieve::BtrieveError::DataBufferLengthOverrun;
+    }
+
+    memcpy(command.lpDataBuffer, record.second.getData().data(),
+           record.second.getData().size());
+  }
+
+  return btrieve::BtrieveError::Success;
+}
+
 static btrieve::BtrieveError handle(BtrieveCommand &command) {
   switch (command.operation) {
     case btrieve::OperationCode::Open:
@@ -307,7 +365,8 @@ static btrieve::BtrieveError handle(BtrieveCommand &command) {
     case btrieve::OperationCode::QueryGreaterOrEqual:
     case btrieve::OperationCode::QueryLess:
     case btrieve::OperationCode::QueryLessOrEqual:
-      // return Query(command);
+      // don't forget all +100-400 for these queries as well
+      return Query(command);
     case btrieve::OperationCode::GetPosition:
       return GetPosition(command);
     case btrieve::OperationCode::GetDirectChunkOrRecord:

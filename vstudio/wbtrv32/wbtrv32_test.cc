@@ -488,3 +488,31 @@ TEST_F(wbtrv32Test, GetDirectWithKey) {}
 TEST_F(wbtrv32Test, GetDirectWithKeyBufferOverrun) {}
 TEST_F(wbtrv32Test, GetDirectWithKeyKeyBufferOverrun) {}
 */
+
+TEST_F(wbtrv32Test, Query) {
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  ASSERT_FALSE(mbbsEmuDb.empty());
+
+  RECORD record;
+  uint32_t position = 0;
+  char key[32];
+  DWORD dwDataBufferLength = sizeof(record);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr, nullptr,
+                    const_cast<LPVOID>(reinterpret_cast<LPCVOID>(
+                        toStdString(mbbsEmuDb.c_str()).c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
+
+  uint32_t keyToSearch = 4000;
+  ASSERT_EQ(btrcall(btrieve::OperationCode::AcquireGreater, posBlock, &record,
+                    &dwDataBufferLength, &keyToSearch, sizeof(keyToSearch), 1),
+            btrieve::BtrieveError::Success);
+
+  ASSERT_STREQ(record.string1, "Sysop");
+  ASSERT_EQ(record.int1, 7776);
+  ASSERT_STREQ(record.string2, "7776");
+  ASSERT_EQ(record.int2, 2);
+
+  ASSERT_EQ(keyToSearch, 7776);
+}
