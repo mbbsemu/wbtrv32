@@ -481,13 +481,99 @@ TEST_F(wbtrv32Test, GetDirectNoKeysBufferOverrun) {
   }
 }
 
-// TODO implement these when Query support is added
+TEST_F(wbtrv32Test, GetDirectWithKey) {
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  ASSERT_FALSE(mbbsEmuDb.empty());
 
-/*
-TEST_F(wbtrv32Test, GetDirectWithKey) {}
-TEST_F(wbtrv32Test, GetDirectWithKeyBufferOverrun) {}
-TEST_F(wbtrv32Test, GetDirectWithKeyKeyBufferOverrun) {}
-*/
+  RECORD record;
+  uint32_t position = 0;
+  char key[32];
+  DWORD dwDataBufferLength = sizeof(record);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr,
+                    &dwDataBufferLength,
+                    const_cast<LPVOID>(reinterpret_cast<LPCVOID>(
+                        toStdString(mbbsEmuDb.c_str()).c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
+
+  uint32_t returnedKey;
+
+  *reinterpret_cast<uint32_t*>(&record) = 4;  // get record 4
+  ASSERT_EQ(
+      btrcall(btrieve::OperationCode::GetDirectChunkOrRecord, posBlock, &record,
+              &dwDataBufferLength, &returnedKey, sizeof(returnedKey), 1),
+      btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(returnedKey, -615634567);
+
+  ASSERT_STREQ(record.string1, "Sysop");
+  ASSERT_EQ(record.int1, -615634567);
+  ASSERT_STREQ(record.string2, "stringValue");
+  ASSERT_EQ(record.int2, 4);
+
+  dwDataBufferLength = sizeof(record);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::AcquireNext, posBlock, &record,
+                    &dwDataBufferLength, &returnedKey, sizeof(returnedKey), 1),
+            btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(returnedKey, 3444);
+
+  ASSERT_STREQ(record.string1, "Sysop");
+  ASSERT_EQ(record.int1, 3444);
+  ASSERT_STREQ(record.string2, "3444");
+  ASSERT_EQ(record.int2, 1);
+}
+
+TEST_F(wbtrv32Test, GetDirectWithKeyDataBufferOverrun) {
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  ASSERT_FALSE(mbbsEmuDb.empty());
+
+  RECORD record;
+  uint32_t position = 0;
+  char key[32];
+  DWORD dwDataBufferLength = sizeof(record) - 1;
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr,
+                    &dwDataBufferLength,
+                    const_cast<LPVOID>(reinterpret_cast<LPCVOID>(
+                        toStdString(mbbsEmuDb.c_str()).c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
+
+  uint32_t returnedKey;
+
+  *reinterpret_cast<uint32_t*>(&record) = 4;  // get record 4
+  ASSERT_EQ(
+      btrcall(btrieve::OperationCode::GetDirectChunkOrRecord, posBlock, &record,
+              &dwDataBufferLength, &returnedKey, sizeof(returnedKey), 1),
+      btrieve::BtrieveError::DataBufferLengthOverrun);
+}
+
+TEST_F(wbtrv32Test, GetDirectWithKey_KeyBufferTooShort) {
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  ASSERT_FALSE(mbbsEmuDb.empty());
+
+  RECORD record;
+  uint32_t position = 0;
+  char key[32];
+  DWORD dwDataBufferLength = sizeof(record);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr,
+                    &dwDataBufferLength,
+                    const_cast<LPVOID>(reinterpret_cast<LPCVOID>(
+                        toStdString(mbbsEmuDb.c_str()).c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
+
+  uint32_t returnedKey;
+
+  *reinterpret_cast<uint32_t*>(&record) = 4;  // get record 4
+  ASSERT_EQ(
+      btrcall(btrieve::OperationCode::GetDirectChunkOrRecord, posBlock, &record,
+              &dwDataBufferLength, &returnedKey, sizeof(returnedKey) - 1, 1),
+      btrieve::BtrieveError::KeyBufferTooShort);
+}
 
 TEST_F(wbtrv32Test, Query) {
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
@@ -515,4 +601,58 @@ TEST_F(wbtrv32Test, Query) {
   ASSERT_EQ(record.int2, 2);
 
   ASSERT_EQ(keyToSearch, 7776);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::AcquireNext, posBlock, &record,
+                    &dwDataBufferLength, &keyToSearch, sizeof(keyToSearch), 1),
+            btrieve::BtrieveError::Success);
+
+  ASSERT_STREQ(record.string1, "Sysop");
+  ASSERT_EQ(record.int1, 1052234073);
+  ASSERT_STREQ(record.string2, "StringValue");
+  ASSERT_EQ(record.int2, 3);
+
+  ASSERT_EQ(keyToSearch, 1052234073);
+}
+
+TEST_F(wbtrv32Test, QueryDataBufferOverrun) {
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  ASSERT_FALSE(mbbsEmuDb.empty());
+
+  RECORD record;
+  uint32_t position = 0;
+  char key[32];
+  DWORD dwDataBufferLength = sizeof(record) - 1;
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr, nullptr,
+                    const_cast<LPVOID>(reinterpret_cast<LPCVOID>(
+                        toStdString(mbbsEmuDb.c_str()).c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
+
+  uint32_t keyToSearch = 4000;
+  ASSERT_EQ(btrcall(btrieve::OperationCode::AcquireGreater, posBlock, &record,
+                    &dwDataBufferLength, &keyToSearch, sizeof(keyToSearch), 1),
+            btrieve::BtrieveError::DataBufferLengthOverrun);
+}
+
+TEST_F(wbtrv32Test, QueryKeyBufferTooShort) {
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  ASSERT_FALSE(mbbsEmuDb.empty());
+
+  RECORD record;
+  uint32_t position = 0;
+  char key[32];
+  DWORD dwDataBufferLength = sizeof(record) - 1;
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr, nullptr,
+                    const_cast<LPVOID>(reinterpret_cast<LPCVOID>(
+                        toStdString(mbbsEmuDb.c_str()).c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
+
+  uint32_t keyToSearch = 4000;
+  ASSERT_EQ(
+      btrcall(btrieve::OperationCode::AcquireGreater, posBlock, &record,
+              &dwDataBufferLength, &keyToSearch, sizeof(keyToSearch) - 1, 1),
+      btrieve::BtrieveError::KeyBufferTooShort);
 }

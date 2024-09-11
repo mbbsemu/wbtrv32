@@ -365,7 +365,7 @@ static btrieve::BtrieveError handle(BtrieveCommand &command) {
     case btrieve::OperationCode::QueryGreaterOrEqual:
     case btrieve::OperationCode::QueryLess:
     case btrieve::OperationCode::QueryLessOrEqual:
-      // don't forget all +100-400 for these queries as well
+      // TODO don't forget all +100-400 for these queries as well
       return Query(command);
     case btrieve::OperationCode::GetPosition:
       return GetPosition(command);
