@@ -504,7 +504,7 @@ unsigned int SqliteDatabase::insertRecord(
   error = insertAutoincrementValues(data);
   if (error != BtrieveError::Success) {
     transaction.rollback();
-    return error;
+    return 0;
   }
 
   std::string insertSql;
@@ -841,10 +841,15 @@ std::unique_ptr<Query> SqliteDatabase::logicalCurrencySeek(
   auto keyBytes = keys.at(keyNumber).extractKeyDataFromRecord(
       std::basic_string_view<uint8_t>(record.second.getData().data(),
                                       record.second.getData().size()));
+  auto keyView =
+      std::basic_string_view<uint8_t>(keyBytes.data(), keyBytes.size());
+
+  auto ret = newQuery(position, &keys.at(keyNumber), keyView);
+
+  static_cast<SqliteQuery *>(ret.get())->setLastKey(
+      keys.at(keyNumber).keyDataToSqliteObject(keyView));
 
   error = BtrieveError::Success;
-  return newQuery(
-      position, &keys.at(keyNumber),
-      std::basic_string_view<uint8_t>(keyBytes.data(), keyBytes.size()));
+  return ret;
 }
 }  // namespace btrieve

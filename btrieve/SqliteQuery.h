@@ -1,16 +1,17 @@
 #ifndef __SQLITE_QUERY_H_
 #define __SQLITE_QUERY_H_
 
+#include <memory>
+#include <sstream>
+
 #include "Key.h"
 #include "Query.h"
 #include "SqlitePreparedStatement.h"
-#include <memory>
-#include <sstream>
 
 namespace btrieve {
 
 class SqliteQuery : public Query {
-public:
+ public:
   SqliteQuery(SqliteDatabase *database_, unsigned int position_,
               const Key *key_, std::basic_string_view<uint8_t> keyData_)
       : Query(position_, key_, keyData_), database(database_) {}
@@ -19,8 +20,8 @@ public:
     this->reader = std::move(reader);
   }
 
-  virtual std::pair<bool, Record>
-  next(CursorDirection cursorDirection) override {
+  virtual std::pair<bool, Record> next(
+      CursorDirection cursorDirection) override {
     if (this->cursorDirection != cursorDirection) {
       reader.reset(nullptr);
       changeDirection(cursorDirection);
@@ -38,7 +39,11 @@ public:
     return std::pair<bool, Record>(true, Record(position, reader->getBlob(2)));
   }
 
-private:
+  void setLastKey(const BindableValue &value) {
+    lastKey.reset(new BindableValue(value));
+  }
+
+ private:
   void seekTo(unsigned int position) {
     while (reader->read()) {
       unsigned int cursorPosition = reader->getInt32(0);
@@ -60,15 +65,15 @@ private:
     sql << "SELECT id, " << key->getSqliteKeyName()
         << ", data FROM data_t WHERE " << key->getSqliteKeyName() << " ";
     switch (newDirection) {
-    case CursorDirection::Forward:
-      sql << ">= @value ORDER BY " << key->getSqliteKeyName() << " ASC";
-      break;
-    case CursorDirection::Reverse:
-      sql << "<= @value ORDER BY " << key->getSqliteKeyName() << " DESC";
-      break;
-    default:
-      // could log an error here
-      return;
+      case CursorDirection::Forward:
+        sql << ">= @value ORDER BY " << key->getSqliteKeyName() << " ASC";
+        break;
+      case CursorDirection::Reverse:
+        sql << "<= @value ORDER BY " << key->getSqliteKeyName() << " DESC";
+        break;
+      default:
+        // could log an error here
+        return;
     }
 
     SqlitePreparedStatement &command =
@@ -94,5 +99,5 @@ private:
   std::unique_ptr<Reader> reader;
   SqliteDatabase *database;
 };
-} // namespace btrieve
+}  // namespace btrieve
 #endif

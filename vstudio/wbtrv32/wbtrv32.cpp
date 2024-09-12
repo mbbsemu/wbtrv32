@@ -269,6 +269,9 @@ static btrieve::BtrieveError Query(BtrieveCommand &command) {
   if (btrieve::requiresKey(command.operation)) {
     if (command.keyNumber >= btrieveDriver->getKeys().size()) {
       return btrieve::BtrieveError::InvalidKeyNumber;
+    } else if (command.lpKeyBufferLength <
+               btrieveDriver->getKeys().at(command.keyNumber).getLength()) {
+      return btrieve::BtrieveError::KeyBufferTooShort;
     }
 
     keyData = std::basic_string_view<uint8_t>(
@@ -290,12 +293,7 @@ static btrieve::BtrieveError Query(BtrieveCommand &command) {
                : btrieve::BtrieveError::EndOfFile;
   }
 
-  // always copy the key
-  if (command.lpKeyBufferLength <
-      btrieveDriver->getKeys().at(command.keyNumber).getLength()) {
-    return btrieve::BtrieveError::KeyBufferTooShort;
-  }
-
+  // always copy the key back to the client
   auto keyDataVector =
       btrieveDriver->getKeys()
           .at(command.keyNumber)
@@ -314,6 +312,51 @@ static btrieve::BtrieveError Query(BtrieveCommand &command) {
   }
 
   return btrieve::BtrieveError::Success;
+}
+
+static btrieve::BtrieveError Insert(BtrieveCommand &command) {
+  auto btrieveDriver = getOpenDatabase(command.lpPositionBlock);
+  if (btrieveDriver == nullptr) {
+    return btrieve::BtrieveError::FileNotOpen;
+  }
+
+  if (command.keyNumber >= 0) {
+    if (command.keyNumber >= btrieveDriver->getKeys().size()) {
+      return btrieve::BtrieveError::InvalidKeyNumber;
+    } else if (command.lpKeyBufferLength <
+               btrieveDriver->getKeys().at(command.keyNumber).getLength()) {
+      return btrieve::BtrieveError::KeyBufferTooShort;
+    }
+  }
+
+  auto record = std::basic_string_view<uint8_t>(
+      reinterpret_cast<uint8_t *>(command.lpDataBuffer),
+      *command.lpdwDataBufferLength);
+
+  unsigned int insertedPosition = btrieveDriver->insertRecord(record);
+
+  if (insertedPosition == 0) {
+    // TODO would be nice to return a better response here, but will require
+    // changes to insertRecord
+    return btrieve::BtrieveError::IOError;
+  }
+
+  if (command.keyNumber < 0) {
+    return btrieve::BtrieveError::Success;
+  }
+
+  auto ret =
+      btrieveDriver->logicalCurrencySeek(command.keyNumber, insertedPosition);
+
+  if (ret == btrieve::BtrieveError::Success) {
+    // copy the key back to the client
+    auto keyDataVector = btrieveDriver->getKeys()
+                             .at(command.keyNumber)
+                             .extractKeyDataFromRecord(record);
+
+    memcpy(command.lpKeyBuffer, keyDataVector.data(), keyDataVector.size());
+  }
+  return ret;
 }
 
 static btrieve::BtrieveError handle(BtrieveCommand &command) {
@@ -378,7 +421,7 @@ static btrieve::BtrieveError handle(BtrieveCommand &command) {
     case btrieve::OperationCode::Update:
       // return Update(command);
     case btrieve::OperationCode::Insert:
-      // return Insert(command);
+      return Insert(command);
     default:
       return btrieve::BtrieveError::InvalidOperation;
   }

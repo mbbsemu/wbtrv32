@@ -240,9 +240,9 @@ TEST_F(wbtrv32Test, Delete) {
 typedef struct _tagRECORD {
   uint16_t unused;
   char string1[32];
-  uint32_t int1;
+  int32_t int1;
   char string2[32];
-  uint32_t int2;
+  int32_t int2;
 } RECORD, *LPRECORD;
 #pragma pack(pop)
 
@@ -655,4 +655,184 @@ TEST_F(wbtrv32Test, QueryKeyBufferTooShort) {
       btrcall(btrieve::OperationCode::AcquireGreater, posBlock, &record,
               &dwDataBufferLength, &keyToSearch, sizeof(keyToSearch) - 1, 1),
       btrieve::BtrieveError::KeyBufferTooShort);
+}
+
+TEST_F(wbtrv32Test, InsertNoKey) {
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  ASSERT_FALSE(mbbsEmuDb.empty());
+
+  RECORD record;
+  uint32_t position = 0;
+  char buffer[80];
+  char key[32];
+  DWORD dwDataBufferLength = sizeof(record);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr, nullptr,
+                    const_cast<LPVOID>(reinterpret_cast<LPCVOID>(
+                        toStdString(mbbsEmuDb.c_str()).c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
+
+  record.int1 = 10000;
+  record.int2 = 5;
+  strcpy(record.string1, "Sysop");
+  strcpy(record.string2, "whatever");
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Insert, posBlock, &record,
+                    &dwDataBufferLength, nullptr, 0, -1),
+            btrieve::BtrieveError::Success);
+
+  dwDataBufferLength = sizeof(buffer);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Stat, posBlock, buffer,
+                    &dwDataBufferLength, nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 5);
+}
+
+TEST_F(wbtrv32Test, InsertBreaksConstraints) {
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  ASSERT_FALSE(mbbsEmuDb.empty());
+
+  RECORD record;
+  uint32_t position = 0;
+  char buffer[80];
+  char key[32];
+  DWORD dwDataBufferLength = sizeof(record);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr, nullptr,
+                    const_cast<LPVOID>(reinterpret_cast<LPCVOID>(
+                        toStdString(mbbsEmuDb.c_str()).c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
+
+  record.int1 = 3444;
+  record.int2 = 1;
+  strcpy(record.string1, "Sysop");
+  strcpy(record.string2, "3444");
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Insert, posBlock, &record,
+                    &dwDataBufferLength, nullptr, 0, -1),
+            btrieve::BtrieveError::IOError);
+
+  dwDataBufferLength = sizeof(buffer);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Stat, posBlock, buffer,
+                    &dwDataBufferLength, nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 4);
+}
+
+TEST_F(wbtrv32Test, InsertWithKey) {
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  ASSERT_FALSE(mbbsEmuDb.empty());
+
+  RECORD record;
+  uint32_t position = 0;
+  char buffer[80];
+  char key[32];
+  DWORD dwDataBufferLength = sizeof(record);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr, nullptr,
+                    const_cast<LPVOID>(reinterpret_cast<LPCVOID>(
+                        toStdString(mbbsEmuDb.c_str()).c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
+
+  record.int1 = -2000000000;
+  record.int2 = 5;
+  strcpy(record.string1, "Sysop");
+  strcpy(record.string2, "whatever");
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Insert, posBlock, &record,
+                    &dwDataBufferLength, key, sizeof(key), 1),
+            btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(*reinterpret_cast<uint32_t*>(key), -2000000000);
+
+  dwDataBufferLength = sizeof(buffer);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Stat, posBlock, buffer,
+                    &dwDataBufferLength, nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 5);
+
+  memset(&record, 0, sizeof(record));
+  dwDataBufferLength = sizeof(record);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::AcquireNext, posBlock, &record,
+                    &dwDataBufferLength, key, sizeof(key), 1),
+            btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(*reinterpret_cast<int32_t*>(key), -615634567);
+
+  ASSERT_STREQ(record.string1, "Sysop");
+  ASSERT_EQ(record.int1, -615634567);
+  ASSERT_STREQ(record.string2, "stringValue");
+  ASSERT_EQ(record.int2, 4);
+}
+
+TEST_F(wbtrv32Test, InsertWithInvalidKey) {
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  ASSERT_FALSE(mbbsEmuDb.empty());
+
+  RECORD record;
+  uint32_t position = 0;
+  char buffer[80];
+  char key[32];
+  DWORD dwDataBufferLength = sizeof(record);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr, nullptr,
+                    const_cast<LPVOID>(reinterpret_cast<LPCVOID>(
+                        toStdString(mbbsEmuDb.c_str()).c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
+
+  record.int1 = -2000000000;
+  record.int2 = 5;
+  strcpy(record.string1, "Sysop");
+  strcpy(record.string2, "whatever");
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Insert, posBlock, &record,
+                    &dwDataBufferLength, key, sizeof(key), 5),
+            btrieve::BtrieveError::InvalidKeyNumber);
+
+  dwDataBufferLength = sizeof(buffer);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Stat, posBlock, buffer,
+                    &dwDataBufferLength, nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 4);
+}
+
+TEST_F(wbtrv32Test, InsertWithKeyBufferTooShort) {
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  ASSERT_FALSE(mbbsEmuDb.empty());
+
+  RECORD record;
+  uint32_t position = 0;
+  char buffer[80];
+  char key[32];
+  DWORD dwDataBufferLength = sizeof(record);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr, nullptr,
+                    const_cast<LPVOID>(reinterpret_cast<LPCVOID>(
+                        toStdString(mbbsEmuDb.c_str()).c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
+
+  record.int1 = -2000000000;
+  record.int2 = 5;
+  strcpy(record.string1, "Sysop");
+  strcpy(record.string2, "whatever");
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Insert, posBlock, &record,
+                    &dwDataBufferLength, key, sizeof(uint32_t) - 1, 1),
+            btrieve::BtrieveError::KeyBufferTooShort);
+
+  dwDataBufferLength = sizeof(buffer);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Stat, posBlock, buffer,
+                    &dwDataBufferLength, nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 4);
 }
