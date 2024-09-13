@@ -9,6 +9,9 @@
 #include "gtest/gtest.h"
 #ifndef WIN32
 #include <dirent.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
 #else
 #define _WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -79,6 +82,7 @@ TEST_F(BtrieveDriverTest, LoadsAndConverts) {
     ASSERT_NE(GetFileAttributesA(convertedDbPath.c_str()),
               INVALID_FILE_ATTRIBUTES);
 #else
+    struct stat statbuf;
     ASSERT_EQ(stat(dbPath.c_str(), &statbuf), 0);
 #endif
 
@@ -580,7 +584,7 @@ TEST_F(BtrieveDriverTest, InsertionTest) {
 
   ASSERT_EQ(driver.insertRecord(std::basic_string_view<uint8_t>(
                 reinterpret_cast<uint8_t *>(&record), sizeof(record))),
-            std::make_pair(BtrieveError::Success, 5));
+            std::make_pair(BtrieveError::Success, 5u));
 
   std::pair<bool, Record> data(driver.getRecord(5));
   ASSERT_TRUE(data.first);
@@ -612,7 +616,7 @@ TEST_F(BtrieveDriverTest, InsertionTestManualAutoincrementedValue) {
 
   ASSERT_EQ(driver.insertRecord(std::basic_string_view<uint8_t>(
                 reinterpret_cast<uint8_t *>(&record), sizeof(record))),
-            std::make_pair(BtrieveError::Success, 5));
+            std::make_pair(BtrieveError::Success, 5u));
 
   std::pair<bool, Record> data(driver.getRecord(5));
   ASSERT_TRUE(data.first);
@@ -645,7 +649,7 @@ TEST_F(BtrieveDriverTest, InsertionTestSubSize) {
   // chop off the last 14 bytes rather than the full 74
   ASSERT_EQ(driver.insertRecord(std::basic_string_view<uint8_t>(
                 reinterpret_cast<uint8_t *>(&record), sizeof(record) - 14)),
-            std::make_pair(BtrieveError::Success, 5));
+            std::make_pair(BtrieveError::Success, 5u));
   std::pair<bool, Record> data(driver.getRecord(5));
   ASSERT_TRUE(data.first);
   ASSERT_EQ(data.second.getData().size(), 74);
@@ -676,7 +680,7 @@ TEST_F(BtrieveDriverTest, InsertionConstraintFailure) {
 
   ASSERT_EQ(driver.insertRecord(std::basic_string_view<uint8_t>(
                 reinterpret_cast<uint8_t *>(&record), sizeof(record))),
-            std::make_pair(BtrieveError::DuplicateKeyValue, 0));
+            std::make_pair(BtrieveError::DuplicateKeyValue, 0u));
 
   ASSERT_EQ(driver.getRecordCount(), 4);
 }
@@ -1773,15 +1777,15 @@ TEST_F(BtrieveDriverTest, ACSSeekByKey) {
 
   ASSERT_EQ(database->insertRecord(std::basic_string_view<uint8_t>(
                 createRecord("Sysop").data(), ACS_RECORD_LENGTH)),
-            std::make_pair(BtrieveError::Success, 1));
+            std::make_pair(BtrieveError::Success, 1u));
 
   ASSERT_EQ(database->insertRecord(std::basic_string_view<uint8_t>(
                 createRecord("Paladine").data(), ACS_RECORD_LENGTH)),
-            std::make_pair(BtrieveError::Success, 2));
+            std::make_pair(BtrieveError::Success, 2u));
 
   ASSERT_EQ(database->insertRecord(std::basic_string_view<uint8_t>(
                 createRecord("Testing").data(), ACS_RECORD_LENGTH)),
-            std::make_pair(BtrieveError::Success, 3));
+            std::make_pair(BtrieveError::Success, 3u));
 
   std::basic_string_view<uint8_t> key(
       reinterpret_cast<const uint8_t *>("paladine"), 8);
@@ -1805,19 +1809,19 @@ TEST_F(BtrieveDriverTest, ACSInsertDuplicateFails) {
 
   ASSERT_EQ(database->insertRecord(std::basic_string_view<uint8_t>(
                 createRecord("Sysop").data(), ACS_RECORD_LENGTH)),
-            std::make_pair(BtrieveError::Success, 1));
+            std::make_pair(BtrieveError::Success, 1u));
 
   ASSERT_EQ(database->insertRecord(std::basic_string_view<uint8_t>(
                 createRecord("sysop").data(), ACS_RECORD_LENGTH)),
-            std::make_pair(BtrieveError::DuplicateKeyValue, 0));
+            std::make_pair(BtrieveError::DuplicateKeyValue, 0u));
 
   ASSERT_EQ(database->insertRecord(std::basic_string_view<uint8_t>(
                 createRecord("SysOp").data(), ACS_RECORD_LENGTH)),
-            std::make_pair(BtrieveError::DuplicateKeyValue, 0));
+            std::make_pair(BtrieveError::DuplicateKeyValue, 0u));
 
   ASSERT_EQ(database->insertRecord(std::basic_string_view<uint8_t>(
                 createRecord("SysoP").data(), ACS_RECORD_LENGTH)),
-            std::make_pair(BtrieveError::DuplicateKeyValue, 0));
+            std::make_pair(BtrieveError::DuplicateKeyValue, 0u));
 }
 
 static BtrieveDatabase createKeylessBtrieveDatabase() {
@@ -1850,7 +1854,7 @@ TEST_F(BtrieveDriverTest, KeylessDatabaseEnumeration) {
 
   ASSERT_EQ(database->insertRecord(std::basic_string_view<uint8_t>(
                 createRecord("paladine").data(), ACS_RECORD_LENGTH)),
-            std::make_pair(BtrieveError::Success, 4));
+            std::make_pair(BtrieveError::Success, 4u));
 
   ASSERT_EQ(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
                                     OperationCode::StepFirst),
