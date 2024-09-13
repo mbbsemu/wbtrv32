@@ -9,9 +9,7 @@
 
 typedef wchar_t tchar;
 
-#ifndef TEXT
-#define TEXT(s) L##s
-#endif
+#define _TEXT(s) L##s
 
 static std::string toStdString(const tchar *str) {
   size_t destSize;
@@ -25,7 +23,7 @@ static std::string toStdString(const tchar *str) {
 #else
 typedef char tchar;
 
-#define TEXT(s) s
+#define _TEXT(s) s
 
 static std::string toStdString(const tchar *str) { return std::string(str); }
 

@@ -568,7 +568,7 @@ std::pair<BtrieveError, unsigned int> SqliteDatabase::insertRecord(
 
   try {
     transaction.commit();
-  } catch (const BtrieveException &ex) {
+  } catch (const BtrieveException &) {
     SqliteErrorConverter errorConverter(database.get());
 
     transaction.rollback();
@@ -713,7 +713,7 @@ BtrieveError SqliteDatabase::updateRecord(
 
   try {
     transaction.commit();
-  } catch (const BtrieveException &ex) {
+  } catch (const BtrieveException &) {
     //_logger.Log(logLevel, $"Failed to commit during insert: {ex.Message}");
     transaction.rollback();
     numRowsAffected = 0;

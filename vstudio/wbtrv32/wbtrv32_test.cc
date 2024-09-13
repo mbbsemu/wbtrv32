@@ -26,7 +26,7 @@ class wbtrv32Test : public TestBase {
   virtual void SetUp() override {
     TestBase::SetUp();
 
-    dll.reset(LoadLibrary(TEXT("wbtrv32.dll")));
+    dll.reset(LoadLibrary(_TEXT("wbtrv32.dll")));
 
     btrcall = reinterpret_cast<BTRCALL>(GetProcAddress(dll.get(), "BTRCALL"));
   }
@@ -410,7 +410,6 @@ TEST_F(wbtrv32Test, GetDirectNoKeys) {
 
   RECORD record;
   uint32_t position = 0;
-  char key[32];
   DWORD dwDataBufferLength = sizeof(record);
 
   ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr,
@@ -436,7 +435,6 @@ TEST_F(wbtrv32Test, GetDirectNoKeysBadPositioning) {
 
   RECORD record;
   uint32_t position = 0;
-  char key[32];
   DWORD dwDataBufferLength = sizeof(record);
 
   ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr,
@@ -462,7 +460,6 @@ TEST_F(wbtrv32Test, GetDirectNoKeysBufferOverrun) {
 
   RECORD record;
   uint32_t position = 0;
-  char key[32];
   DWORD dwDataBufferLength = sizeof(record);
 
   ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr,
@@ -487,7 +484,6 @@ TEST_F(wbtrv32Test, GetDirectWithKey) {
 
   RECORD record;
   uint32_t position = 0;
-  char key[32];
   DWORD dwDataBufferLength = sizeof(record);
 
   ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr,
@@ -531,7 +527,6 @@ TEST_F(wbtrv32Test, GetDirectWithKeyDataBufferOverrun) {
 
   RECORD record;
   uint32_t position = 0;
-  char key[32];
   DWORD dwDataBufferLength = sizeof(record) - 1;
 
   ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr,
@@ -556,7 +551,6 @@ TEST_F(wbtrv32Test, GetDirectWithKey_KeyBufferTooShort) {
 
   RECORD record;
   uint32_t position = 0;
-  char key[32];
   DWORD dwDataBufferLength = sizeof(record);
 
   ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr,
@@ -581,7 +575,6 @@ TEST_F(wbtrv32Test, Query) {
 
   RECORD record;
   uint32_t position = 0;
-  char key[32];
   DWORD dwDataBufferLength = sizeof(record);
 
   ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr, nullptr,
@@ -620,7 +613,6 @@ TEST_F(wbtrv32Test, QueryDataBufferOverrun) {
 
   RECORD record;
   uint32_t position = 0;
-  char key[32];
   DWORD dwDataBufferLength = sizeof(record) - 1;
 
   ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr, nullptr,
@@ -641,7 +633,6 @@ TEST_F(wbtrv32Test, QueryKeyBufferTooShort) {
 
   RECORD record;
   uint32_t position = 0;
-  char key[32];
   DWORD dwDataBufferLength = sizeof(record) - 1;
 
   ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr, nullptr,
@@ -664,7 +655,6 @@ TEST_F(wbtrv32Test, InsertNoKey) {
   RECORD record;
   uint32_t position = 0;
   char buffer[80];
-  char key[32];
   DWORD dwDataBufferLength = sizeof(record);
 
   ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr, nullptr,
@@ -711,7 +701,6 @@ TEST_F(wbtrv32Test, InsertBreaksConstraints) {
   RECORD record;
   uint32_t position = 0;
   char buffer[80];
-  char key[32];
   DWORD dwDataBufferLength = sizeof(record);
 
   ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr, nullptr,
@@ -858,7 +847,6 @@ TEST_F(wbtrv32Test, UpdateNoKey) {
   RECORD record;
   uint32_t position = 0;
   char buffer[80];
-  char key[32];
   DWORD dwDataBufferLength = sizeof(record);
 
   ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr, nullptr,
@@ -909,8 +897,6 @@ TEST_F(wbtrv32Test, UpdateBreaksConstraints) {
 
   RECORD record;
   uint32_t position = 0;
-  char buffer[80];
-  char key[32];
   DWORD dwDataBufferLength = sizeof(record);
 
   ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr, nullptr,

@@ -1768,7 +1768,7 @@ TEST_F(BtrieveDriverTest, ACSSeekByKey) {
   BtrieveDriver driver(database);
 
   auto recordLoader =
-      database->create(TEXT("unused.db"), createACSBtrieveDatabase());
+      database->create(_TEXT("unused.db"), createACSBtrieveDatabase());
   recordLoader->onRecordsComplete();
 
   ASSERT_EQ(database->insertRecord(std::basic_string_view<uint8_t>(
@@ -1800,7 +1800,7 @@ TEST_F(BtrieveDriverTest, ACSInsertDuplicateFails) {
   BtrieveDriver driver(database);
 
   auto recordLoader =
-      database->create(TEXT("unused.db"), createACSBtrieveDatabase());
+      database->create(_TEXT("unused.db"), createACSBtrieveDatabase());
   recordLoader->onRecordsComplete();
 
   ASSERT_EQ(database->insertRecord(std::basic_string_view<uint8_t>(
@@ -1839,7 +1839,7 @@ TEST_F(BtrieveDriverTest, KeylessDatabaseEnumeration) {
   BtrieveDriver driver(database);
 
   auto recordLoader =
-      database->create(TEXT("unused.db"), createKeylessBtrieveDatabase());
+      database->create(_TEXT("unused.db"), createKeylessBtrieveDatabase());
   recordLoader->onRecordLoaded(std::basic_string_view<uint8_t>(
       createRecord("Sysop").data(), ACS_RECORD_LENGTH));
   recordLoader->onRecordLoaded(std::basic_string_view<uint8_t>(
@@ -1902,7 +1902,7 @@ TEST_F(BtrieveDriverTest, KeylessDataQueryFails) {
   BtrieveDriver driver(database);
 
   auto recordLoader =
-      database->create(TEXT("unused.db"), createKeylessBtrieveDatabase());
+      database->create(_TEXT("unused.db"), createKeylessBtrieveDatabase());
   recordLoader->onRecordLoaded(std::basic_string_view<uint8_t>(
       createRecord("Sysop").data(), ACS_RECORD_LENGTH));
   recordLoader->onRecordLoaded(std::basic_string_view<uint8_t>(

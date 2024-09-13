@@ -110,7 +110,7 @@ std::basic_string<tchar> TempPath::copyToTempPath(const char *filePath) {
 
     std::unique_ptr<FILE, decltype(&fclose)> destFile(
 #ifdef WIN32
-        _wfopen(destPath.c_str(), TEXT("wb")), &fclose);
+        _wfopen(destPath.c_str(), _TEXT("wb")), &fclose);
 #else
         fopen(destPath.c_str(), "wb"), &fclose);
 #endif

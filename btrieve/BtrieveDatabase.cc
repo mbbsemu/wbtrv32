@@ -239,13 +239,13 @@ void BtrieveDatabase::parseDatabase(
     std::function<bool(const std::basic_string_view<uint8_t>)> onRecordLoaded,
     std::function<void()> onRecordsComplete) {
 #ifdef WIN32
-  FILE *f = _wfopen(fileName, TEXT("rb"));
+  FILE *f = _wfopen(fileName, _TEXT("rb"));
 #else
-  FILE *f = fopen(fileName, TEXT("rb"));
+  FILE *f = fopen(fileName, _TEXT("rb"));
 #endif
   if (f == nullptr) {
 #ifdef WIN32
-    fwprintf(stderr, TEXT("Couldn't open %s\n"), fileName);
+    fwprintf(stderr, _TEXT("Couldn't open %s\n"), fileName);
 #else
     fprintf(stderr, "Couldn't open %s\n", fileName);
 #endif

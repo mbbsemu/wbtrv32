@@ -64,7 +64,7 @@ static btrieve::BtrieveError Open(BtrieveCommand &command) {
     memcpy(command.lpPositionBlock, &guid, sizeof(UUID));
 
     return btrieve::BtrieveError::Success;
-  } catch (const btrieve::BtrieveException &unused) {
+  } catch (const btrieve::BtrieveException &) {
     if (db != nullptr) {
       delete db;
     }
@@ -108,9 +108,9 @@ static btrieve::BtrieveError Stat(BtrieveCommand &command) {
     *reinterpret_cast<uint8_t *>(command.lpKeyBuffer) = 0;
   }
 
-  unsigned int requiredSize =
+  unsigned int requiredSize = static_cast<unsigned int>(
       sizeof(wbtrv32::FILESPEC) +
-      (btrieveDriver->getKeys().size() * sizeof(wbtrv32::KEYSPEC));
+      (btrieveDriver->getKeys().size() * sizeof(wbtrv32::KEYSPEC)));
   if (*command.lpdwDataBufferLength < requiredSize) {
     return btrieve::BtrieveError::DataBufferLengthOverrun;
   }
@@ -182,7 +182,8 @@ static btrieve::BtrieveError Step(BtrieveCommand &command) {
     return btrieve::BtrieveError::DataBufferLengthOverrun;
   }
 
-  *command.lpdwDataBufferLength = record.second.getData().size();
+  *command.lpdwDataBufferLength =
+      static_cast<DWORD>(record.second.getData().size());
   memcpy(command.lpDataBuffer, record.second.getData().data(),
          record.second.getData().size());
 

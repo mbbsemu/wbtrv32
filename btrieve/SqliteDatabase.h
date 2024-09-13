@@ -21,7 +21,7 @@ class SqliteDatabase : public SqlDatabase {
 
   virtual ~SqliteDatabase() { close(); }
 
-  virtual const tchar *getFileExtension() override { return TEXT("db"); };
+  virtual const tchar *getFileExtension() override { return _TEXT("db"); };
 
   virtual void open(const tchar *fileName) override;
 

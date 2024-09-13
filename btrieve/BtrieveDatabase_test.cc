@@ -10,7 +10,7 @@ TEST(BtrieveDatabase, LoadsMBBSEmuDat) {
   std::vector<char> blankACS;
 
   database.parseDatabase(
-      TEXT("assets/MBBSEMU.DAT"), []() { return true; },
+      _TEXT("assets/MBBSEMU.DAT"), []() { return true; },
       [&database, &recordCount](std::basic_string_view<uint8_t> record) {
         EXPECT_EQ(record.size(), database.getRecordLength());
         ++recordCount;
@@ -65,7 +65,7 @@ TEST(BtrieveDatabase, LoadsVariableDat) {
   std::vector<char> blankACS;
 
   database.parseDatabase(
-      TEXT("assets/VARIABLE.DAT"), []() { return true; },
+      _TEXT("assets/VARIABLE.DAT"), []() { return true; },
       [&database, &recordCount](std::basic_string_view<uint8_t> record) {
         EXPECT_GT(record.size(), database.getRecordLength() - 1);
 
