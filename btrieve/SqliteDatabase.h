@@ -40,7 +40,7 @@ class SqliteDatabase : public SqlDatabase {
 
   virtual BtrieveError deleteAll() override;
 
-  virtual unsigned int insertRecord(
+  virtual std::pair<BtrieveError, unsigned int> insertRecord(
       std::basic_string_view<uint8_t> record) override;
 
   virtual BtrieveError updateRecord(

@@ -1,12 +1,13 @@
 #ifndef __TEST_BASE_H_
 #define __TEST_BASE_H_
 
-#include "Text.h"
-#include "gtest/gtest.h"
 #include <string>
 
+#include "Text.h"
+#include "gtest/gtest.h"
+
 class TempPath {
-public:
+ public:
   TempPath() = default;
 
   ~TempPath();
@@ -17,18 +18,18 @@ public:
 
   std::basic_string<tchar> copyToTempPath(const char *filePath);
 
-private:
+ private:
   void deleteAllFiles(const char *filePath);
 
   std::string tempFolder;
 };
 
 class TestBase : public ::testing::Test {
-protected:
+ protected:
   TempPath *tempPath;
 
-public:
-  TestBase() = default;
+ public:
+  TestBase() : tempPath(nullptr) {}
 
   virtual ~TestBase() = default;
 

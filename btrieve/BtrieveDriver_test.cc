@@ -1,18 +1,23 @@
 #include "BtrieveDriver.h"
+
+#include <stdlib.h>
+
+#include <cstdio>
+
 #include "BtrieveException.h"
 #include "SqliteDatabase.h"
 #include "gtest/gtest.h"
-#include <cstdio>
-#include <stdlib.h>
 #ifndef WIN32
 #include <dirent.h>
 #else
 #define _WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #endif
-#include "TestBase.h"
-#include <filesystem>
 #include <sys/types.h>
+
+#include <filesystem>
+
+#include "TestBase.h"
 
 /* Data layout as follows:
 
@@ -60,7 +65,6 @@ TEST_F(BtrieveDriverTest, LoadsAndConverts) {
   {
     std::string acsName;
     std::vector<char> blankACS;
-    struct stat statbuf;
     BtrieveDriver driver(new SqliteDatabase());
 
     auto mbbsEmuDat = tempPath->copyToTempPath("assets/MBBSEMU.DAT");
@@ -144,26 +148,26 @@ TEST_F(BtrieveDriverTest, LoadsAndConverts) {
       "INTEGER NOT NULL, length INTEGER NOT NULL, null_value INTEGER NOT "
       "NULL, UNIQUE(number, segment))";
 
-  ASSERT_EQ(sqlite_exec(db,
-                        "SELECT sql FROM sqlite_master WHERE name = 'keys_t'",
-                        [](int numResults, char **data, char **columns) {
-                          ASSERT_EQ(numResults, 1);
-                          ASSERT_STREQ(data[0], EXPECTED_KEYS_T_SQL);
-                        }),
-            SQLITE_OK);
+  ASSERT_EQ(
+      sqlite_exec(db, "SELECT sql FROM sqlite_master WHERE name = 'keys_t'",
+                  [](int numResults, char **data, char **columns) {
+                    ASSERT_EQ(numResults, 1);
+                    ASSERT_STREQ(data[0], EXPECTED_KEYS_T_SQL);
+                  }),
+      SQLITE_OK);
 
   static const char *EXPECTED_DATA_T_SQL =
       "CREATE TABLE data_t(id INTEGER PRIMARY KEY, "
       "data BLOB NOT NULL, key_0 TEXT, key_1 INTEGER NOT NULL UNIQUE, key_2 "
       "TEXT, key_3 INTEGER NOT NULL UNIQUE)";
 
-  ASSERT_EQ(sqlite_exec(db,
-                        "SELECT sql FROM sqlite_master WHERE name = 'data_t'",
-                        [](int numResults, char **data, char **columns) {
-                          ASSERT_EQ(numResults, 1);
-                          ASSERT_STREQ(data[0], EXPECTED_DATA_T_SQL);
-                        }),
-            SQLITE_OK);
+  ASSERT_EQ(
+      sqlite_exec(db, "SELECT sql FROM sqlite_master WHERE name = 'data_t'",
+                  [](int numResults, char **data, char **columns) {
+                    ASSERT_EQ(numResults, 1);
+                    ASSERT_STREQ(data[0], EXPECTED_DATA_T_SQL);
+                  }),
+      SQLITE_OK);
 
   static const char *EXPECTED_TRIGGERS_SQL =
       "CREATE TRIGGER non_modifiable "
@@ -576,7 +580,8 @@ TEST_F(BtrieveDriverTest, InsertionTest) {
 
   ASSERT_EQ(driver.insertRecord(std::basic_string_view<uint8_t>(
                 reinterpret_cast<uint8_t *>(&record), sizeof(record))),
-            5);
+            std::make_pair(BtrieveError::Success, 5));
+
   std::pair<bool, Record> data(driver.getRecord(5));
   ASSERT_TRUE(data.first);
   ASSERT_EQ(data.second.getData().size(), 74);
@@ -603,11 +608,12 @@ TEST_F(BtrieveDriverTest, InsertionTestManualAutoincrementedValue) {
   strcpy(record.key0, "Paladine");
   record.key1 = 31337;
   strcpy(record.key2, "In orbe terrarum, optimus sum");
-  record.key3 = 4444; // set a manual value for the autoincrement value
+  record.key3 = 4444;  // set a manual value for the autoincrement value
 
   ASSERT_EQ(driver.insertRecord(std::basic_string_view<uint8_t>(
                 reinterpret_cast<uint8_t *>(&record), sizeof(record))),
-            5);
+            std::make_pair(BtrieveError::Success, 5));
+
   std::pair<bool, Record> data(driver.getRecord(5));
   ASSERT_TRUE(data.first);
   ASSERT_EQ(data.second.getData().size(), 74);
@@ -634,12 +640,12 @@ TEST_F(BtrieveDriverTest, InsertionTestSubSize) {
   strcpy(record.key0, "Paladine");
   record.key1 = 31337;
   strcpy(record.key2, "In orbe terrarum, optimus sum");
-  record.key3 = 4444; // set a manual value for the autoincrement value
+  record.key3 = 4444;  // set a manual value for the autoincrement value
 
   // chop off the last 14 bytes rather than the full 74
   ASSERT_EQ(driver.insertRecord(std::basic_string_view<uint8_t>(
                 reinterpret_cast<uint8_t *>(&record), sizeof(record) - 14)),
-            5);
+            std::make_pair(BtrieveError::Success, 5));
   std::pair<bool, Record> data(driver.getRecord(5));
   ASSERT_TRUE(data.first);
   ASSERT_EQ(data.second.getData().size(), 74);
@@ -649,7 +655,7 @@ TEST_F(BtrieveDriverTest, InsertionTestSubSize) {
 
   ASSERT_STREQ(dbRecord->key0, "Paladine");
   ASSERT_EQ(dbRecord->key1, 31337);
-  ASSERT_STREQ(dbRecord->key2, "In orbe terrarum, opti"); // cut off
+  ASSERT_STREQ(dbRecord->key2, "In orbe terrarum, opti");  // cut off
   ASSERT_EQ(dbRecord->key3, 5);
 
   ASSERT_EQ(driver.getRecordCount(), 5);
@@ -664,13 +670,13 @@ TEST_F(BtrieveDriverTest, InsertionConstraintFailure) {
   MBBSEmuRecordStruct record;
   memset(&record, 0, sizeof(record));
   strcpy(record.key0, "Paladine");
-  record.key1 = 3444; // key constraint right here
+  record.key1 = 3444;  // key constraint right here
   strcpy(record.key2, "In orbe terrarum, optimus sum");
-  record.key3 = 4444; // set a manual value for the autoincrement value
+  record.key3 = 4444;  // set a manual value for the autoincrement value
 
   ASSERT_EQ(driver.insertRecord(std::basic_string_view<uint8_t>(
                 reinterpret_cast<uint8_t *>(&record), sizeof(record))),
-            0);
+            std::make_pair(BtrieveError::DuplicateKeyValue, 0));
 
   ASSERT_EQ(driver.getRecordCount(), 4);
 }
@@ -684,7 +690,7 @@ TEST_F(BtrieveDriverTest, UpdateTest) {
   MBBSEmuRecordStruct record;
   memset(&record, 0, sizeof(record));
   strcpy(record.key0, "Sysop");
-  record.key1 = 31337; // key constraint right here
+  record.key1 = 31337;  // key constraint right here
   strcpy(record.key2, "In orbe terrarum, optimus sum");
   record.key3 = 1;
 
@@ -741,7 +747,7 @@ TEST_F(BtrieveDriverTest, UpdateTestSubSize) {
   ASSERT_STREQ(dbRecord->key0, "Sysop");
   ASSERT_EQ(dbRecord->key1, 31337);
   ASSERT_STREQ(dbRecord->key2, "In orbe terrarum, optimus sum");
-  ASSERT_EQ(dbRecord->key3, 2); // truncated down to 2
+  ASSERT_EQ(dbRecord->key3, 2);  // truncated down to 2
 
   ASSERT_EQ(driver.getRecordCount(), 4);
 }
@@ -787,10 +793,10 @@ TEST_F(BtrieveDriverTest, UpdateTestNonModifiableKeyModifiedFailed) {
   MBBSEmuRecordStruct record;
   memset(&record, 0, sizeof(record));
   strcpy(record.key0,
-         "Changed"); // this key isn't modifiable, but we try anyways
+         "Changed");  // this key isn't modifiable, but we try anyways
   record.key1 = 3444;
   strcpy(record.key2, "In orbe terrarum, optimus sum");
-  record.key3 = 333333; // this key isn't modifiable, but we try anyways
+  record.key3 = 333333;  // this key isn't modifiable, but we try anyways
 
   EXPECT_EQ(driver.updateRecord(
                 1, std::basic_string_view<uint8_t>(
@@ -821,10 +827,10 @@ TEST_F(BtrieveDriverTest, UpdateInvalidKeyNumber) {
   MBBSEmuRecordStruct record;
   memset(&record, 0, sizeof(record));
   strcpy(record.key0,
-         "Changed"); // this key isn't modifiable, but we try anyways
+         "Changed");  // this key isn't modifiable, but we try anyways
   record.key1 = 3444;
   strcpy(record.key2, "In orbe terrarum, optimus sum");
-  record.key3 = 333333; // this key isn't modifiable, but we try anyways
+  record.key3 = 333333;  // this key isn't modifiable, but we try anyways
 
   EXPECT_EQ(driver.updateRecord(
                 5, std::basic_string_view<uint8_t>(
@@ -1767,15 +1773,15 @@ TEST_F(BtrieveDriverTest, ACSSeekByKey) {
 
   ASSERT_EQ(database->insertRecord(std::basic_string_view<uint8_t>(
                 createRecord("Sysop").data(), ACS_RECORD_LENGTH)),
-            1);
+            std::make_pair(BtrieveError::Success, 1));
 
   ASSERT_EQ(database->insertRecord(std::basic_string_view<uint8_t>(
                 createRecord("Paladine").data(), ACS_RECORD_LENGTH)),
-            2);
+            std::make_pair(BtrieveError::Success, 2));
 
   ASSERT_EQ(database->insertRecord(std::basic_string_view<uint8_t>(
                 createRecord("Testing").data(), ACS_RECORD_LENGTH)),
-            3);
+            std::make_pair(BtrieveError::Success, 3));
 
   std::basic_string_view<uint8_t> key(
       reinterpret_cast<const uint8_t *>("paladine"), 8);
@@ -1799,19 +1805,19 @@ TEST_F(BtrieveDriverTest, ACSInsertDuplicateFails) {
 
   ASSERT_EQ(database->insertRecord(std::basic_string_view<uint8_t>(
                 createRecord("Sysop").data(), ACS_RECORD_LENGTH)),
-            1);
+            std::make_pair(BtrieveError::Success, 1));
 
   ASSERT_EQ(database->insertRecord(std::basic_string_view<uint8_t>(
                 createRecord("sysop").data(), ACS_RECORD_LENGTH)),
-            0);
+            std::make_pair(BtrieveError::DuplicateKeyValue, 0));
 
   ASSERT_EQ(database->insertRecord(std::basic_string_view<uint8_t>(
                 createRecord("SysOp").data(), ACS_RECORD_LENGTH)),
-            0);
+            std::make_pair(BtrieveError::DuplicateKeyValue, 0));
 
   ASSERT_EQ(database->insertRecord(std::basic_string_view<uint8_t>(
                 createRecord("SysoP").data(), ACS_RECORD_LENGTH)),
-            0);
+            std::make_pair(BtrieveError::DuplicateKeyValue, 0));
 }
 
 static BtrieveDatabase createKeylessBtrieveDatabase() {
@@ -1844,7 +1850,7 @@ TEST_F(BtrieveDriverTest, KeylessDatabaseEnumeration) {
 
   ASSERT_EQ(database->insertRecord(std::basic_string_view<uint8_t>(
                 createRecord("paladine").data(), ACS_RECORD_LENGTH)),
-            4);
+            std::make_pair(BtrieveError::Success, 4));
 
   ASSERT_EQ(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
                                     OperationCode::StepFirst),

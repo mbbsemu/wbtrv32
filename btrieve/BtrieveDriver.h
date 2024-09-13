@@ -52,7 +52,8 @@ class BtrieveDriver {
 
   bool deleteAll() { return sqlDatabase->deleteAll(); }
 
-  unsigned int insertRecord(std::basic_string_view<uint8_t> record) {
+  std::pair<BtrieveError, unsigned int> insertRecord(
+      std::basic_string_view<uint8_t> record) {
     return sqlDatabase->insertRecord(record);
   }
 

@@ -688,6 +688,20 @@ TEST_F(wbtrv32Test, InsertNoKey) {
             btrieve::BtrieveError::Success);
 
   ASSERT_EQ(reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 5);
+
+  // requery just to make sure the data was written correctly and is recoverable
+  memset(&record, 0, sizeof(record));
+
+  *reinterpret_cast<uint32_t*>(&record) = 5;
+  dwDataBufferLength = sizeof(record);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::GetDirectChunkOrRecord, posBlock,
+                    &record, &dwDataBufferLength, nullptr, 0, -1),
+            btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(record.int1, 10000);
+  ASSERT_EQ(record.int2, 5);
+  ASSERT_STREQ(record.string1, "Sysop");
+  ASSERT_STREQ(record.string2, "whatever");
 }
 
 TEST_F(wbtrv32Test, InsertBreaksConstraints) {
@@ -713,7 +727,7 @@ TEST_F(wbtrv32Test, InsertBreaksConstraints) {
 
   ASSERT_EQ(btrcall(btrieve::OperationCode::Insert, posBlock, &record,
                     &dwDataBufferLength, nullptr, 0, -1),
-            btrieve::BtrieveError::IOError);
+            btrieve::BtrieveError::DuplicateKeyValue);
 
   dwDataBufferLength = sizeof(buffer);
   ASSERT_EQ(btrcall(btrieve::OperationCode::Stat, posBlock, buffer,

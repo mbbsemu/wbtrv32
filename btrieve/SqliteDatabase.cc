@@ -485,7 +485,28 @@ BtrieveError SqliteDatabase::deleteRecord() {
              : BtrieveError::InvalidPositioning;
 }
 
-unsigned int SqliteDatabase::insertRecord(
+class SqliteErrorConverter {
+ public:
+  SqliteErrorConverter(sqlite3 *database) : error(BtrieveError::IOError) {
+    int errorCode = sqlite3_errcode(database);
+    int extendedErrorCode = sqlite3_extended_errcode(database);
+
+    if (errorCode == SQLITE_CONSTRAINT) {
+      if (extendedErrorCode == SQLITE_CONSTRAINT_UNIQUE) {
+        error = BtrieveError::DuplicateKeyValue;
+      } else if (extendedErrorCode == SQLITE_CONSTRAINT_TRIGGER) {
+        error = BtrieveError::NonModifiableKeyValue;
+      }
+    }
+  }
+
+  BtrieveError getError() { return error; }
+
+ private:
+  BtrieveError error;
+};
+
+std::pair<BtrieveError, unsigned int> SqliteDatabase::insertRecord(
     std::basic_string_view<uint8_t> record) {
   BtrieveError error;
   std::vector<uint8_t> data(record.size());
@@ -504,7 +525,7 @@ unsigned int SqliteDatabase::insertRecord(
   error = insertAutoincrementValues(data);
   if (error != BtrieveError::Success) {
     transaction.rollback();
-    return 0;
+    return std::make_pair(error, 0);
   }
 
   std::string insertSql;
@@ -533,28 +554,35 @@ unsigned int SqliteDatabase::insertRecord(
   }
 
   if (!insertCmd.executeNoThrow()) {
+    SqliteErrorConverter errorConverter(database.get());
+
     transaction.rollback();
-    return 0;
+
+    return std::make_pair(errorConverter.getError(), 0);
   }
 
   int numRowsAffected = sqlite3_changes(database.get());
+  error = BtrieveError::Success;
   unsigned int lastInsertRowId =
       static_cast<unsigned int>(sqlite3_last_insert_rowid(database.get()));
 
   try {
     transaction.commit();
   } catch (const BtrieveException &ex) {
-    //_logger.Log(logLevel, $"Failed to commit during insert: {ex.Message}");
+    SqliteErrorConverter errorConverter(database.get());
+
     transaction.rollback();
+
     numRowsAffected = 0;
+    error = errorConverter.getError();
   }
 
   if (numRowsAffected == 0) {
-    return 0;
+    return std::make_pair(error, 0);
   }
 
   cache.cache(lastInsertRowId, Record(lastInsertRowId, data));
-  return lastInsertRowId;
+  return std::make_pair(error, lastInsertRowId);
 }
 
 BtrieveError SqliteDatabase::insertAutoincrementValues(
@@ -674,20 +702,11 @@ BtrieveError SqliteDatabase::updateRecord(
   updateCmd.bindParameter(parameterNumber, id);
 
   if (!updateCmd.executeNoThrow()) {
-    int errorCode = sqlite3_errcode(database.get());
-    int extendedErrorCode = sqlite3_extended_errcode(database.get());
+    SqliteErrorConverter errorConverter(database.get());
 
     transaction.rollback();
 
-    if (errorCode == SQLITE_CONSTRAINT) {
-      if (extendedErrorCode == SQLITE_CONSTRAINT_UNIQUE) {
-        return BtrieveError::DuplicateKeyValue;
-      } else if (extendedErrorCode == SQLITE_CONSTRAINT_TRIGGER) {
-        return BtrieveError::NonModifiableKeyValue;
-      }
-    }
-
-    return BtrieveError::IOError;
+    return errorConverter.getError();
   }
 
   int numRowsAffected = sqlite3_changes(database.get());

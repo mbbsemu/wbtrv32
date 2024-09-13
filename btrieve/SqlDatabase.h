@@ -71,7 +71,8 @@ class SqlDatabase {
   virtual unsigned int getRecordCount() const = 0;
   virtual BtrieveError deleteAll() = 0;
   virtual BtrieveError deleteRecord() = 0;
-  virtual unsigned int insertRecord(std::basic_string_view<uint8_t> record) = 0;
+  virtual std::pair<BtrieveError, unsigned int> insertRecord(
+      std::basic_string_view<uint8_t> record) = 0;
   virtual BtrieveError updateRecord(unsigned int offset,
                                     std::basic_string_view<uint8_t> record) = 0;
 

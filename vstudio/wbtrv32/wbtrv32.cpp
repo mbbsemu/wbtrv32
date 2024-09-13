@@ -333,20 +333,18 @@ static btrieve::BtrieveError Insert(BtrieveCommand &command) {
       reinterpret_cast<uint8_t *>(command.lpDataBuffer),
       *command.lpdwDataBufferLength);
 
-  unsigned int insertedPosition = btrieveDriver->insertRecord(record);
+  auto insertedPosition = btrieveDriver->insertRecord(record);
 
-  if (insertedPosition == 0) {
-    // TODO would be nice to return a better response here, but will require
-    // changes to insertRecord
-    return btrieve::BtrieveError::IOError;
+  if (insertedPosition.first != btrieve::BtrieveError::Success) {
+    return insertedPosition.first;
   }
 
   if (command.keyNumber < 0) {
     return btrieve::BtrieveError::Success;
   }
 
-  auto ret =
-      btrieveDriver->logicalCurrencySeek(command.keyNumber, insertedPosition);
+  auto ret = btrieveDriver->logicalCurrencySeek(command.keyNumber,
+                                                insertedPosition.second);
 
   if (ret == btrieve::BtrieveError::Success) {
     // copy the key back to the client
