@@ -314,7 +314,11 @@ static btrieve::BtrieveError Query(BtrieveCommand &command) {
   return btrieve::BtrieveError::Success;
 }
 
-static btrieve::BtrieveError Insert(BtrieveCommand &command) {
+static btrieve::BtrieveError Upsert(
+    BtrieveCommand &command,
+    std::function<std::pair<btrieve::BtrieveError, unsigned int>(
+        btrieve::BtrieveDriver *, std::basic_string_view<uint8_t> record)>
+        upsertFunction) {
   auto btrieveDriver = getOpenDatabase(command.lpPositionBlock);
   if (btrieveDriver == nullptr) {
     return btrieve::BtrieveError::FileNotOpen;
@@ -333,7 +337,7 @@ static btrieve::BtrieveError Insert(BtrieveCommand &command) {
       reinterpret_cast<uint8_t *>(command.lpDataBuffer),
       *command.lpdwDataBufferLength);
 
-  auto insertedPosition = btrieveDriver->insertRecord(record);
+  auto insertedPosition = upsertFunction(btrieveDriver, record);
 
   if (insertedPosition.first != btrieve::BtrieveError::Success) {
     return insertedPosition.first;
@@ -417,9 +421,16 @@ static btrieve::BtrieveError handle(BtrieveCommand &command) {
     case btrieve::OperationCode::GetDirectChunkOrRecord + 400:
       return GetDirectRecord(command);
     case btrieve::OperationCode::Update:
-      // return Update(command);
+      return Upsert(command, [](btrieve::BtrieveDriver *driver,
+                                std::basic_string_view<uint8_t> record) {
+        auto position = driver->getPosition();
+        return std::make_pair(driver->updateRecord(position, record), position);
+      });
     case btrieve::OperationCode::Insert:
-      return Insert(command);
+      return Upsert(command, [](btrieve::BtrieveDriver *driver,
+                                std::basic_string_view<uint8_t> record) {
+        return driver->insertRecord(record);
+      });
     default:
       return btrieve::BtrieveError::InvalidOperation;
   }
