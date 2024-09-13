@@ -121,7 +121,8 @@ static btrieve::BtrieveError Stat(BtrieveCommand &command) {
       reinterpret_cast<wbtrv32::LPFILESPEC>(command.lpDataBuffer);
   lpFileSpec->logicalFixedRecordLength = btrieveDriver->getRecordLength();
   lpFileSpec->pageSize = 512;  // doesn't matter, not needed for sqlite
-  lpFileSpec->numberOfKeys = btrieveDriver->getKeys().size();
+  lpFileSpec->numberOfKeys =
+      static_cast<uint8_t>(btrieveDriver->getKeys().size());
   lpFileSpec->fileVersion = 0x60;  // this is 6.0
   lpFileSpec->recordCount = btrieveDriver->getRecordCount();
   lpFileSpec->fileFlags = btrieveDriver->isVariableLengthRecords() ? 1 : 0;
@@ -228,7 +229,8 @@ static btrieve::BtrieveError GetDirectRecord(BtrieveCommand &command) {
   }
 
   if (command.keyNumber >= 0) {
-    if (command.keyNumber >= btrieveDriver->getKeys().size()) {
+    if (static_cast<uint32_t>(command.keyNumber) >=
+        btrieveDriver->getKeys().size()) {
       return btrieve::BtrieveError::InvalidKeyNumber;
     }
 
@@ -267,7 +269,8 @@ static btrieve::BtrieveError Query(BtrieveCommand &command) {
   std::basic_string_view<uint8_t> keyData;
 
   if (btrieve::requiresKey(command.operation)) {
-    if (command.keyNumber >= btrieveDriver->getKeys().size()) {
+    if (static_cast<uint32_t>(command.keyNumber) >=
+        btrieveDriver->getKeys().size()) {
       return btrieve::BtrieveError::InvalidKeyNumber;
     } else if (command.lpKeyBufferLength <
                btrieveDriver->getKeys().at(command.keyNumber).getLength()) {
@@ -325,7 +328,8 @@ static btrieve::BtrieveError Upsert(
   }
 
   if (command.keyNumber >= 0) {
-    if (command.keyNumber >= btrieveDriver->getKeys().size()) {
+    if (static_cast<uint32_t>(command.keyNumber) >=
+        btrieveDriver->getKeys().size()) {
       return btrieve::BtrieveError::InvalidKeyNumber;
     } else if (command.lpKeyBufferLength <
                btrieveDriver->getKeys().at(command.keyNumber).getLength()) {

@@ -689,7 +689,7 @@ TEST_F(wbtrv32Test, InsertNoKey) {
 
   ASSERT_EQ(reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 5);
 
-  // requery just to make sure the data was written correctly and is recoverable
+  // requery just to make sure the data was inserted properly
   memset(&record, 0, sizeof(record));
 
   *reinterpret_cast<uint32_t*>(&record) = 5;

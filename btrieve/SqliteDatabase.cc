@@ -846,7 +846,7 @@ BtrieveError SqliteDatabase::getByKeyLess(Query *query, const char *opurator) {
 
 std::unique_ptr<Query> SqliteDatabase::logicalCurrencySeek(
     int keyNumber, unsigned int position, BtrieveError &error) {
-  if (keyNumber >= keys.size()) {
+  if (static_cast<unsigned int>(keyNumber) >= keys.size()) {
     error = BtrieveError::InvalidKeyNumber;
     return nullptr;
   }
