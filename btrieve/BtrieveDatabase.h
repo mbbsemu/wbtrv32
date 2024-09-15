@@ -1,47 +1,67 @@
 #ifndef __RECORD_LOADER_H_
 #define __RECORD_LOADER_H_
 
-#include "Key.h"
-#include "Text.h"
 #include <functional>
 #include <string>
 #include <unordered_set>
 #include <vector>
 
+#include "Key.h"
+#include "Text.h"
+
 namespace btrieve {
 class BtrieveDatabase {
-public:
+ public:
   // Constructs an empty BtrieveDatabase.
   // Afterwards, call parseDatabase.
-  BtrieveDatabase() {}
+  BtrieveDatabase()
+      : deletedRecordOffsets(0),
+        pageLength(0),
+        pageCount(0),
+        recordLength(0),
+        physicalRecordLength(0),
+        recordCount(0),
+        fileLength(0),
+        variableLengthRecords(false),
+        v6(false) {}
 
   BtrieveDatabase(const BtrieveDatabase &database)
       : keys(database.keys),
         deletedRecordOffsets(database.deletedRecordOffsets),
-        pageLength(database.pageLength), pageCount(database.pageCount),
+        pageLength(database.pageLength),
+        pageCount(database.pageCount),
         recordLength(database.recordLength),
         physicalRecordLength(database.physicalRecordLength),
-        recordCount(database.recordCount), fileLength(database.fileLength),
-        variableLengthRecords(database.variableLengthRecords) {}
+        recordCount(database.recordCount),
+        fileLength(database.fileLength),
+        variableLengthRecords(database.variableLengthRecords),
+        v6(false) {}
 
   BtrieveDatabase(BtrieveDatabase &&database)
       : keys(std::move(database.keys)),
         deletedRecordOffsets(std::move(database.deletedRecordOffsets)),
-        pageLength(database.pageLength), pageCount(database.pageCount),
+        pageLength(database.pageLength),
+        pageCount(database.pageCount),
         recordLength(database.recordLength),
         physicalRecordLength(database.physicalRecordLength),
-        recordCount(database.recordCount), fileLength(database.fileLength),
-        variableLengthRecords(database.variableLengthRecords) {}
+        recordCount(database.recordCount),
+        fileLength(database.fileLength),
+        variableLengthRecords(database.variableLengthRecords),
+        v6(false) {}
 
   BtrieveDatabase(const std::vector<Key> &keys_, uint16_t pageLength_,
                   unsigned int pageCount_, unsigned int recordLength_,
                   unsigned int physicalRecordLength_, unsigned int recordCount_,
                   unsigned int fileLength_, bool variableLengthRecords_)
-      : keys(keys_), pageLength(pageLength_), pageCount(pageCount_),
+      : keys(keys_),
+        pageLength(pageLength_),
+        pageCount(pageCount_),
         recordLength(recordLength_),
-        physicalRecordLength(physicalRecordLength_), recordCount(recordCount_),
-        fileLength(fileLength_), variableLengthRecords(variableLengthRecords_) {
-  }
+        physicalRecordLength(physicalRecordLength_),
+        recordCount(recordCount_),
+        fileLength(fileLength_),
+        variableLengthRecords(variableLengthRecords_),
+        v6(false) {}
 
   // Returns the set of keys contained in this Btrieve database.
   const std::vector<Key> &getKeys() const { return keys; }
@@ -77,7 +97,7 @@ public:
       std::function<bool(const std::basic_string_view<uint8_t>)> onRecordLoaded,
       std::function<void()> onRecordsComplete = []() {});
 
-private:
+ private:
   // Reads and validates the metadata from the Btrieve database identified by f.
   void from(FILE *f);
 
@@ -85,9 +105,13 @@ private:
   // expected/consistent.
   void validateDatabase(FILE *f, const uint8_t *firstPage);
 
+  // TODO
+  bool loadPAT(FILE *f, std::string &acsName, std::vector<char> &acs);
+
   // Loads the ACS, if present, into acs, which is expected to be at least 256
   // bytes in size. If no ACS, acsName and acs are emptied.
-  bool loadACS(FILE *f, std::string &acsName, std::vector<char> &acs);
+  bool loadACS(FILE *f, std::string &acsName, std::vector<char> &acs,
+               uint32_t pageNumber);
 
   // Loads the key definitions into the keys member variables, given the acs
   // loaded previously from loadACS. acsName and acs could both be empty.
@@ -147,8 +171,17 @@ private:
 
   // Whether the records in this database are variable length or fixed.
   bool variableLengthRecords;
+
+  // Whether the records in this database use variable length truncation.
+  bool variableLengthTruncation;
+
+  // Whether the database is version 6.0. Otherwise it's 5.0
+  bool v6;
+
+  // The active FCR populated during validateDatabase
+  uint8_t fcr[512];
 };
 
-} // namespace btrieve
+}  // namespace btrieve
 
 #endif
