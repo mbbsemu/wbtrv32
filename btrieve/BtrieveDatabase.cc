@@ -4,11 +4,11 @@
 
 namespace btrieve {
 
-static size_t fread_s(void* ptr, size_t size, size_t nmemb, FILE* stream) {
-  size_t numRead = fread(ptr, size, nmemb, stream);
-  if (numRead != nmemb) {
+static size_t fread_s(void* ptr, size_t bytes, FILE* stream) {
+  size_t numRead = fread(ptr, 1, bytes, stream);
+  if (numRead != bytes) {
     throw BtrieveException(
-        "Failed to read all bytes, got %d, wanted %d, errno=%d", numRead, nmemb,
+        "Failed to read all bytes, got %d, wanted %d, errno=%d", numRead, bytes,
         errno);
   }
   return numRead;
@@ -43,7 +43,7 @@ static inline uint32_t getRecordPointer(std::basic_string_view<uint8_t> data) {
 static uint32_t getRecordPointer(FILE* f, uint32_t offset) {
   uint8_t data[4];
   fseek_s(f, offset, SEEK_SET);
-  fread_s(data, 1, sizeof(data), f);
+  fread_s(data, sizeof(data), f);
   return getRecordPointer(std::basic_string_view<uint8_t>(data, sizeof(data)));
 }
 
@@ -104,7 +104,7 @@ void BtrieveDatabase::validateDatabase(FILE* f, const uint8_t* firstPage) {
   if (v6) {
     uint8_t* wholePage = reinterpret_cast<uint8_t*>(_alloca(pageLength));
     fseek_s(f, pageLength, SEEK_SET);
-    fread_s(wholePage, 1, pageLength, f);
+    fread_s(wholePage, pageLength, f);
 
     // check the usage count to find the active FCR
     uint32_t usageCount1 = toUint32(fcr + 4);
@@ -116,7 +116,7 @@ void BtrieveDatabase::validateDatabase(FILE* f, const uint8_t* firstPage) {
     // entire thing since pageLength might not equal 512 which we read initially
     if (usageCount1 > usageCount2) {
       fseek_s(f, 0, SEEK_SET);
-      fread_s(wholePage, 1, pageLength, f);
+      fread_s(wholePage, pageLength, f);
     }
   } else {  // for v5 databases
     uint16_t versionCode = fcr[6] << 16 | fcr[7];
@@ -176,8 +176,15 @@ void BtrieveDatabase::validateDatabase(FILE* f, const uint8_t* firstPage) {
 }
 
 bool BtrieveDatabase::isUnusedRecord(std::basic_string_view<uint8_t> data) {
-  if (data.size() >= 4 && data.substr(4).find_first_not_of(static_cast<uint8_t>(
-                              0)) == std::string_view::npos) {
+  if (data.size() >= 2 && v6) {
+    // first two bytes are usage count, which will be non-zero if used
+    uint16_t usageCount = data[0] << 8 || data[1];
+    return usageCount == 0;
+  } else if (data.size() >= 4 &&
+             data.substr(4).find_first_not_of(static_cast<uint8_t>(0)) ==
+                 std::string_view::npos) {
+    // TODO should this be an else if, or just another if?
+    //
     // additional validation, to ensure the record pointer is valid
     uint32_t offset = getRecordPointer(data);
     // sanity check to ensure the data is valid
@@ -195,13 +202,14 @@ void BtrieveDatabase::loadRecords(
   unsigned int recordsLoaded = 0;
   uint8_t* const data = reinterpret_cast<uint8_t*>(alloca(pageLength));
   const unsigned int recordsInPage = ((pageLength - 6) / physicalRecordLength);
+  const unsigned int dataOffset = v6 ? 2 : 0;
   unsigned int pageOffset = pageLength;
 
   fseek_s(f, pageLength, SEEK_SET);
   // Starting at 1, since the first page is the header
   for (unsigned int i = 1; i <= pageCount; i++, pageOffset += pageLength) {
     // read in the entire page
-    fread_s(data, 1, pageLength, f);
+    fread_s(data, pageLength, f);
     // Verify Data Page, high bit set on byte 5 (usage count)
     if ((data[0x5] & 0x80) == 0) {
       continue;
@@ -212,7 +220,7 @@ void BtrieveDatabase::loadRecords(
     for (unsigned int j = 0; j < recordsInPage;
          j++, recordOffset += physicalRecordLength) {
       if (recordsLoaded == recordCount) {
-        return;
+        goto finished_loaded;
       }
 
       // Marked for deletion? Skip
@@ -225,6 +233,8 @@ void BtrieveDatabase::loadRecords(
       if (isUnusedRecord(record)) {
         break;
       }
+
+      recordOffset += dataOffset;
 
       if (variableLengthRecords) {
         std::vector<uint8_t> stream(recordLength);
@@ -249,6 +259,7 @@ void BtrieveDatabase::loadRecords(
     }
   }
 
+finished_loaded:
   if (recordsLoaded != recordCount) {
     fprintf(stderr, "Database contains %d records but only read %d!\n",
             recordCount, recordsLoaded);
@@ -286,12 +297,11 @@ void BtrieveDatabase::parseDatabase(
 
 bool BtrieveDatabase::loadPAT(FILE* f, std::string& acsName,
                               std::vector<char>& acs) {
-  uint8_t* pat1 = reinterpret_cast<uint8_t*>(_alloca(pageLength));
-  uint8_t* pat2 = reinterpret_cast<uint8_t*>(_alloca(pageLength));
+  uint8_t* pat1 = reinterpret_cast<uint8_t*>(_alloca(pageLength * 2));
+  uint8_t* pat2 = pat1 + pageLength;  // pat2 is sequentially after pat1
 
-  fseek_s(f, pageLength * 2, SEEK_SET);
-  fread_s(pat1, 1, pageLength, f);
-  fread_s(pat2, 1, pageLength, f);
+  fseek_s(f, pageLength * 2, SEEK_SET);  // starts on third page
+  fread_s(pat1, pageLength * 2, f);
 
   if (pat1[0] != 'P' || pat1[1] != 'P') {
     throw BtrieveException("PAT1 table is invalid");
@@ -334,7 +344,7 @@ bool BtrieveDatabase::loadACS(FILE* f, std::string& acsName,
 
   char* acsPage = reinterpret_cast<char*>(_alloca(pageLength));
   fseek_s(f, pageNumber * pageLength, SEEK_SET);
-  fread_s(acsPage, 1, pageLength, f);
+  fread_s(acsPage, pageLength, f);
 
   if (v6) {
     if (acsPage[1] != 'A' && acsPage[6] != 0xAC) {
@@ -379,7 +389,7 @@ void BtrieveDatabase::loadKeyDefinitions(FILE* f, const uint8_t* firstPage,
 
     uint8_t* ptr = data;
     fseek_s(f, katOffset, SEEK_SET);
-    fread_s(data, 1, sizeof(uint16_t) * totalKeys, f);
+    fread_s(data, sizeof(uint16_t) * totalKeys, f);
 
     for (int i = 0; i < totalKeys; ++i, ptr += 2) {
       keyOffsets[i] = ptr[0] | ptr[1] << 8;
@@ -395,7 +405,7 @@ void BtrieveDatabase::loadKeyDefinitions(FILE* f, const uint8_t* firstPage,
 
   while (currentKeyNumber < totalKeys) {
     fseek_s(f, keyOffset, SEEK_SET);
-    fread_s(data, 1, keyDefinitionLength, f);
+    fread_s(data, keyDefinitionLength, f);
 
     std::basic_string_view<uint8_t>(data, keyDefinitionLength);
     KeyDataType dataType;
@@ -443,7 +453,7 @@ void BtrieveDatabase::from(FILE* f) {
   fileLength = ftell(f);
   fseek_s(f, 0, SEEK_SET);
 
-  fread_s(firstPage, 1, sizeof(firstPage), f);
+  fread_s(firstPage, sizeof(firstPage), f);
 
   validateDatabase(f, firstPage);
 
@@ -465,6 +475,11 @@ uint32_t BtrieveDatabase::getFragment(std::basic_string_view<uint8_t> page,
   auto offsetPointer = pageLength - 2 * (fragment + 1);
   auto offset = getPageOffsetFromFragmentArray(page.substr(offsetPointer, 2),
                                                nextPointerExists);
+
+  // TODO not sure if needed
+  if (offset < 0xC) {
+    return 0;
+  }
 
   // to compute length, keep going until I read the next valid fragment and
   // get its offset then we subtract the two offets to compute length
@@ -518,9 +533,9 @@ void BtrieveDatabase::getVariableLengthData(
     }
 
     // jump to that page
-    auto vpage = vrecPage * pageLength;
+    auto vpage = logicalPageToPhysicalOffset(f, vrecPage);
     fseek_s(f, vpage, SEEK_SET);
-    fread_s(data, 1, pageLength, f);
+    fread_s(data, pageLength, f);
 
     auto numFragmentsInPage = toUint16(data + 0xA);
     uint32_t length;
@@ -547,4 +562,54 @@ void BtrieveDatabase::getVariableLengthData(
   fseek_s(f, filePosition, SEEK_SET);
 }
 
+uint64_t BtrieveDatabase::logicalPageToPhysicalOffset(FILE* f,
+                                                      uint32_t logicalPage) {
+  if (!v6) {
+    return logicalPage * pageLength;
+  }
+
+  // go through the PAT
+  uint64_t ret = 2;
+  uint64_t pagesPerPAT = (pageLength / 4u) - 2u;
+
+  // not on the current page? if so page up
+  while (logicalPage > pagesPerPAT) {
+    logicalPage -= pagesPerPAT;
+    ret += (pageLength / 4u);
+  }
+
+  uint8_t* pat1 = reinterpret_cast<uint8_t*>(_alloca(pageLength * 2));
+  uint8_t* pat2 = pat1 + pageLength;
+
+  // read two pages worth, for pat1 and pat2 sequentially stored
+  fseek_s(f, ret * pageLength, SEEK_SET);
+  fread_s(pat1, pageLength * 2, f);
+
+  // pick the one with best usage count
+  if (pat1[0] != 'P' && pat1[1] != 'P' && pat2[0] != 'P' && pat2[1] != 'P') {
+    throw BtrieveException("Not a valid PAT");
+  }
+
+  uint32_t usageCount1 = toUint32(pat1 + 4);
+  uint32_t usageCount2 = toUint32(pat2 + 4);
+  uint8_t* activePat = (usageCount1 > usageCount2) ? pat1 : pat2;
+
+  // uint8_t* spanPatTable = activePat + 8;
+  uint64_t patTableEntry = ret + 8 + (logicalPage * 4);
+  // now we have our pointer at ret
+  uint8_t page[4];
+  fseek_s(f, patTableEntry, SEEK_SET);
+  fread_s(f, sizeof(page), f);
+  ret = (page[0] << 16) | (page[3] << 8) | page[2];
+  uint8_t typeCode = page[1];
+  if (typeCode != 'V') {
+    throw BtrieveException(
+        "Variable data page reference isn't a variable data page");
+  }
+  if (ret * pageLength >= fileLength) {
+    throw BtrieveException("Variable page reference overflows max pages");
+  }
+
+  return ret * pageLength;
+}
 }  // namespace btrieve

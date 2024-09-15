@@ -105,7 +105,7 @@ class BtrieveDatabase {
   // expected/consistent.
   void validateDatabase(FILE *f, const uint8_t *firstPage);
 
-  // TODO
+  // Loads the PAT and validates each page
   bool loadPAT(FILE *f, std::string &acsName, std::vector<char> &acs);
 
   // Loads the ACS, if present, into acs, which is expected to be at least 256
@@ -145,6 +145,8 @@ class BtrieveDatabase {
   uint32_t getFragment(std::basic_string_view<uint8_t> page, uint32_t fragment,
                        uint32_t numFragments, uint32_t &length,
                        bool &nextPointerExists);
+
+  uint64_t logicalPageToPhysicalOffset(FILE *f, uint32_t logicalPage);
 
   // The list of keys defined in the Btrieve database.
   std::vector<Key> keys;
