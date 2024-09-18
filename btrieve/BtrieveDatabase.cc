@@ -413,7 +413,8 @@ void BtrieveDatabase::loadKeyDefinitions(FILE* f, const uint8_t* firstPage,
   } else {
     const uint32_t keyDefinitionBase = 0x110;
     for (size_t i = 0; i < totalKeys; ++i) {
-      keyOffsets[i] = keyDefinitionBase + (i * keyDefinitionLength);
+      keyOffsets[i] =
+          static_cast<uint32_t>(keyDefinitionBase + (i * keyDefinitionLength));
     }
   }
 
@@ -486,17 +487,17 @@ void BtrieveDatabase::from(FILE* f) {
 
 #pragma pack(push, 1)
 typedef struct {  // (hi << 8 ) + lo = page
-  uint8_t hi;
-  uint8_t lo;
+  uint8_t high;
+  uint8_t low;
   uint8_t mid;
-  uint8_t frag;
+  uint8_t fragment;
 } VRECPTR;
 #pragma pack(pop)
 
-static inline uint8_t VRFrag(VRECPTR* x) { return x->frag; }
-static inline int32_t VRPage(VRECPTR* x) {
-  return static_cast<int32_t>((static_cast<int32_t>(x->hi) << 16) |
-                              (x->mid << 8) | x->lo);
+static inline uint8_t getVRecordFragment(VRECPTR* x) { return x->fragment; }
+static inline int32_t getVRecordPage(VRECPTR* x) {
+  return static_cast<int32_t>((static_cast<int32_t>(x->high) << 16) |
+                              (x->mid << 8) | x->low);
 }
 
 void BtrieveDatabase::getVariableLengthData(
@@ -517,8 +518,8 @@ void BtrieveDatabase::getVariableLengthData(
   int16_t fragmentLength;
   int16_t lofs;
   while (true) {
-    fragmentNumber = VRFrag(&Vrec);  // for multiple frags
-    fragmentPage = VRPage(&Vrec);
+    fragmentNumber = getVRecordFragment(&Vrec);  // for multiple frags
+    fragmentPage = getVRecordPage(&Vrec);
     fragmentPhysicalOffset = logicalPageToPhysicalOffset(f, fragmentPage);
     if (fragmentPhysicalOffset < 0 || fragmentNumber > 254) {
       break;
@@ -539,7 +540,7 @@ void BtrieveDatabase::getVariableLengthData(
       fragmentOffset += sizeof(VRECPTR);
       fragmentLength -= sizeof(VRECPTR);
     } else {
-      Vrec.lo = Vrec.mid = Vrec.hi = Vrec.frag = 0xFF;
+      Vrec.low = Vrec.mid = Vrec.high = Vrec.fragment = 0xFF;
     }
 
     append(stream, std::basic_string_view<uint8_t>(data + fragmentOffset,
