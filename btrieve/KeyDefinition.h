@@ -1,28 +1,36 @@
 ﻿#ifndef __BTRIEVE_KEY_DEF_H_
 #define __BTRIEVE_KEY_DEF_H_
 
-#include "AttributeMask.h"
-#include "BtrieveException.h"
-#include "KeyDataType.h"
 #include <cstdint>
 #include <cstring>
 #include <vector>
+
+#include "AttributeMask.h"
+#include "BtrieveException.h"
+#include "KeyDataType.h"
 
 #define ACS_LENGTH 256
 
 namespace btrieve {
 
 class KeyDefinition {
-public:
+ public:
   KeyDefinition() {}
 
   KeyDefinition(uint16_t number_, uint16_t length_, uint16_t offset_,
                 KeyDataType dataType_, uint16_t attributes_, bool segment_,
                 uint16_t segmentOf_, uint16_t segmentIndex_, uint8_t nullValue_,
                 const std::string &acsName_, const std::vector<char> &acs_)
-      : number(number_), length(length_), offset(offset_), dataType(dataType_),
-        attributes(attributes_), segment(segment_), segmentOf(segmentOf_),
-        segmentIndex(segmentIndex_), nullValue(nullValue_), acsName(acsName_),
+      : number(number_),
+        length(length_),
+        offset(offset_),
+        dataType(dataType_),
+        attributes(attributes_),
+        segment(segment_),
+        segmentOf(segmentOf_),
+        segmentIndex(segmentIndex_),
+        nullValue(nullValue_),
+        acsName(acsName_),
         acs(acs_) {
     if (requiresACS() && (acsName.empty() || acs.empty())) {
       throw BtrieveException("Key %d requires ACS, but none was provided",
@@ -31,12 +39,16 @@ public:
   }
 
   KeyDefinition(const KeyDefinition &keyDefinition)
-      : number(keyDefinition.number), length(keyDefinition.length),
-        offset(keyDefinition.offset), dataType(keyDefinition.dataType),
-        attributes(keyDefinition.attributes), segment(keyDefinition.segment),
+      : number(keyDefinition.number),
+        length(keyDefinition.length),
+        offset(keyDefinition.offset),
+        dataType(keyDefinition.dataType),
+        attributes(keyDefinition.attributes),
+        segment(keyDefinition.segment),
         segmentOf(keyDefinition.segmentOf),
         segmentIndex(keyDefinition.segmentIndex),
-        nullValue(keyDefinition.nullValue), acsName(keyDefinition.acsName),
+        nullValue(keyDefinition.nullValue),
+        acsName(keyDefinition.acsName),
         acs(keyDefinition.acs) {}
 
   uint16_t getPosition() const { return offset + 1; }
@@ -106,7 +118,7 @@ public:
     this->segmentIndex = segmentIndex;
   }
 
-private:
+ private:
   uint16_t number;
   uint16_t length;
   uint16_t offset;
@@ -119,6 +131,6 @@ private:
   std::string acsName;
   std::vector<char> acs;
 };
-} // namespace btrieve
+}  // namespace btrieve
 
 #endif

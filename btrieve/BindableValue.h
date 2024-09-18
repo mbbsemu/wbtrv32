@@ -6,8 +6,7 @@
 
 namespace btrieve {
 class BindableValue {
-
-public:
+ public:
   enum Type { Null, Integer, Double, Text, Blob };
 
   BindableValue() : type(Type::Null) {}
@@ -26,8 +25,9 @@ public:
       : type(Type::Blob), blob_value(new std::vector<uint8_t>(data)) {}
 
   BindableValue(const std::basic_string_view<uint8_t> data)
-      : type(Type::Blob), blob_value(new std::vector<uint8_t>(
-                              data.data(), data.data() + data.size())) {}
+      : type(Type::Blob),
+        blob_value(
+            new std::vector<uint8_t>(data.data(), data.data() + data.size())) {}
 
   BindableValue(const char *str) {
     if (str == nullptr) {
@@ -38,49 +38,60 @@ public:
     }
   }
 
+  BindableValue(const char *str, size_t nChars) {
+    if (str == nullptr) {
+      type = Type::Null;
+    } else {
+      type = Type::Text;
+      text_value = new std::string();
+      text_value->resize(nChars);
+      memcpy(text_value->data(), str, nChars);
+    }
+  }
+
   BindableValue(const std::string_view data)
       : type(Type::Text), text_value(new std::string(data)) {}
 
   // deep copy
   BindableValue(const BindableValue &value) : type(value.type) {
     switch (value.type) {
-    case Type::Null:
-      break;
-    case Type::Integer:
-      int_value = value.int_value;
-      break;
-    case Type::Double:
-      double_value = value.double_value;
-      break;
-    case Type::Text:
-      text_value = new std::string(*value.text_value);
-      break;
-    case Type::Blob:
-      blob_value = new std::vector<uint8_t>(*value.blob_value);
-      break;
+      case Type::Null:
+        break;
+      case Type::Integer:
+        int_value = value.int_value;
+        break;
+      case Type::Double:
+        double_value = value.double_value;
+        break;
+      case Type::Text:
+        text_value = new std::string(*value.text_value);
+        break;
+      case Type::Blob:
+        blob_value = new std::vector<uint8_t>(*value.blob_value);
+        break;
     }
   }
 
   // move copy
   BindableValue(BindableValue &&value) : type(value.type) {
     switch (value.type) {
-    case Type::Null:
-      break;
-    case Type::Integer:
-      int_value = value.int_value;
-      value.int_value = -1;
-      break;
-    case Type::Double:
-      double_value = value.double_value;
-      value.double_value = -1;
-      break;
-    case Type::Text:
-      text_value = value.text_value;
-      value.text_value = NULL;
-      break;
-    case Type::Blob:
-      blob_value = value.blob_value;
-      value.blob_value = NULL;
+      case Type::Null:
+        break;
+      case Type::Integer:
+        int_value = value.int_value;
+        value.int_value = -1;
+        break;
+      case Type::Double:
+        double_value = value.double_value;
+        value.double_value = -1;
+        break;
+      case Type::Text:
+        text_value = value.text_value;
+        value.text_value = NULL;
+        break;
+      case Type::Blob:
+        blob_value = value.blob_value;
+        value.blob_value = NULL;
     }
 
     value.type = Type::Null;
@@ -97,23 +108,23 @@ public:
   BindableValue &operator=(BindableValue &&value) {
     type = value.type;
     switch (value.type) {
-    case Type::Null:
-      break;
-    case Type::Integer:
-      int_value = value.int_value;
-      value.int_value = -1;
-      break;
-    case Type::Double:
-      double_value = value.double_value;
-      value.double_value = -1;
-      break;
-    case Type::Text:
-      text_value = value.text_value;
-      value.text_value = NULL;
-      break;
-    case Type::Blob:
-      blob_value = value.blob_value;
-      value.blob_value = NULL;
+      case Type::Null:
+        break;
+      case Type::Integer:
+        int_value = value.int_value;
+        value.int_value = -1;
+        break;
+      case Type::Double:
+        double_value = value.double_value;
+        value.double_value = -1;
+        break;
+      case Type::Text:
+        text_value = value.text_value;
+        value.text_value = NULL;
+        break;
+      case Type::Blob:
+        blob_value = value.blob_value;
+        value.blob_value = NULL;
     }
 
     value.type = Type::Null;
@@ -132,7 +143,7 @@ public:
 
   bool isNull() { return getType() == Type::Null; }
 
-private:
+ private:
   Type type;
   union {
     int64_t int_value;
@@ -141,6 +152,6 @@ private:
     std::vector<uint8_t> *blob_value;
   };
 };
-} // namespace btrieve
+}  // namespace btrieve
 
 #endif

@@ -1088,3 +1088,33 @@ TEST_F(wbtrv32Test, UpdateKeyBufferTooShort) {
   ASSERT_STREQ(record.string1, "Sysop");
   ASSERT_STREQ(record.string2, "stringValue");
 }
+
+TEST_F(wbtrv32Test, V6Test) {
+  WIN32_FIND_DATA findData;
+  HANDLE hFind = FindFirstFile(TEXT("C:\\BBSV10\\GCVIRDAT\\*.VIR"), &findData);
+  ASSERT_NE(hFind, nullptr);
+
+  do {
+    if (!lstrcmp(findData.cFileName, TEXT(".")) ||
+        !lstrcmp(findData.cFileName, TEXT(".."))) {
+      continue;
+    }
+
+    std::basic_string<tchar> mbbsEmuDb(TEXT("C:\\BBSV10\\GCVIRDAT\\"));
+    mbbsEmuDb += findData.cFileName;
+
+    DWORD dwDataBufferLength = 0;
+    ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr,
+                      &dwDataBufferLength,
+                      const_cast<LPVOID>(reinterpret_cast<LPCVOID>(
+                          toStdString(mbbsEmuDb.c_str()).c_str())),
+                      -1, 0),
+              btrieve::BtrieveError::Success);
+
+    ASSERT_EQ(btrcall(btrieve::OperationCode::Close, posBlock, nullptr,
+                      &dwDataBufferLength, nullptr, 0, 0),
+              btrieve::BtrieveError::Success);
+  } while (FindNextFile(hFind, &findData));
+
+  FindClose(hFind);
+}

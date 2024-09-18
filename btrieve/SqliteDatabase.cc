@@ -128,6 +128,7 @@ void SqliteDatabase::loadSqliteMetadata(std::string &acsName,
   if (!reader->isDBNull(4)) {
     std::vector<uint8_t> readAcs = reader->getBlob(4);
     if (readAcs.size() != ACS_LENGTH) {
+      std::vector<uint8_t> readAcs2 = reader->getBlob(4);
       throw BtrieveException(
           "The ACS length is not 256 in the database. This is corrupt.");
     }
@@ -242,7 +243,8 @@ void SqliteDatabase::createSqliteMetadataTable(
   command.bindParameter(5, BindableValue(CURRENT_VERSION));
   if (!database.getKeys().empty()) {
     command.bindParameter(6, BindableValue(database.getKeys()[0].getACSName()));
-    command.bindParameter(7, BindableValue(database.getKeys()[0].getACS()));
+    command.bindParameter(
+        7, BindableValue(database.getKeys()[0].getACS(), ACS_LENGTH));
   } else {
     command.bindParameter(6, BindableValue());
     command.bindParameter(7, BindableValue());

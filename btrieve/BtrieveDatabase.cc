@@ -151,18 +151,33 @@ void BtrieveDatabase::validateDatabase(FILE* f, const uint8_t* firstPage) {
     throw BtrieveException("firstPage is compressed, cannot handle");
   }
 
-  variableLengthRecords = ((usrflgs & 0x1) != 0);
-  variableLengthTruncation = ((usrflgs & 0x2) != 0);
-  auto recordsContainVariableLength = (fcr[0x38] == 0xFF);
+  auto variableRecordFlags = fcr[0x38];
 
-  if (variableLengthRecords ^ recordsContainVariableLength) {
-    throw BtrieveException("Mismatched variable length fields");
+  if ((usrflgs & 0x8) && (variableRecordFlags || usrflgs & 0x1)) {
+    recordType = CompressedVariable;
+  } else if (v6 && usrflgs & 0x0800) {
+    recordType = UsesVAT;
+  } else if (usrflgs & 0x8) {
+    recordType = Compressed;
+  } else if (variableRecordFlags || usrflgs & 0x1) {
+    if (variableRecordFlags == 0x00FD || usrflgs & 0x2) {
+      recordType = VariableTruncated;
+    } else {
+      recordType = Variable;
+    }
+  } else {
+    recordType = Fixed;
+  }
+
+  if (v6 && (fcr[0x76] != fcr[0x14])) {
+    throw BtrieveException("Key count and KAT key count differ!");
   }
 
   fseek_s(f, 0, SEEK_END);
-  long totalSize = ftell(f);
 
-  pageCount = totalSize / pageLength - 1;
+  fileLength = ftell(f);
+
+  pageCount = fileLength / pageLength - 1;
 
   recordCount = toUint16(fcr + 0x1A) << 16 | toUint16(fcr + 0x1C);
 
@@ -172,19 +187,20 @@ void BtrieveDatabase::validateDatabase(FILE* f, const uint8_t* firstPage) {
 
   keys.resize(toUint16(fcr + 0x14));
 
-  memcpy(this->fcr, fcr, sizeof(this->fcr));
+  fcrKeyAttributeTableOffset = fcr[0x78] | fcr[0x79] << 8;
 }
 
 bool BtrieveDatabase::isUnusedRecord(std::basic_string_view<uint8_t> data) {
-  if (data.size() >= 2 && v6) {
+  if (v6) {
+    if (data.size() < 2) {  // will probably never happen, but yolo
+      return true;
+    }
     // first two bytes are usage count, which will be non-zero if used
     uint16_t usageCount = data[0] << 8 || data[1];
     return usageCount == 0;
   } else if (data.size() >= 4 &&
              data.substr(4).find_first_not_of(static_cast<uint8_t>(0)) ==
                  std::string_view::npos) {
-    // TODO should this be an else if, or just another if?
-    //
     // additional validation, to ensure the record pointer is valid
     uint32_t offset = getRecordPointer(data);
     // sanity check to ensure the data is valid
@@ -234,10 +250,14 @@ void BtrieveDatabase::loadRecords(
         break;
       }
 
-      recordOffset += dataOffset;
+      if (dataOffset > 0) {
+        recordOffset += dataOffset;
+        record =
+            std::basic_string_view<uint8_t>(data + recordOffset, recordLength);
+      }
 
-      if (variableLengthRecords) {
-        std::vector<uint8_t> stream(recordLength);
+      if (isVariableLengthRecords()) {
+        std::vector<uint8_t> stream(record.size());
         memcpy(stream.data(), record.data(), record.size());
 
         getVariableLengthData(f,
@@ -336,6 +356,8 @@ bool BtrieveDatabase::loadPAT(FILE* f, std::string& acsName,
       throw BtrieveException("Bad PAT entry");
     }
   }
+
+  return true;
 }
 
 bool BtrieveDatabase::loadACS(FILE* f, std::string& acsName,
@@ -361,7 +383,7 @@ bool BtrieveDatabase::loadACS(FILE* f, std::string& acsName,
   // read the acs data
   char acsNameBuf[10];
   memcpy(acsNameBuf, acsPage + 7, 9);
-  acsNameBuf[9] = 0;
+  acsNameBuf[sizeof(acsNameBuf) - 1] = 0;
   acsName = acsNameBuf;
 
   acs.resize(ACS_LENGTH);
@@ -381,22 +403,16 @@ void BtrieveDatabase::loadKeyDefinitions(FILE* f, const uint8_t* firstPage,
   keyOffsets.resize(totalKeys + 1);
 
   if (v6) {
-    if (fcr[0x76] != totalKeys) {
-      throw BtrieveException("Key number in KAT mismatches earlier key count");
-    }
-
-    uint16_t katOffset = fcr[0x78] | fcr[0x79] << 8;
-
     uint8_t* ptr = data;
-    fseek_s(f, katOffset, SEEK_SET);
+    fseek_s(f, fcrKeyAttributeTableOffset, SEEK_SET);
     fread_s(data, sizeof(uint16_t) * totalKeys, f);
 
-    for (int i = 0; i < totalKeys; ++i, ptr += 2) {
+    for (size_t i = 0; i < totalKeys; ++i, ptr += 2) {
       keyOffsets[i] = ptr[0] | ptr[1] << 8;
     }
   } else {
     const uint32_t keyDefinitionBase = 0x110;
-    for (int i = 0; i < totalKeys; ++i) {
+    for (size_t i = 0; i < totalKeys; ++i) {
       keyOffsets[i] = keyDefinitionBase + (i * keyDefinitionLength);
     }
   }
@@ -468,109 +484,87 @@ void BtrieveDatabase::from(FILE* f) {
   loadKeyDefinitions(f, firstPage, acsName, acs);
 }
 
-uint32_t BtrieveDatabase::getFragment(std::basic_string_view<uint8_t> page,
-                                      uint32_t fragment, uint32_t numFragments,
-                                      uint32_t& length,
-                                      bool& nextPointerExists) {
-  auto offsetPointer = pageLength - 2 * (fragment + 1);
-  auto offset = getPageOffsetFromFragmentArray(page.substr(offsetPointer, 2),
-                                               nextPointerExists);
+#pragma pack(push, 1)
+typedef struct {  // (hi << 8 ) + lo = page
+  uint8_t hi;
+  uint8_t lo;
+  uint8_t mid;
+  uint8_t frag;
+} VRECPTR;
+#pragma pack(pop)
 
-  // TODO not sure if needed
-  if (offset < 0xC) {
-    return 0;
-  }
-
-  // to compute length, keep going until I read the next valid fragment and
-  // get its offset then we subtract the two offets to compute length
-  auto nextFragmentOffset = offsetPointer;
-  uint32_t nextOffset = 0xFFFFFFFFu;
-  for (unsigned int i = fragment + 1; i <= numFragments; ++i) {
-    bool unused;
-    // fragment array is at end of page and grows downward
-    nextFragmentOffset -= 2;
-    nextOffset = getPageOffsetFromFragmentArray(
-        page.substr(nextFragmentOffset, 2), unused);
-    if (nextOffset == 0xFFFF) {
-      continue;
-    }
-    // valid offset, break now
-    break;
-  }
-
-  // some sanity checks
-  if (nextOffset == 0xFFFFFFFF) {
-    throw BtrieveException(
-        "Can't find next fragment offset %d, numFragments %d", nextOffset,
-        numFragments);
-  }
-
-  length = nextOffset - offset;
-  // final sanity check
-  if (offset < 0xC ||
-      (offset + length) > (pageLength - 2 * (numFragments + 1))) {
-    throw BtrieveException("Variable data overflows page %d, numFragments %d",
-                           offset, numFragments);
-  }
-
-  return offset;
+static inline uint8_t VRFrag(VRECPTR* x) { return x->frag; }
+static inline int32_t VRPage(VRECPTR* x) {
+  return static_cast<int32_t>((static_cast<int32_t>(x->hi) << 16) |
+                              (x->mid << 8) | x->lo);
 }
 
 void BtrieveDatabase::getVariableLengthData(
     FILE* f, std::basic_string_view<uint8_t> recordData,
     std::vector<uint8_t>& stream) {
-  unsigned int filePosition = ftell(f);
-  std::basic_string_view<uint8_t> variableData(
-      recordData.data() + recordLength, physicalRecordLength - recordLength);
-  auto vrecPage = getPageFromVariableLengthRecordPointer(variableData);
-  auto vrecFragment = variableData[3];
-  uint8_t* data = reinterpret_cast<uint8_t*>(alloca(pageLength));
-
+  uint8_t* const data = reinterpret_cast<uint8_t*>(_alloca(pageLength));
+  const unsigned int filePosition = ftell(f);
+  VRECPTR Vrec =
+      *reinterpret_cast<const VRECPTR*>(recordData.data() + recordLength);
+  const uint16_t truncatedBytes =
+      toUint16(recordData.data() + recordLength + 2);
+  const uint16_t* fragpp = reinterpret_cast<uint16_t*>(data);
+  uint8_t fragmentNumber;
+  int32_t fragmentPage;
+  int32_t fragmentPhysicalOffset;
+  int16_t fragmentIndex;
+  int16_t fragmentOffset;
+  int16_t fragmentLength;
+  int16_t lofs;
   while (true) {
-    // invalid page? abort and return what we have
-    if (vrecPage == 0xFFFFFF && vrecFragment == 0xFF) {
+    fragmentNumber = VRFrag(&Vrec);  // for multiple frags
+    fragmentPage = VRPage(&Vrec);
+    fragmentPhysicalOffset = logicalPageToPhysicalOffset(f, fragmentPage);
+    if (fragmentPhysicalOffset < 0 || fragmentNumber > 254) {
       break;
     }
 
-    // jump to that page
-    auto vpage = logicalPageToPhysicalOffset(f, vrecPage);
-    fseek_s(f, vpage, SEEK_SET);
+    fseek_s(f, fragmentPhysicalOffset, SEEK_SET);  // read page into buffer
     fread_s(data, pageLength, f);
 
-    auto numFragmentsInPage = toUint16(data + 0xA);
-    uint32_t length;
-    bool nextPointerExists;
-    // grab the fragment pointer
-    auto offset = getFragment(std::basic_string_view<uint8_t>(data, pageLength),
-                              vrecFragment, numFragmentsInPage, length,
-                              nextPointerExists);
-    // now finally read the data!
-    std::basic_string_view<uint8_t> variableData(data + offset, length);
-    if (!nextPointerExists) {
-      // read all the data and reached the end!
-      append(stream, variableData);
-      break;
+    fragmentIndex = ((pageLength - 1) >> 1) - fragmentNumber;
+    fragmentOffset = fragpp[fragmentIndex] & 0x7FFF;
+    for (lofs = 1; fragpp[fragmentIndex - lofs] == -1; lofs++) {
+      /* all done in test! */
+    }
+    fragmentLength = (fragpp[fragmentIndex - lofs] & 0x7FFF) - fragmentOffset;
+
+    if (v6 || fragpp[fragmentIndex] & 0x8000) {
+      Vrec = *reinterpret_cast<VRECPTR*>(data + fragmentOffset);
+      fragmentOffset += sizeof(VRECPTR);
+      fragmentLength -= sizeof(VRECPTR);
+    } else {
+      Vrec.lo = Vrec.mid = Vrec.hi = Vrec.frag = 0xFF;
     }
 
-    // keep going through more pages!
-    vrecPage = getPageFromVariableLengthRecordPointer(variableData);
-    vrecFragment = variableData[3];
+    append(stream, std::basic_string_view<uint8_t>(data + fragmentOffset,
+                                                   fragmentLength));
+  }
 
-    append(stream, variableData.substr(4));
+  if (recordType == RecordType::VariableTruncated) {
+    for (uint16_t i = 0; i < truncatedBytes; ++i) {
+      // TODO - instead of pushing space, should it be database's nullChar?
+      stream.push_back(' ');
+    }
   }
 
   fseek_s(f, filePosition, SEEK_SET);
 }
 
-uint64_t BtrieveDatabase::logicalPageToPhysicalOffset(FILE* f,
-                                                      uint32_t logicalPage) {
+int32_t BtrieveDatabase::logicalPageToPhysicalOffset(FILE* f,
+                                                     int32_t logicalPage) {
   if (!v6) {
     return logicalPage * pageLength;
   }
 
   // go through the PAT
-  uint64_t ret = 2;
-  uint64_t pagesPerPAT = (pageLength / 4u) - 2u;
+  uint32_t ret = 2;
+  int32_t pagesPerPAT = (pageLength / 4u) - 2u;
 
   // not on the current page? if so page up
   while (logicalPage > pagesPerPAT) {
@@ -594,22 +588,19 @@ uint64_t BtrieveDatabase::logicalPageToPhysicalOffset(FILE* f,
   uint32_t usageCount2 = toUint32(pat2 + 4);
   uint8_t* activePat = (usageCount1 > usageCount2) ? pat1 : pat2;
 
-  // uint8_t* spanPatTable = activePat + 8;
-  uint64_t patTableEntry = ret + 8 + (logicalPage * 4);
-  // now we have our pointer at ret
-  uint8_t page[4];
-  fseek_s(f, patTableEntry, SEEK_SET);
-  fread_s(f, sizeof(page), f);
-  ret = (page[0] << 16) | (page[3] << 8) | page[2];
-  uint8_t typeCode = page[1];
-  if (typeCode != 'V') {
+  uint8_t* positionInPat = activePat + (logicalPage * 4) + 4;
+  if (positionInPat[1] != 'V') {
     throw BtrieveException(
         "Variable data page reference isn't a variable data page");
   }
-  if (ret * pageLength >= fileLength) {
-    throw BtrieveException("Variable page reference overflows max pages");
+
+  int64_t lp =
+      (positionInPat[0] << 16) | (positionInPat[3] << 8) | positionInPat[2];
+
+  if (lp == 0xFFFFFFL || lp < 0) {
+    return -1;
   }
 
-  return ret * pageLength;
+  return static_cast<int32_t>(lp * pageLength);
 }
 }  // namespace btrieve

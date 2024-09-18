@@ -64,7 +64,7 @@ static btrieve::BtrieveError Open(BtrieveCommand &command) {
     memcpy(command.lpPositionBlock, &guid, sizeof(UUID));
 
     return btrieve::BtrieveError::Success;
-  } catch (const btrieve::BtrieveException &) {
+  } catch (const btrieve::BtrieveException &ex) {
     if (db != nullptr) {
       delete db;
     }

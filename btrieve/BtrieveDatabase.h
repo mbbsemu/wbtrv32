@@ -10,6 +10,16 @@
 #include "Text.h"
 
 namespace btrieve {
+
+enum RecordType {
+  Fixed = 0,
+  Variable = 1,
+  VariableTruncated = 2,
+  Compressed = 3,
+  UsesVAT = 4,
+  CompressedVariable = 5,
+};
+
 class BtrieveDatabase {
  public:
   // Constructs an empty BtrieveDatabase.
@@ -22,8 +32,9 @@ class BtrieveDatabase {
         physicalRecordLength(0),
         recordCount(0),
         fileLength(0),
-        variableLengthRecords(false),
-        v6(false) {}
+        recordType(RecordType::Fixed),
+        v6(false),
+        fcrKeyAttributeTableOffset(0) {}
 
   BtrieveDatabase(const BtrieveDatabase &database)
       : keys(database.keys),
@@ -34,8 +45,9 @@ class BtrieveDatabase {
         physicalRecordLength(database.physicalRecordLength),
         recordCount(database.recordCount),
         fileLength(database.fileLength),
-        variableLengthRecords(database.variableLengthRecords),
-        v6(false) {}
+        recordType(database.recordType),
+        v6(database.v6),
+        fcrKeyAttributeTableOffset(database.fcrKeyAttributeTableOffset) {}
 
   BtrieveDatabase(BtrieveDatabase &&database)
       : keys(std::move(database.keys)),
@@ -46,13 +58,15 @@ class BtrieveDatabase {
         physicalRecordLength(database.physicalRecordLength),
         recordCount(database.recordCount),
         fileLength(database.fileLength),
-        variableLengthRecords(database.variableLengthRecords),
-        v6(false) {}
+        recordType(database.recordType),
+        v6(database.v6),
+        fcrKeyAttributeTableOffset(database.fcrKeyAttributeTableOffset) {}
 
   BtrieveDatabase(const std::vector<Key> &keys_, uint16_t pageLength_,
                   unsigned int pageCount_, unsigned int recordLength_,
                   unsigned int physicalRecordLength_, unsigned int recordCount_,
-                  unsigned int fileLength_, bool variableLengthRecords_)
+                  unsigned int fileLength_, RecordType recordType_, bool v6_,
+                  uint16_t fcrKeyAttributeTableOffset_)
       : keys(keys_),
         pageLength(pageLength_),
         pageCount(pageCount_),
@@ -60,8 +74,9 @@ class BtrieveDatabase {
         physicalRecordLength(physicalRecordLength_),
         recordCount(recordCount_),
         fileLength(fileLength_),
-        variableLengthRecords(variableLengthRecords_),
-        v6(false) {}
+        recordType(recordType_),
+        v6(v6_),
+        fcrKeyAttributeTableOffset(fcrKeyAttributeTableOffset_) {}
 
   // Returns the set of keys contained in this Btrieve database.
   const std::vector<Key> &getKeys() const { return keys; }
@@ -84,7 +99,10 @@ class BtrieveDatabase {
   unsigned int getRecordCount() const { return recordCount; }
 
   // Returns whether the records in this database are variable length or fixed.
-  bool isVariableLengthRecords() const { return variableLengthRecords; }
+  bool isVariableLengthRecords() const {
+    return recordType == RecordType::Variable ||
+           recordType == RecordType::VariableTruncated;
+  }
 
   // Reads and parses the entire Btrieve DAT database.
   // Calls onMetadataLoaded when the header is read and getter methods on this
@@ -135,18 +153,7 @@ class BtrieveDatabase {
                              std::basic_string_view<uint8_t> recordData,
                              std::vector<uint8_t> &stream);
 
-  // Returns the offset within the page where the fragment data resides.
-  // page contains the entire page's data, will be pageLength in size. fragment
-  // is fragment number to lookup, 0 based. numFragments is the maximum number
-  // of fragments in the page. length is set with the length of data contained
-  // in the fragment. nextPointerExists is set which indicates whether the
-  // fragment has a "next pointer", meaning the fragment data is prefixed with 4
-  // bytes of another data page to continue reading from.
-  uint32_t getFragment(std::basic_string_view<uint8_t> page, uint32_t fragment,
-                       uint32_t numFragments, uint32_t &length,
-                       bool &nextPointerExists);
-
-  uint64_t logicalPageToPhysicalOffset(FILE *f, uint32_t logicalPage);
+  int32_t logicalPageToPhysicalOffset(FILE *f, int32_t logicalPage);
 
   // The list of keys defined in the Btrieve database.
   std::vector<Key> keys;
@@ -171,17 +178,13 @@ class BtrieveDatabase {
   // The total size in bytes of this Btrieve database.
   unsigned int fileLength;
 
-  // Whether the records in this database are variable length or fixed.
-  bool variableLengthRecords;
-
-  // Whether the records in this database use variable length truncation.
-  bool variableLengthTruncation;
+  // The type of records contained in this Btrieve database.
+  RecordType recordType;
 
   // Whether the database is version 6.0. Otherwise it's 5.0
   bool v6;
 
-  // The active FCR populated during validateDatabase
-  uint8_t fcr[512];
+  uint16_t fcrKeyAttributeTableOffset;
 };
 
 }  // namespace btrieve

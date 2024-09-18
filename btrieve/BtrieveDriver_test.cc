@@ -1764,7 +1764,7 @@ static BtrieveDatabase createACSBtrieveDatabase() {
 
   return BtrieveDatabase(keys, pageLength, pageCount, recordLength,
                          physicalRecordLength, recordCount, fileLength,
-                         /* variableLengthRecords= */ false);
+                         RecordType::Fixed, false, 0);
 }
 
 TEST_F(BtrieveDriverTest, ACSSeekByKey) {
@@ -1835,7 +1835,7 @@ static BtrieveDatabase createKeylessBtrieveDatabase() {
 
   return BtrieveDatabase(keys, pageLength, pageCount, recordLength,
                          physicalRecordLength, recordCount, fileLength,
-                         /* variableLengthRecords= */ false);
+                         RecordType::Fixed, false, 0);
 }
 
 TEST_F(BtrieveDriverTest, KeylessDatabaseEnumeration) {
