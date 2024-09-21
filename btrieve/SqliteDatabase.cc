@@ -66,6 +66,7 @@ class SqliteCreationRecordLoader : public RecordLoader {
     insertionCommand->bindParameter(1, record);
 
     unsigned int parameterNumber = 2;
+
     for (auto &key : keys) {
       insertionCommand->bindParameter(
           parameterNumber++, key.extractKeyInRecordToSqliteObject(record));

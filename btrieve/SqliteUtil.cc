@@ -1,4 +1,5 @@
 #include "SqliteUtil.h"
+
 #include "BtrieveException.h"
 #include "sqlite/sqlite3.h"
 
@@ -10,4 +11,4 @@ void throwException(int errorCode) {
                                                   : "Sqlite error: [%d] - [%s]",
                          errorCode, sqlite3ErrMsg);
 }
-} // namespace btrieve
+}  // namespace btrieve

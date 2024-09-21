@@ -133,7 +133,7 @@ static btrieve::BtrieveError Stat(BtrieveCommand &command) {
   wbtrv32::LPKEYSPEC lpKeySpec =
       reinterpret_cast<wbtrv32::LPKEYSPEC>(lpFileSpec + 1);
   for (const auto &key : btrieveDriver->getKeys()) {
-    lpKeySpec->position = key.getPrimarySegment().getOffset();
+    lpKeySpec->position = key.getPrimarySegment().getPosition();
     lpKeySpec->length = key.getLength();
     lpKeySpec->attributes = key.getPrimarySegment().getAttributes();
     lpKeySpec->uniqueKeys = 0;

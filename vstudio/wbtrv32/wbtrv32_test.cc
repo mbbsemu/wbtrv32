@@ -130,7 +130,7 @@ TEST_F(wbtrv32Test, StatsDatabase) {
 
   wbtrv32::LPKEYSPEC lpKeySpec =
       reinterpret_cast<wbtrv32::LPKEYSPEC>(lpFileSpec + 1);
-  EXPECT_EQ(lpKeySpec->position, 2);
+  EXPECT_EQ(lpKeySpec->position, 3);
   EXPECT_EQ(lpKeySpec->length, 32);
   EXPECT_EQ(lpKeySpec->attributes, UseExtendedDataType | Duplicates);
   EXPECT_EQ(lpKeySpec->uniqueKeys, 0);
@@ -141,7 +141,7 @@ TEST_F(wbtrv32Test, StatsDatabase) {
   EXPECT_EQ(lpKeySpec->acsNumber, 0);
 
   ++lpKeySpec;
-  EXPECT_EQ(lpKeySpec->position, 34);
+  EXPECT_EQ(lpKeySpec->position, 35);
   EXPECT_EQ(lpKeySpec->length, 4);
   EXPECT_EQ(lpKeySpec->attributes, UseExtendedDataType | Modifiable);
   EXPECT_EQ(lpKeySpec->uniqueKeys, 0);
@@ -152,7 +152,7 @@ TEST_F(wbtrv32Test, StatsDatabase) {
   EXPECT_EQ(lpKeySpec->acsNumber, 0);
 
   ++lpKeySpec;
-  EXPECT_EQ(lpKeySpec->position, 38);
+  EXPECT_EQ(lpKeySpec->position, 39);
   EXPECT_EQ(lpKeySpec->length, 32);
   EXPECT_EQ(lpKeySpec->attributes,
             UseExtendedDataType | Modifiable | Duplicates);
@@ -164,7 +164,7 @@ TEST_F(wbtrv32Test, StatsDatabase) {
   EXPECT_EQ(lpKeySpec->acsNumber, 0);
 
   ++lpKeySpec;
-  EXPECT_EQ(lpKeySpec->position, 70);
+  EXPECT_EQ(lpKeySpec->position, 71);
   EXPECT_EQ(lpKeySpec->length, 4);
   EXPECT_EQ(lpKeySpec->attributes, UseExtendedDataType);
   EXPECT_EQ(lpKeySpec->uniqueKeys, 0);

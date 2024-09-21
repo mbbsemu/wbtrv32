@@ -84,8 +84,12 @@ static void append(std::vector<uint8_t>& vector,
   memcpy(vector.data() + vectorSize, data.data(), data.size());
 }
 
-void BtrieveDatabase::validateDatabase(FILE* f, const uint8_t* firstPage) {
+BtrieveDatabase::KEYDEFINITIONDATA BtrieveDatabase::validateDatabase(
+    FILE* f, const uint8_t* firstPage) {
   const uint8_t* fcr = firstPage;
+  KEYDEFINITIONDATA keyDefinitionData;
+
+  keyDefinitionData.fcrOffset = 0;
 
   v6 = fcr[0] == 'F' && fcr[1] == 'C' && fcr[2] == 0 && fcr[3] == 0;
 
@@ -115,8 +119,12 @@ void BtrieveDatabase::validateDatabase(FILE* f, const uint8_t* firstPage) {
     // get the FCR based on usage counts, if first page we need to read in the
     // entire thing since pageLength might not equal 512 which we read initially
     if (usageCount1 > usageCount2) {
+      keyDefinitionData.fcrOffset = 0;
+
       fseek_s(f, 0, SEEK_SET);
       fread_s(wholePage, pageLength, f);
+    } else {
+      keyDefinitionData.fcrOffset = pageLength;
     }
   } else {  // for v5 databases
     uint16_t versionCode = fcr[6] << 16 | fcr[7];
@@ -187,7 +195,9 @@ void BtrieveDatabase::validateDatabase(FILE* f, const uint8_t* firstPage) {
 
   keys.resize(toUint16(fcr + 0x14));
 
-  fcrKeyAttributeTableOffset = fcr[0x78] | fcr[0x79] << 8;
+  keyDefinitionData.keyAttributeTableOffset =
+      keyDefinitionData.fcrOffset + (fcr[0x78] | fcr[0x79] << 8);
+  return keyDefinitionData;
 }
 
 bool BtrieveDatabase::isUnusedRecord(std::basic_string_view<uint8_t> data) {
@@ -391,9 +401,10 @@ bool BtrieveDatabase::loadACS(FILE* f, std::string& acsName,
   return true;
 }
 
-void BtrieveDatabase::loadKeyDefinitions(FILE* f, const uint8_t* firstPage,
-                                         const std::string& acsName,
-                                         const std::vector<char>& acs) {
+void BtrieveDatabase::loadKeyDefinitions(
+    FILE* f, const uint8_t* firstPage,
+    const KEYDEFINITIONDATA& keyDefinitionData, const std::string& acsName,
+    const std::vector<char>& acs) {
   const auto keyDefinitionLength = 0x1E;
 
   uint8_t data[512];
@@ -404,7 +415,7 @@ void BtrieveDatabase::loadKeyDefinitions(FILE* f, const uint8_t* firstPage,
 
   if (v6) {
     uint8_t* ptr = data;
-    fseek_s(f, fcrKeyAttributeTableOffset, SEEK_SET);
+    fseek_s(f, keyDefinitionData.keyAttributeTableOffset, SEEK_SET);
     fread_s(data, sizeof(uint16_t) * totalKeys, f);
 
     for (size_t i = 0; i < totalKeys; ++i, ptr += 2) {
@@ -421,10 +432,9 @@ void BtrieveDatabase::loadKeyDefinitions(FILE* f, const uint8_t* firstPage,
   uint32_t keyOffset = keyOffsets[currentKeyNumber];
 
   while (currentKeyNumber < totalKeys) {
-    fseek_s(f, keyOffset, SEEK_SET);
+    fseek_s(f, keyOffset + keyDefinitionData.fcrOffset, SEEK_SET);
     fread_s(data, keyDefinitionLength, f);
 
-    std::basic_string_view<uint8_t>(data, keyDefinitionLength);
     KeyDataType dataType;
 
     uint16_t attributes = toUint16(data + 0x8);
@@ -472,7 +482,7 @@ void BtrieveDatabase::from(FILE* f) {
 
   fread_s(firstPage, sizeof(firstPage), f);
 
-  validateDatabase(f, firstPage);
+  KEYDEFINITIONDATA keyDefinitionData = validateDatabase(f, firstPage);
 
   if (v6) {
     loadPAT(f, acsName, acs);
@@ -482,7 +492,7 @@ void BtrieveDatabase::from(FILE* f) {
     loadACS(f, acsName, acs, 1);  // acs always on first page
   }
 
-  loadKeyDefinitions(f, firstPage, acsName, acs);
+  loadKeyDefinitions(f, firstPage, keyDefinitionData, acsName, acs);
 }
 
 #pragma pack(push, 1)
@@ -511,7 +521,6 @@ void BtrieveDatabase::getVariableLengthData(
       toUint16(recordData.data() + recordLength + 2);
   const uint16_t* fragpp = reinterpret_cast<uint16_t*>(data);
   uint8_t fragmentNumber;
-  int32_t fragmentPage;
   int32_t fragmentPhysicalOffset;
   int16_t fragmentIndex;
   int16_t fragmentOffset;
@@ -519,9 +528,13 @@ void BtrieveDatabase::getVariableLengthData(
   int16_t lofs;
   while (true) {
     fragmentNumber = getVRecordFragment(&Vrec);  // for multiple frags
-    fragmentPage = getVRecordPage(&Vrec);
-    fragmentPhysicalOffset = logicalPageToPhysicalOffset(f, fragmentPage);
-    if (fragmentPhysicalOffset < 0 || fragmentNumber > 254) {
+    if (fragmentNumber > 254) {
+      break;
+    }
+
+    fragmentPhysicalOffset =
+        logicalPageToPhysicalOffset(f, getVRecordPage(&Vrec));
+    if (fragmentPhysicalOffset < 0) {
       break;
     }
 
@@ -565,7 +578,12 @@ int32_t BtrieveDatabase::logicalPageToPhysicalOffset(FILE* f,
 
   // go through the PAT
   uint32_t ret = 2;
-  int32_t pagesPerPAT = (pageLength / 4u) - 2u;
+  const int32_t pagesPerPAT = (pageLength / 4u) - 2u;
+
+  // logical page can never be higher than max physical pages
+  if (static_cast<uint32_t>(logicalPage) >= pageCount) {
+    return -1;
+  }
 
   // not on the current page? if so page up
   while (logicalPage > pagesPerPAT) {
@@ -576,8 +594,14 @@ int32_t BtrieveDatabase::logicalPageToPhysicalOffset(FILE* f,
   uint8_t* pat1 = reinterpret_cast<uint8_t*>(_alloca(pageLength * 2));
   uint8_t* pat2 = pat1 + pageLength;
 
+  const uint32_t physicalOffset = ret * pageLength;
+  if (physicalOffset >= (fileLength - pageLength * 2)) {
+    // we overflowed, this is junk
+    return -1;
+  }
+
   // read two pages worth, for pat1 and pat2 sequentially stored
-  fseek_s(f, ret * pageLength, SEEK_SET);
+  fseek_s(f, physicalOffset, SEEK_SET);
   fread_s(pat1, pageLength * 2, f);
 
   // pick the one with best usage count

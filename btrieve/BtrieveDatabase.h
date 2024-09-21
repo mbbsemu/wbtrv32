@@ -33,8 +33,7 @@ class BtrieveDatabase {
         recordCount(0),
         fileLength(0),
         recordType(RecordType::Fixed),
-        v6(false),
-        fcrKeyAttributeTableOffset(0) {}
+        v6(false) {}
 
   BtrieveDatabase(const BtrieveDatabase &database)
       : keys(database.keys),
@@ -46,8 +45,7 @@ class BtrieveDatabase {
         recordCount(database.recordCount),
         fileLength(database.fileLength),
         recordType(database.recordType),
-        v6(database.v6),
-        fcrKeyAttributeTableOffset(database.fcrKeyAttributeTableOffset) {}
+        v6(database.v6) {}
 
   BtrieveDatabase(BtrieveDatabase &&database)
       : keys(std::move(database.keys)),
@@ -59,8 +57,7 @@ class BtrieveDatabase {
         recordCount(database.recordCount),
         fileLength(database.fileLength),
         recordType(database.recordType),
-        v6(database.v6),
-        fcrKeyAttributeTableOffset(database.fcrKeyAttributeTableOffset) {}
+        v6(database.v6) {}
 
   BtrieveDatabase(const std::vector<Key> &keys_, uint16_t pageLength_,
                   unsigned int pageCount_, unsigned int recordLength_,
@@ -75,8 +72,7 @@ class BtrieveDatabase {
         recordCount(recordCount_),
         fileLength(fileLength_),
         recordType(recordType_),
-        v6(v6_),
-        fcrKeyAttributeTableOffset(fcrKeyAttributeTableOffset_) {}
+        v6(v6_) {}
 
   // Returns the set of keys contained in this Btrieve database.
   const std::vector<Key> &getKeys() const { return keys; }
@@ -116,12 +112,17 @@ class BtrieveDatabase {
       std::function<void()> onRecordsComplete = []() {});
 
  private:
+  typedef struct _tagKEYDEFINITION_DATA {
+    uint16_t fcrOffset;
+    uint32_t keyAttributeTableOffset;
+  } KEYDEFINITIONDATA;
+
   // Reads and validates the metadata from the Btrieve database identified by f.
   void from(FILE *f);
 
   // Validates the Btrieve database header to ensure values are
   // expected/consistent.
-  void validateDatabase(FILE *f, const uint8_t *firstPage);
+  KEYDEFINITIONDATA validateDatabase(FILE *f, const uint8_t *firstPage);
 
   // Loads the PAT and validates each page
   bool loadPAT(FILE *f, std::string &acsName, std::vector<char> &acs);
@@ -134,6 +135,7 @@ class BtrieveDatabase {
   // Loads the key definitions into the keys member variables, given the acs
   // loaded previously from loadACS. acsName and acs could both be empty.
   void loadKeyDefinitions(FILE *f, const uint8_t *firstPage,
+                          const KEYDEFINITIONDATA &keyDefinitionData,
                           const std::string &acsName,
                           const std::vector<char> &acs);
 
@@ -183,8 +185,6 @@ class BtrieveDatabase {
 
   // Whether the database is version 6.0. Otherwise it's 5.0
   bool v6;
-
-  uint16_t fcrKeyAttributeTableOffset;
 };
 
 }  // namespace btrieve
