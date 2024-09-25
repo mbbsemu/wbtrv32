@@ -108,9 +108,14 @@ static btrieve::BtrieveError Stat(BtrieveCommand &command) {
     *reinterpret_cast<uint8_t *>(command.lpKeyBuffer) = 0;
   }
 
+  size_t totalKeysIncludingSegmentedKeys = 0;
+  for (const auto &key : btrieveDriver->getKeys()) {
+    totalKeysIncludingSegmentedKeys += key.getSegments().size();
+  }
+
   unsigned int requiredSize = static_cast<unsigned int>(
       sizeof(wbtrv32::FILESPEC) +
-      (btrieveDriver->getKeys().size() * sizeof(wbtrv32::KEYSPEC)));
+      (totalKeysIncludingSegmentedKeys * sizeof(wbtrv32::KEYSPEC)));
   if (*command.lpdwDataBufferLength < requiredSize) {
     return btrieve::BtrieveError::DataBufferLengthOverrun;
   }
@@ -121,8 +126,9 @@ static btrieve::BtrieveError Stat(BtrieveCommand &command) {
       reinterpret_cast<wbtrv32::LPFILESPEC>(command.lpDataBuffer);
   lpFileSpec->logicalFixedRecordLength = btrieveDriver->getRecordLength();
   lpFileSpec->pageSize = 512;  // doesn't matter, not needed for sqlite
-  lpFileSpec->numberOfKeys =
-      static_cast<uint8_t>(btrieveDriver->getKeys().size());
+  lpFileSpec->numberOfKeys = static_cast<uint8_t>(
+      btrieveDriver->getKeys()
+          .size());  // note: this is not totalKeysIncludingSegmentedKeys
   lpFileSpec->fileVersion = 0x60;  // this is 6.0
   lpFileSpec->recordCount = btrieveDriver->getRecordCount();
   lpFileSpec->fileFlags = btrieveDriver->isVariableLengthRecords() ? 1 : 0;
@@ -132,17 +138,22 @@ static btrieve::BtrieveError Stat(BtrieveCommand &command) {
 
   wbtrv32::LPKEYSPEC lpKeySpec =
       reinterpret_cast<wbtrv32::LPKEYSPEC>(lpFileSpec + 1);
+  uint8_t keyNumber = 0;
   for (const auto &key : btrieveDriver->getKeys()) {
-    lpKeySpec->position = key.getPrimarySegment().getPosition();
-    lpKeySpec->length = key.getLength();
-    lpKeySpec->attributes = key.getPrimarySegment().getAttributes();
-    lpKeySpec->uniqueKeys = 0;
-    lpKeySpec->extendedDataType = key.getPrimarySegment().getDataType();
-    lpKeySpec->nullValue = key.getPrimarySegment().getNullValue();
-    lpKeySpec->reserved = 0;
-    lpKeySpec->number = 0;
-    lpKeySpec->acsNumber = key.getACS() != nullptr ? 1 : 0;
-    ++lpKeySpec;
+    for (const auto &segment : key.getSegments()) {
+      lpKeySpec->position = segment.getPosition();
+      lpKeySpec->length = segment.getLength();
+      lpKeySpec->attributes = segment.getAttributes();
+      lpKeySpec->uniqueKeys = 0;
+      lpKeySpec->extendedDataType = segment.getDataType();
+      lpKeySpec->nullValue = segment.getNullValue();
+      lpKeySpec->reserved = 0;
+      lpKeySpec->number = keyNumber;
+      lpKeySpec->acsNumber = 0;
+      ++lpKeySpec;
+    }
+
+    ++keyNumber;
   }
 
   return btrieve::BtrieveError::Success;

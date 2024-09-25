@@ -148,7 +148,7 @@ TEST_F(wbtrv32Test, StatsDatabase) {
   EXPECT_EQ(lpKeySpec->extendedDataType, btrieve::KeyDataType::Integer);
   EXPECT_EQ(lpKeySpec->nullValue, 0);
   EXPECT_EQ(lpKeySpec->reserved, 0);
-  EXPECT_EQ(lpKeySpec->number, 0);
+  EXPECT_EQ(lpKeySpec->number, 1);
   EXPECT_EQ(lpKeySpec->acsNumber, 0);
 
   ++lpKeySpec;
@@ -160,7 +160,7 @@ TEST_F(wbtrv32Test, StatsDatabase) {
   EXPECT_EQ(lpKeySpec->extendedDataType, btrieve::KeyDataType::Zstring);
   EXPECT_EQ(lpKeySpec->nullValue, 0);
   EXPECT_EQ(lpKeySpec->reserved, 0);
-  EXPECT_EQ(lpKeySpec->number, 0);
+  EXPECT_EQ(lpKeySpec->number, 2);
   EXPECT_EQ(lpKeySpec->acsNumber, 0);
 
   ++lpKeySpec;
@@ -171,7 +171,91 @@ TEST_F(wbtrv32Test, StatsDatabase) {
   EXPECT_EQ(lpKeySpec->extendedDataType, btrieve::KeyDataType::AutoInc);
   EXPECT_EQ(lpKeySpec->nullValue, 0);
   EXPECT_EQ(lpKeySpec->reserved, 0);
+  EXPECT_EQ(lpKeySpec->number, 3);
+  EXPECT_EQ(lpKeySpec->acsNumber, 0);
+}
+
+TEST_F(wbtrv32Test, StatsV6DatabaseWithMultiSegmentKeys) {
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/GALTELA.DAT");
+  ASSERT_FALSE(mbbsEmuDb.empty());
+
+  unsigned char buffer[80];
+  char fileName[MAX_PATH] = "test";
+  DWORD dwDataBufferLength = sizeof(buffer);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr,
+                    &dwDataBufferLength,
+                    const_cast<LPVOID>(reinterpret_cast<LPCVOID>(
+                        toStdString(mbbsEmuDb.c_str()).c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Stat, posBlock, buffer,
+                    &dwDataBufferLength, fileName, sizeof(fileName), 0),
+            btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(dwDataBufferLength, 80);
+  // we don't support file name, so just 0 it out
+  ASSERT_EQ(*fileName, 0);
+
+  wbtrv32::LPFILESPEC lpFileSpec =
+      reinterpret_cast<wbtrv32::LPFILESPEC>(buffer);
+  EXPECT_EQ(lpFileSpec->logicalFixedRecordLength, 950);
+  EXPECT_EQ(lpFileSpec->pageSize, 512);
+  EXPECT_EQ(lpFileSpec->numberOfKeys, 3);
+  EXPECT_EQ(lpFileSpec->fileVersion, 0x60);
+  EXPECT_EQ(lpFileSpec->recordCount, 73);
+  EXPECT_EQ(lpFileSpec->fileFlags, 0);
+  EXPECT_EQ(lpFileSpec->numExtraPointers, 0);
+  EXPECT_EQ(lpFileSpec->physicalPageSize, 1);
+  EXPECT_EQ(lpFileSpec->preallocatedPages, 0);
+
+  wbtrv32::LPKEYSPEC lpKeySpec =
+      reinterpret_cast<wbtrv32::LPKEYSPEC>(lpFileSpec + 1);
+  EXPECT_EQ(lpKeySpec->position, 1);
+  EXPECT_EQ(lpKeySpec->length, 16);
+  EXPECT_EQ(lpKeySpec->attributes,
+            UseExtendedDataType | SegmentedKey | NumberedACS);
+  EXPECT_EQ(lpKeySpec->uniqueKeys, 0);
+  EXPECT_EQ(lpKeySpec->extendedDataType, btrieve::KeyDataType::Zstring);
+  EXPECT_EQ(lpKeySpec->nullValue, 0);
+  EXPECT_EQ(lpKeySpec->reserved, 0);
   EXPECT_EQ(lpKeySpec->number, 0);
+  EXPECT_EQ(lpKeySpec->acsNumber, 0);
+
+  ++lpKeySpec;
+  EXPECT_EQ(lpKeySpec->position, 17);
+  EXPECT_EQ(lpKeySpec->length, 16);
+  EXPECT_EQ(lpKeySpec->attributes, UseExtendedDataType | NumberedACS);
+  EXPECT_EQ(lpKeySpec->uniqueKeys, 0);
+  EXPECT_EQ(lpKeySpec->extendedDataType, btrieve::KeyDataType::Zstring);
+  EXPECT_EQ(lpKeySpec->nullValue, 0);
+  EXPECT_EQ(lpKeySpec->reserved, 0);
+  EXPECT_EQ(lpKeySpec->number, 0);
+  EXPECT_EQ(lpKeySpec->acsNumber, 0);
+
+  ++lpKeySpec;
+  EXPECT_EQ(lpKeySpec->position, 1);
+  EXPECT_EQ(lpKeySpec->length, 16);
+  EXPECT_EQ(lpKeySpec->attributes,
+            UseExtendedDataType | NumberedACS | Duplicates);
+  EXPECT_EQ(lpKeySpec->uniqueKeys, 0);
+  EXPECT_EQ(lpKeySpec->extendedDataType, btrieve::KeyDataType::Zstring);
+  EXPECT_EQ(lpKeySpec->nullValue, 0);
+  EXPECT_EQ(lpKeySpec->reserved, 0);
+  EXPECT_EQ(lpKeySpec->number, 1);
+  EXPECT_EQ(lpKeySpec->acsNumber, 0);
+
+  ++lpKeySpec;
+  EXPECT_EQ(lpKeySpec->position, 17);
+  EXPECT_EQ(lpKeySpec->length, 16);
+  EXPECT_EQ(lpKeySpec->attributes,
+            UseExtendedDataType | NumberedACS | Duplicates);
+  EXPECT_EQ(lpKeySpec->uniqueKeys, 0);
+  EXPECT_EQ(lpKeySpec->extendedDataType, btrieve::KeyDataType::Zstring);
+  EXPECT_EQ(lpKeySpec->nullValue, 0);
+  EXPECT_EQ(lpKeySpec->reserved, 0);
+  EXPECT_EQ(lpKeySpec->number, 2);
   EXPECT_EQ(lpKeySpec->acsNumber, 0);
 }
 
@@ -1087,34 +1171,4 @@ TEST_F(wbtrv32Test, UpdateKeyBufferTooShort) {
   ASSERT_EQ(record.int2, 4);
   ASSERT_STREQ(record.string1, "Sysop");
   ASSERT_STREQ(record.string2, "stringValue");
-}
-
-TEST_F(wbtrv32Test, V6Test) {
-  WIN32_FIND_DATA findData;
-  HANDLE hFind = FindFirstFile(TEXT("C:\\BBSV10\\GCVIRDAT\\*.VIR"), &findData);
-  ASSERT_NE(hFind, nullptr);
-
-  do {
-    if (!lstrcmp(findData.cFileName, TEXT(".")) ||
-        !lstrcmp(findData.cFileName, TEXT(".."))) {
-      continue;
-    }
-
-    std::basic_string<tchar> mbbsEmuDb(TEXT("C:\\BBSV10\\GCVIRDAT\\"));
-    mbbsEmuDb += findData.cFileName;
-
-    DWORD dwDataBufferLength = 0;
-    ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr,
-                      &dwDataBufferLength,
-                      const_cast<LPVOID>(reinterpret_cast<LPCVOID>(
-                          toStdString(mbbsEmuDb.c_str()).c_str())),
-                      -1, 0),
-              btrieve::BtrieveError::Success);
-
-    ASSERT_EQ(btrcall(btrieve::OperationCode::Close, posBlock, nullptr,
-                      &dwDataBufferLength, nullptr, 0, 0),
-              btrieve::BtrieveError::Success);
-  } while (FindNextFile(hFind, &findData));
-
-  FindClose(hFind);
 }

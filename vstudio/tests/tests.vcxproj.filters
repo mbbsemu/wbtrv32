@@ -1,28 +1,65 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
-    <ClInclude Include="resource.h" />
-    <ClInclude Include="..\..\btrieve\TestBase.h" />
+    <ClInclude Include="..\..\btrieve\TestBase.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="resource.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="tests.rc" />
   </ItemGroup>
   <ItemGroup>
-    <CopyFileToFolders Include="..\..\assets\MBBSEMU.DAT" />
-    <CopyFileToFolders Include="..\..\assets\MBBSEMU.DB" />
-    <CopyFileToFolders Include="..\..\assets\VARIABLE.DAT" />
-    <CopyFileToFolders Include="..\..\assets\WGSMENU2.DAT" />
-    <CopyFileToFolders Include="..\..\assets\GALTELA.DAT" />
+    <CopyFileToFolders Include="..\..\assets\GALTELA.DAT">
+      <Filter>Assets</Filter>
+    </CopyFileToFolders>
+    <CopyFileToFolders Include="..\..\assets\MBBSEMU.DAT">
+      <Filter>Assets</Filter>
+    </CopyFileToFolders>
+    <CopyFileToFolders Include="..\..\assets\MBBSEMU.DB">
+      <Filter>Assets</Filter>
+    </CopyFileToFolders>
+    <CopyFileToFolders Include="..\..\assets\VARIABLE.DAT">
+      <Filter>Assets</Filter>
+    </CopyFileToFolders>
+    <CopyFileToFolders Include="..\..\assets\WGSMENU2.DAT">
+      <Filter>Assets</Filter>
+    </CopyFileToFolders>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\wbtrv32\wbtrv32_test.cc" />
-    <ClCompile Include="..\..\btrieve\BtrieveDatabase_test.cc" />
-    <ClCompile Include="..\..\btrieve\BtrieveDriver_test.cc" />
-    <ClCompile Include="..\..\btrieve\Key_test.cc" />
-    <ClCompile Include="..\..\btrieve\LRUCache_test.cc" />
-    <ClCompile Include="..\..\btrieve\TestBase.cc" />
+    <ClCompile Include="..\..\btrieve\LRUCache_test.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\btrieve\BtrieveDatabase_test.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\btrieve\BtrieveDriver_test.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\btrieve\Key_test.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\btrieve\TestBase.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\wbtrv32\wbtrv32_test.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Assets">
+      <UniqueIdentifier>{c9d09ae0-277c-4ea7-89e8-f481f4aac48e}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{892cfdfb-85e5-48ce-a356-6890dc305641}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{46530b55-db79-446e-8fa8-2112b3753220}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
 </Project>
