@@ -228,7 +228,7 @@ void BtrieveDatabase::loadRecords(
   unsigned int recordsLoaded = 0;
   uint8_t* const data = reinterpret_cast<uint8_t*>(alloca(pageLength));
   const unsigned int recordsInPage = ((pageLength - 6) / physicalRecordLength);
-  const unsigned int dataOffset = v6 ? 2 : 0;
+  // const unsigned int dataOffset = v6 ? 2 : 0;
   unsigned int pageOffset = pageLength;
 
   fseek_s(f, pageLength, SEEK_SET);
@@ -260,20 +260,21 @@ void BtrieveDatabase::loadRecords(
         break;
       }
 
-      if (dataOffset > 0) {
-        recordOffset += dataOffset;
-        record =
-            std::basic_string_view<uint8_t>(data + recordOffset, recordLength);
+      if (v6) {
+        record = std::basic_string_view<uint8_t>(data + recordOffset + 2,
+                                                 recordLength);
       }
 
       if (isVariableLengthRecords()) {
+        std::basic_string_view<uint8_t> physicalRecord =
+            std::basic_string_view<uint8_t>(
+                data + recordOffset + (v6 ? 2 : 0),
+                physicalRecordLength - (v6 ? 2 : 0));
+
         std::vector<uint8_t> stream(record.size());
         memcpy(stream.data(), record.data(), record.size());
 
-        getVariableLengthData(f,
-                              std::basic_string_view<uint8_t>(
-                                  data + recordOffset, physicalRecordLength),
-                              stream);
+        getVariableLengthData(f, physicalRecord, stream);
 
         if (!onRecordLoaded(std::basic_string_view<uint8_t>(stream.data(),
                                                             stream.size()))) {
@@ -444,10 +445,18 @@ void BtrieveDatabase::loadKeyDefinitions(
       dataType = (attributes & OldStyleBinary) ? KeyDataType::OldBinary
                                                : KeyDataType::OldAscii;
     }
+
+    uint16_t offset = toUint16(data + 0x14);
+    // for some strange reason, v6 databases have offsets that are 2 bytes too
+    // high
+    if (v6) {
+      offset -= 2;
+    }
+
     KeyDefinition keyDefinition(
         /* number= */ currentKeyNumber,
         /* length= */ toUint16(data + 0x16),
-        /* offset= */ toUint16(data + 0x14), dataType, attributes,
+        /* offset= */ offset, dataType, attributes,
         /* segment= */ attributes & SegmentedKey,
         /* segmentOf= */
         (attributes & SegmentedKey) ? currentKeyNumber
