@@ -228,7 +228,6 @@ void BtrieveDatabase::loadRecords(
   unsigned int recordsLoaded = 0;
   uint8_t* const data = reinterpret_cast<uint8_t*>(alloca(pageLength));
   const unsigned int recordsInPage = ((pageLength - 6) / physicalRecordLength);
-  // const unsigned int dataOffset = v6 ? 2 : 0;
   unsigned int pageOffset = pageLength;
 
   fseek_s(f, pageLength, SEEK_SET);
@@ -447,8 +446,7 @@ void BtrieveDatabase::loadKeyDefinitions(
     }
 
     uint16_t offset = toUint16(data + 0x14);
-    // for some strange reason, v6 databases have offsets that are 2 bytes too
-    // high
+    // v6 databases have that 2 byte usage count prefix, so account for that
     if (v6) {
       offset -= 2;
     }

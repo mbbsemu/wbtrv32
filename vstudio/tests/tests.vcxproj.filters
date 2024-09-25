@@ -12,6 +12,7 @@
     <CopyFileToFolders Include="..\..\assets\MBBSEMU.DB" />
     <CopyFileToFolders Include="..\..\assets\VARIABLE.DAT" />
     <CopyFileToFolders Include="..\..\assets\WGSMENU2.DAT" />
+    <CopyFileToFolders Include="..\..\assets\GALTELA.DAT" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\wbtrv32\wbtrv32_test.cc" />

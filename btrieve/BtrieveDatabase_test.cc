@@ -133,10 +133,7 @@ static const VARIABLEDATA variableData[] = {
 };
 
 TEST(BtrieveDatabase, LoadsVariableDatV6) {
-  unsigned int recordCount = 0;
   BtrieveDatabase database;
-  std::string acsName;
-  std::vector<char> blankACS;
 
   std::unordered_map<std::string, uint32_t> expectedData;
   for (int i = 0; i < sizeof(variableData) / sizeof(variableData[0]); ++i) {
@@ -171,4 +168,40 @@ TEST(BtrieveDatabase, LoadsVariableDatV6) {
   ASSERT_EQ(database.getKeys()[0].getPrimarySegment().getOffset(), 0);
   ASSERT_EQ(database.getKeys()[0].getPrimarySegment().getPosition(), 1);
   ASSERT_EQ(database.getKeys()[0].getPrimarySegment().getLength(), 17);
+}
+
+TEST(BtrieveDatabase, LoadsFixedDatV6) {
+  unsigned int recordCount = 0;
+  BtrieveDatabase database;
+
+  database.parseDatabase(
+      _TEXT("assets/GALTELA.DAT"),
+      [&database]() {
+        EXPECT_EQ(database.getRecordLength(), 950);
+
+        return database.getRecordLength() == 950;
+      },
+      [&database, &recordCount](std::basic_string_view<uint8_t> record) {
+        ++recordCount;
+
+        EXPECT_EQ(record.size(), 950);
+
+        return true;
+      });
+
+  ASSERT_EQ(recordCount, 73);
+  ASSERT_EQ(database.getRecordCount(), 73);
+
+  ASSERT_EQ(database.getKeys().size(), 3);
+
+  ASSERT_EQ(database.getKeys()[0].getSegments().size(), 2);
+  ASSERT_EQ(database.getKeys()[0].getLength(), 32);
+
+  ASSERT_EQ(database.getKeys()[1].getPrimarySegment().getOffset(), 0);
+  ASSERT_EQ(database.getKeys()[1].getPrimarySegment().getPosition(), 1);
+  ASSERT_EQ(database.getKeys()[1].getPrimarySegment().getLength(), 16);
+
+  ASSERT_EQ(database.getKeys()[2].getPrimarySegment().getOffset(), 16);
+  ASSERT_EQ(database.getKeys()[2].getPrimarySegment().getPosition(), 17);
+  ASSERT_EQ(database.getKeys()[2].getPrimarySegment().getLength(), 16);
 }
