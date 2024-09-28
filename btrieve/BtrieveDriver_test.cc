@@ -1031,7 +1031,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyNotFound) {
       reinterpret_cast<const uint8_t *>("Sysop2"), 6);
 
   ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryEqual),
-            BtrieveError::InvalidPositioning);
+            BtrieveError::KeyValueNotFound);
 
   ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryNext),
             BtrieveError::InvalidPositioning);
