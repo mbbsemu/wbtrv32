@@ -213,7 +213,7 @@ std::unique_ptr<RecordLoader> SqliteDatabase::create(
   keys = database.getKeys();
 
   createSqliteMetadataTable(database);
-  (database);
+  createSqliteKeysTable(database);
   createSqliteDataTable(database);
   createSqliteDataIndices(database);
   createSqliteTriggers(database);
