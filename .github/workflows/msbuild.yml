@@ -42,3 +42,14 @@ jobs:
       # Add additional options to the MSBuild command line here (like platform or verbosity level).
       # See https://docs.microsoft.com/visualstudio/msbuild/msbuild-command-line-reference
       run: msbuild /m /p:Configuration=${{env.BUILD_CONFIGURATION}} ${{env.SOLUTION_FILE_PATH}}
+
+    - name: Run Unit Tests
+      working-directory: ${{env.GITHUB_WORKSPACE}}
+      run: |
+        # Find test DLLs (adjust this path as needed based on your project's output structure)
+        testDlls=$(Get-ChildItem -Path ./vstudio/bin/${{env.BUILD_CONFIGURATION}} -Filter *.Tests.dll -Recurse)
+
+        # Run the tests
+        foreach ($dll in $testDlls) {
+          &"C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\Common7\IDE\Extensions\TestPlatform\vstest.console.exe" $dll
+        }
