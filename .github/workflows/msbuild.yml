@@ -45,11 +45,12 @@ jobs:
 
     - name: Run Unit Tests
       working-directory: ${{env.GITHUB_WORKSPACE}}
+      shell: pwsh  # Ensures this step runs with PowerShell
       run: |
         # Find test DLLs (adjust this path as needed based on your project's output structure)
-        testDlls=$(Get-ChildItem -Path ./vstudio/bin/${{env.BUILD_CONFIGURATION}} -Filter *.Tests.dll -Recurse)
-
+        $testDlls = Get-ChildItem -Path "./vstudio/bin/${{env.BUILD_CONFIGURATION}}" -Filter *.Tests.dll -Recurse
+    
         # Run the tests
         foreach ($dll in $testDlls) {
-          &"C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\Common7\IDE\Extensions\TestPlatform\vstest.console.exe" $dll
+          &"C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\Common7\IDE\Extensions\TestPlatform\vstest.console.exe" $dll.FullName
         }
