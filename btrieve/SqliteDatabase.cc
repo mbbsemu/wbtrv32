@@ -750,7 +750,7 @@ BtrieveError SqliteDatabase::nextReader(Query *query,
   if (!record.first) {
     return cursorDirection == CursorDirection::Seek
                ? BtrieveError::KeyValueNotFound
-               : BtrieveError::InvalidPositioning;
+               : BtrieveError::EndOfFile;
   }
 
   position = query->getPosition();

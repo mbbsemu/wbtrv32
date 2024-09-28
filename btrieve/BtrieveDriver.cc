@@ -172,8 +172,14 @@ BtrieveError BtrieveDriver::performOperation(
         ;
   }
 
-  bool newQuery = !usesPreviousQuery(operationCode);
-  if (newQuery || !previousQuery) {
+  if (usesPreviousQuery(operationCode)) {
+    if (!previousQuery) {
+      return BtrieveError::InvalidPositioning;
+    } else if (previousQuery->getKey()->getNumber() != keyNumber) {
+      return BtrieveError::DifferentKeyNumber;
+    }
+  } else {
+    // this is a new query
     if (keyNumber < 0 ||
         static_cast<unsigned int>(keyNumber) >= sqlDatabase->getKeys().size()) {
       return BtrieveError::InvalidKeyNumber;
@@ -183,44 +189,57 @@ BtrieveError BtrieveDriver::performOperation(
 
     previousQuery = std::move(
         sqlDatabase->newQuery(sqlDatabase->getPosition(), key, keyData));
-  } else if (!previousQuery) {
-    return BtrieveError::InvalidKeyPosition;
-  } else if (previousQuery->getKey()->getNumber() != keyNumber) {
-    return BtrieveError::DifferentKeyNumber;
   }
 
   // always using previousQuery from this point onward
+  BtrieveError error;
   switch (operationCode) {
-    case OperationCode::AcquireFirst:
-    case OperationCode::QueryFirst:
-      return sqlDatabase->getByKeyFirst(previousQuery.get());
-    case OperationCode::AcquireLast:
-    case OperationCode::QueryLast:
-      return sqlDatabase->getByKeyLast(previousQuery.get());
-    case OperationCode::AcquireEqual:
-    case OperationCode::QueryEqual:
-      return sqlDatabase->getByKeyEqual(previousQuery.get());
-    case OperationCode::AcquireGreater:
-    case OperationCode::QueryGreater:
-      return sqlDatabase->getByKeyGreater(previousQuery.get());
-    case OperationCode::AcquireGreaterOrEqual:
-    case OperationCode::QueryGreaterOrEqual:
-      return sqlDatabase->getByKeyGreaterOrEqual(previousQuery.get());
-    case OperationCode::AcquireLess:
-    case OperationCode::QueryLess:
-      return sqlDatabase->getByKeyLess(previousQuery.get());
-    case OperationCode::AcquireLessOrEqual:
-    case OperationCode::QueryLessOrEqual:
-      return sqlDatabase->getByKeyLessOrEqual(previousQuery.get());
+    // these operations continue from a set logical position
     case OperationCode::AcquireNext:
     case OperationCode::QueryNext:
       return sqlDatabase->getByKeyNext(previousQuery.get());
     case OperationCode::AcquirePrevious:
     case OperationCode::QueryPrevious:
       return sqlDatabase->getByKeyPrevious(previousQuery.get());
+    // the following operations set logical position
+    case OperationCode::AcquireFirst:
+    case OperationCode::QueryFirst:
+      error = sqlDatabase->getByKeyFirst(previousQuery.get());
+      break;
+    case OperationCode::AcquireLast:
+    case OperationCode::QueryLast:
+      error = sqlDatabase->getByKeyLast(previousQuery.get());
+      break;
+    case OperationCode::AcquireEqual:
+    case OperationCode::QueryEqual:
+      error = sqlDatabase->getByKeyEqual(previousQuery.get());
+      break;
+    case OperationCode::AcquireGreater:
+    case OperationCode::QueryGreater:
+      error = sqlDatabase->getByKeyGreater(previousQuery.get());
+      break;
+    case OperationCode::AcquireGreaterOrEqual:
+    case OperationCode::QueryGreaterOrEqual:
+      error = sqlDatabase->getByKeyGreaterOrEqual(previousQuery.get());
+      break;
+    case OperationCode::AcquireLess:
+    case OperationCode::QueryLess:
+      error = sqlDatabase->getByKeyLess(previousQuery.get());
+      break;
+    case OperationCode::AcquireLessOrEqual:
+    case OperationCode::QueryLessOrEqual:
+      error = sqlDatabase->getByKeyLessOrEqual(previousQuery.get());
+      break;
     default:
       return BtrieveError::OperationNotAllowed;
   }
+
+  // if we had an error, clear out previousQuery as if it were never set above
+  if (error != BtrieveError::Success) {
+    previousQuery.reset(nullptr);
+  }
+
+  return error;
 }
 
 }  // namespace btrieve

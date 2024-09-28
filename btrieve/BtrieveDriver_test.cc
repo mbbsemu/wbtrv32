@@ -870,7 +870,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyStringDuplicates) {
   ASSERT_EQ(driver.getRecord().second.getPosition(), 4);
 
   ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryNext),
-            BtrieveError::InvalidPositioning);
+            BtrieveError::EndOfFile);
   ASSERT_EQ(driver.getRecord().second.getPosition(), 4);
 }
 
@@ -900,7 +900,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyStringDuplicatesUpAndDown) {
   ASSERT_EQ(driver.getRecord().second.getPosition(), 4);
 
   ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryNext),
-            BtrieveError::InvalidPositioning);
+            BtrieveError::EndOfFile);
   ASSERT_EQ(driver.getRecord().second.getPosition(), 4);
 
   // let's go backwards now
@@ -917,7 +917,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyStringDuplicatesUpAndDown) {
   ASSERT_EQ(driver.getRecord().second.getPosition(), 1);
 
   ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryPrevious),
-            BtrieveError::InvalidPositioning);
+            BtrieveError::EndOfFile);
   ASSERT_EQ(driver.getRecord().second.getPosition(), 1);
 
   // forward for one last test
@@ -957,7 +957,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyString) {
   ASSERT_STREQ(dbRecord->key2, "stringValue");
 
   ASSERT_EQ(driver.performOperation(2, key, OperationCode::QueryNext),
-            BtrieveError::InvalidPositioning);
+            BtrieveError::EndOfFile);
   ASSERT_EQ(driver.getRecord().second.getPosition(), 4);
 
   ASSERT_EQ(driver.performOperation(2, key, OperationCode::QueryPrevious),
@@ -973,7 +973,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyString) {
   ASSERT_EQ(driver.getRecord().second.getPosition(), 1);
 
   ASSERT_EQ(driver.performOperation(2, key, OperationCode::QueryPrevious),
-            BtrieveError::InvalidPositioning);
+            BtrieveError::EndOfFile);
   ASSERT_EQ(driver.getRecord().second.getPosition(), 1);
 }
 
@@ -1002,7 +1002,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyInteger) {
   ASSERT_EQ(dbRecord->key1, 1052234073);
 
   ASSERT_EQ(driver.performOperation(1, key, OperationCode::QueryNext),
-            BtrieveError::InvalidPositioning);
+            BtrieveError::EndOfFile);
 
   ASSERT_EQ(driver.performOperation(1, key, OperationCode::QueryPrevious),
             BtrieveError::Success);
@@ -1017,7 +1017,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyInteger) {
   ASSERT_EQ(driver.getRecord().second.getPosition(), 4);
 
   ASSERT_EQ(driver.performOperation(1, key, OperationCode::QueryPrevious),
-            BtrieveError::InvalidPositioning);
+            BtrieveError::EndOfFile);
   ASSERT_EQ(driver.getRecord().second.getPosition(), 4);
 }
 
@@ -1096,7 +1096,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyFirstString) {
 
   ASSERT_EQ(driver.performOperation(2, std::basic_string_view<uint8_t>(),
                                     OperationCode::QueryNext),
-            BtrieveError::InvalidPositioning);
+            BtrieveError::EndOfFile);
   ASSERT_EQ(driver.getPosition(), 4);
 }
 
@@ -1159,7 +1159,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyFirstInteger) {
 
   ASSERT_EQ(driver.performOperation(1, std::basic_string_view<uint8_t>(),
                                     OperationCode::QueryNext),
-            BtrieveError::InvalidPositioning);
+            BtrieveError::EndOfFile);
   ASSERT_EQ(driver.getPosition(), 3);
 }
 
@@ -1173,7 +1173,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyFirstNotFound) {
 
   ASSERT_EQ(driver.performOperation(0, std::basic_string_view<uint8_t>(),
                                     OperationCode::QueryFirst),
-            BtrieveError::InvalidPositioning);
+            BtrieveError::EndOfFile);
 
   ASSERT_EQ(driver.performOperation(0, std::basic_string_view<uint8_t>(),
                                     OperationCode::QueryNext),
@@ -1205,7 +1205,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyLastString) {
 
   ASSERT_EQ(driver.performOperation(2, std::basic_string_view<uint8_t>(),
                                     OperationCode::QueryNext),
-            BtrieveError::InvalidPositioning);
+            BtrieveError::EndOfFile);
 
   ASSERT_EQ(driver.performOperation(2, std::basic_string_view<uint8_t>(),
                                     OperationCode::QueryPrevious),
@@ -1247,7 +1247,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyLastString) {
 
   ASSERT_EQ(driver.performOperation(2, std::basic_string_view<uint8_t>(),
                                     OperationCode::QueryPrevious),
-            BtrieveError::InvalidPositioning);
+            BtrieveError::EndOfFile);
   ASSERT_EQ(driver.getPosition(), 1);
 }
 
@@ -1310,7 +1310,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyLastInteger) {
 
   ASSERT_EQ(driver.performOperation(1, std::basic_string_view<uint8_t>(),
                                     OperationCode::QueryPrevious),
-            BtrieveError::InvalidPositioning);
+            BtrieveError::EndOfFile);
   ASSERT_EQ(driver.getPosition(), 4);
 }
 
@@ -1324,7 +1324,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyLastNotFound) {
 
   ASSERT_EQ(driver.performOperation(0, std::basic_string_view<uint8_t>(),
                                     OperationCode::QueryLast),
-            BtrieveError::InvalidPositioning);
+            BtrieveError::EndOfFile);
 
   ASSERT_EQ(driver.performOperation(0, std::basic_string_view<uint8_t>(),
                                     OperationCode::QueryNext),
@@ -1368,7 +1368,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyGreaterString) {
   ASSERT_STREQ(dbRecord->key2, "stringValue");
 
   ASSERT_EQ(driver.performOperation(2, key, OperationCode::QueryNext),
-            BtrieveError::InvalidPositioning);
+            BtrieveError::EndOfFile);
   ASSERT_EQ(driver.getPosition(), 4);
 }
 
@@ -1406,7 +1406,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyGreaterInteger) {
   ASSERT_EQ(dbRecord->key1, 1052234073);
 
   ASSERT_EQ(driver.performOperation(1, key, OperationCode::QueryNext),
-            BtrieveError::InvalidPositioning);
+            BtrieveError::EndOfFile);
   ASSERT_EQ(driver.getPosition(), 3);
 }
 
@@ -1421,7 +1421,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyGreaterNotFound) {
       reinterpret_cast<const uint8_t *>(&value), sizeof(value));
 
   ASSERT_EQ(driver.performOperation(1, key, OperationCode::QueryGreater),
-            BtrieveError::InvalidPositioning);
+            BtrieveError::EndOfFile);
 }
 
 TEST_F(BtrieveDriverTest, SeekByKeyGreaterOrEqualString) {
@@ -1469,7 +1469,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyGreaterOrEqualString) {
   ASSERT_STREQ(dbRecord->key2, "stringValue");
 
   ASSERT_EQ(driver.performOperation(2, key, OperationCode::QueryNext),
-            BtrieveError::InvalidPositioning);
+            BtrieveError::EndOfFile);
   ASSERT_EQ(driver.getPosition(), 4);
 }
 
@@ -1519,7 +1519,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyGreaterOrEqualInteger) {
   ASSERT_EQ(dbRecord->key1, 1052234073);
 
   ASSERT_EQ(driver.performOperation(1, key, OperationCode::QueryNext),
-            BtrieveError::InvalidPositioning);
+            BtrieveError::EndOfFile);
   ASSERT_EQ(driver.getPosition(), 3);
 }
 
@@ -1534,7 +1534,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyGreaterOrEqualNotFound) {
       reinterpret_cast<const uint8_t *>(&value), sizeof(value));
 
   ASSERT_EQ(driver.performOperation(1, key, OperationCode::QueryGreaterOrEqual),
-            BtrieveError::InvalidPositioning);
+            BtrieveError::EndOfFile);
 }
 
 TEST_F(BtrieveDriverTest, SeekByKeyLessString) {
@@ -1559,7 +1559,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyLessString) {
   ASSERT_STREQ(dbRecord->key2, "3444");
 
   ASSERT_EQ(driver.performOperation(2, key, OperationCode::QueryPrevious),
-            BtrieveError::InvalidPositioning);
+            BtrieveError::EndOfFile);
   ASSERT_EQ(driver.getPosition(), 1);
 }
 
@@ -1597,7 +1597,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyLessInteger) {
   ASSERT_EQ(dbRecord->key1, -615634567);
 
   ASSERT_EQ(driver.performOperation(1, key, OperationCode::QueryPrevious),
-            BtrieveError::InvalidPositioning);
+            BtrieveError::EndOfFile);
   ASSERT_EQ(driver.getPosition(), 4);
 }
 
@@ -1612,7 +1612,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyLessNotFound) {
       reinterpret_cast<const uint8_t *>(&value), sizeof(value));
 
   ASSERT_EQ(driver.performOperation(1, key, OperationCode::QueryLess),
-            BtrieveError::InvalidPositioning);
+            BtrieveError::EndOfFile);
 }
 
 TEST_F(BtrieveDriverTest, SeekByKeyLessOrEqualString) {
@@ -1649,7 +1649,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyLessOrEqualString) {
   ASSERT_STREQ(dbRecord->key2, "3444");
 
   ASSERT_EQ(driver.performOperation(2, key, OperationCode::QueryPrevious),
-            BtrieveError::InvalidPositioning);
+            BtrieveError::EndOfFile);
   ASSERT_EQ(driver.getPosition(), 1);
 }
 
@@ -1699,7 +1699,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyLessOrEqualInteger) {
   ASSERT_EQ(dbRecord->key1, -615634567);
 
   ASSERT_EQ(driver.performOperation(1, key, OperationCode::QueryPrevious),
-            BtrieveError::InvalidPositioning);
+            BtrieveError::EndOfFile);
   ASSERT_EQ(driver.getPosition(), 4);
 }
 
@@ -1714,7 +1714,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyLessOrEqualNotFound) {
       reinterpret_cast<const uint8_t *>(&value), sizeof(value));
 
   ASSERT_EQ(driver.performOperation(1, key, OperationCode::QueryLessOrEqual),
-            BtrieveError::InvalidPositioning);
+            BtrieveError::EndOfFile);
 }
 
 // TODO add tests for queryEqual/Less/Greater when there are duplicates
