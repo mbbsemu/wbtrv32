@@ -1,5 +1,6 @@
-﻿#include "AttributeMask.h"
-#include "Key.h"
+﻿#include "Key.h"
+
+#include "AttributeMask.h"
 #include "gtest/gtest.h"
 
 using namespace btrieve;
@@ -221,7 +222,8 @@ static std::vector<ParameterizedKeyDataType> createKeyDataTypeData() {
       {KeyDataType::String},         {KeyDataType::Lstring},
       {KeyDataType::Zstring},        {KeyDataType::OldAscii},
       {KeyDataType::Integer},        {KeyDataType::Unsigned},
-      {KeyDataType::UnsignedBinary}, {KeyDataType::OldBinary}};
+      {KeyDataType::UnsignedBinary}, {KeyDataType::OldBinary},
+      {KeyDataType::Float}};
 }
 
 INSTANTIATE_TEST_CASE_P(Key, ParameterizedKeyDataTypeFixture,
@@ -322,4 +324,38 @@ createACSReplacementMultipleKey() {
 INSTANTIATE_TEST_CASE_P(Key, ParameterizedACSReplacementMultipleKeyFixture,
                         ::testing::ValuesIn(createACSReplacementMultipleKey()));
 
-} // namespace
+TEST(FloatKeys) {
+  KeyDefinition keyDefinition(0, sizeof(float), 0, KeyDataType::Float,
+                              UseExtendedDataType, false, 0, 0, 0, "",
+                              std::vector<char>());
+
+  Key key(&keyDefinition, 1);
+
+  float value = 2.435f;
+
+  auto actual = key
+                    .keyDataToSqliteObject(std::basic_string_view<uint8_t>(
+                        reinterpret_cast<uint8_t *>(&value), sizeof(value)))
+                    .getDoubleValue();
+
+  EXPECT_EQ(actual, value);
+}
+
+TEST(DoubleKeys) {
+  KeyDefinition keyDefinition(0, sizeof(double), 0, KeyDataType::Float,
+                              UseExtendedDataType, false, 0, 0, 0, "",
+                              std::vector<char>());
+
+  Key key(&keyDefinition, 1);
+
+  double value = 2.435f;
+
+  auto actual = key
+                    .keyDataToSqliteObject(std::basic_string_view<uint8_t>(
+                        reinterpret_cast<uint8_t *>(&value), sizeof(value)))
+                    .getDoubleValue();
+
+  EXPECT_EQ(actual, value);
+}
+
+}  // namespace

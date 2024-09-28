@@ -102,6 +102,8 @@ class SqliteDatabase : public SqlDatabase {
 
   BtrieveError nextReader(Query *query, CursorDirection cursorDirection);
 
+  void upgradeDatabaseFromVersion(uint32_t currentVersion);
+
   unsigned int openFlags;
   mutable std::unordered_map<std::string, SqlitePreparedStatement>
       preparedStatements;

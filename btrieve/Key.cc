@@ -24,6 +24,8 @@ std::string Key::getSqliteColumnSql() const {
     } else if (type == KeyDataType::String || type == KeyDataType::Lstring ||
                type == KeyDataType::Zstring || type == KeyDataType::OldAscii) {
       sql << "TEXT";
+    } else if (type == KeyDataType::Float) {
+      sql << "REAL";
     } else {
       sql << "BLOB";
     }
@@ -188,6 +190,20 @@ BindableValue Key::keyDataToSqliteObject(
     case KeyDataType::Zstring:
     case KeyDataType::OldAscii:
       return BindableValue(extractNullTerminatedString(modifiedKeyData));
+    case KeyDataType::Float:
+      switch (getPrimarySegment().getLength()) {
+        case 4:
+          return BindableValue(static_cast<double>(
+              *reinterpret_cast<float *>(modifiedKeyData.data())));
+        case 8:
+          return BindableValue(
+              *reinterpret_cast<double *>(modifiedKeyData.data()));
+        default:
+          // should never happen since we verify on db creation
+          throw BtrieveException("Float key not 4/8 bytes");
+          break;
+      }
+      break;
     default:
       return BindableValue(modifiedKeyData);
   }

@@ -145,13 +145,14 @@ void SqliteDatabase::loadSqliteMetadata(std::string &acsName,
     std::copy(readAcs.begin(), readAcs.end(), std::back_inserter(acs));
   }
 
-  // reserved for future upgrade paths
-  /*
-  var version = reader.GetInt32(2);
-  if (version != CURRENT_VERSION){
-    UpgradeDatabaseFromVersion(version);
+  uint32_t version = reader->getInt32(2);
+  if (version != CURRENT_VERSION) {
+    upgradeDatabaseFromVersion(version);
   }
-  */
+}
+
+void SqliteDatabase::upgradeDatabaseFromVersion(uint32_t currentVersion) {
+  // no need for version upgrades - yet
 }
 
 void SqliteDatabase::loadSqliteKeys(const std::string &acsName,
@@ -171,23 +172,21 @@ void SqliteDatabase::loadSqliteKeys(const std::string &acsName,
 
   keys.resize(numKeys);
 
-  SqlitePreparedStatement command(
-      database,
-      "SELECT number, segment, attributes, data_type, offset, length "
-      "FROM keys_t ORDER BY number, segment");
+  SqlitePreparedStatement command(database,
+                                  "SELECT number, segment, attributes, "
+                                  "data_type, offset, length, null_value "
+                                  "FROM keys_t ORDER BY number, segment");
   std::unique_ptr<SqliteReader> reader = command.executeReader();
 
   unsigned int segmentIndex = 0;
   while (reader->read()) {
     unsigned int number = reader->getInt32(0);
 
-    uint8_t nullValue = 0;  // TODO why isn't this in database?
-
     KeyDefinition keyDefinition(
         number, reader->getInt32(5), reader->getInt32(4),
         (KeyDataType)reader->getInt32(3), reader->getInt32(2),
         reader->getBoolean(1), reader->getBoolean(1) ? number : 0, segmentIndex,
-        nullValue, acsName, acs);
+        reader->getInt32(6), acsName, acs);
 
     keys[number].addSegment(keyDefinition);
   }
@@ -214,7 +213,7 @@ std::unique_ptr<RecordLoader> SqliteDatabase::create(
   keys = database.getKeys();
 
   createSqliteMetadataTable(database);
-  createSqliteKeysTable(database);
+  (database);
   createSqliteDataTable(database);
   createSqliteDataIndices(database);
   createSqliteTriggers(database);

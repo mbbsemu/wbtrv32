@@ -7,7 +7,7 @@
 
 namespace btrieve {
 class SqliteReader : public Reader {
-public:
+ public:
   virtual ~SqliteReader() {}
 
   virtual bool read() override {
@@ -29,6 +29,10 @@ public:
     return sqlite3_column_int64(statement, columnOrdinal);
   }
 
+  virtual double getDouble(unsigned int columnOrdinal) const override {
+    return sqlite3_column_double(statement, columnOrdinal);
+  }
+
   virtual bool getBoolean(unsigned int columnOrdinal) const override {
     return getInt32(columnOrdinal) != 0;
   }
@@ -48,8 +52,8 @@ public:
     }
   }
 
-  virtual std::vector<uint8_t>
-  getBlob(unsigned int columnOrdinal) const override {
+  virtual std::vector<uint8_t> getBlob(
+      unsigned int columnOrdinal) const override {
     int bytes = sqlite3_column_bytes(statement, columnOrdinal);
     std::vector<uint8_t> ret(bytes);
     if (bytes > 0) {
@@ -59,39 +63,39 @@ public:
     return ret;
   }
 
-  virtual BindableValue
-  getBindableValue(unsigned int columnOrdinal) const override {
+  virtual BindableValue getBindableValue(
+      unsigned int columnOrdinal) const override {
     int bytes;
     const uint8_t *data;
     int columnType = sqlite3_column_type(statement, columnOrdinal);
 
     switch (columnType) {
-    case SQLITE_INTEGER:
-      return BindableValue(
-          static_cast<int64_t>(sqlite3_column_int64(statement, columnOrdinal)));
-    case SQLITE_FLOAT:
-      return BindableValue(sqlite3_column_double(statement, columnOrdinal));
-    case SQLITE_TEXT:
-      return BindableValue(reinterpret_cast<const char *>(
-          sqlite3_column_text(statement, columnOrdinal)));
-    case SQLITE_BLOB:
-      bytes = sqlite3_column_bytes(statement, columnOrdinal);
-      data = reinterpret_cast<const uint8_t *>(
-          sqlite3_column_blob(statement, columnOrdinal));
-      return BindableValue(std::basic_string_view<uint8_t>(data, bytes));
-    case SQLITE_NULL:
-    default:
-      return BindableValue();
+      case SQLITE_INTEGER:
+        return BindableValue(static_cast<int64_t>(
+            sqlite3_column_int64(statement, columnOrdinal)));
+      case SQLITE_FLOAT:
+        return BindableValue(sqlite3_column_double(statement, columnOrdinal));
+      case SQLITE_TEXT:
+        return BindableValue(reinterpret_cast<const char *>(
+            sqlite3_column_text(statement, columnOrdinal)));
+      case SQLITE_BLOB:
+        bytes = sqlite3_column_bytes(statement, columnOrdinal);
+        data = reinterpret_cast<const uint8_t *>(
+            sqlite3_column_blob(statement, columnOrdinal));
+        return BindableValue(std::basic_string_view<uint8_t>(data, bytes));
+      case SQLITE_NULL:
+      default:
+        return BindableValue();
     }
   }
 
-private:
+ private:
   friend class SqlitePreparedStatement;
 
-  SqliteReader(sqlite3_stmt *statement_) : statement(statement_){};
+  SqliteReader(sqlite3_stmt *statement_) : statement(statement_) {};
 
   // can't use a shared_ptr here since sqlite3_stmt is an incomplete type
   sqlite3_stmt *statement;
 };
-} // namespace btrieve
+}  // namespace btrieve
 #endif

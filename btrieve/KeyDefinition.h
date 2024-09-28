@@ -36,6 +36,11 @@ class KeyDefinition {
       throw BtrieveException("Key %d requires ACS, but none was provided",
                              number);
     }
+
+    if (dataType_ == KeyDataType::Float && (length_ != 8 && length_ != 4)) {
+      throw BtrieveException(
+          "Key was specified as a float but isn't size 4/8 bytes");
+    }
   }
 
   KeyDefinition(const KeyDefinition &keyDefinition)

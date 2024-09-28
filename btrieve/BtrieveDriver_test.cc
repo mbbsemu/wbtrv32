@@ -1736,11 +1736,15 @@ static std::vector<char> upperACS() {
   return ret;
 }
 
-static std::vector<uint8_t> createRecord(const char *username) {
+static std::vector<uint8_t> createRecord(const char *username, float value1 = 0,
+                                         double value2 = 0) {
   std::vector<uint8_t> record(ACS_RECORD_LENGTH);
 
   memset(record.data(), 0xFF, record.size());
   strcpy(reinterpret_cast<char *>(record.data() + 2), username);
+
+  *reinterpret_cast<float *>(record.data() + 64) = value1;
+  *reinterpret_cast<double *>(record.data() + 68) = value2;
 
   return record;
 }
@@ -1759,6 +1763,18 @@ static BtrieveDatabase createACSBtrieveDatabase() {
   KeyDefinition keyDefinition(0, 30, 2, KeyDataType::String,
                               UseExtendedDataType | NumberedACS, false, 0, 0, 0,
                               "acsName", acs);
+
+  keys.push_back(Key(&keyDefinition, 1));
+
+  keyDefinition = KeyDefinition(1, 4, 64, KeyDataType::Float,
+                                UseExtendedDataType | Duplicates, false, 0, 0,
+                                0, "", std::vector<char>());
+
+  keys.push_back(Key(&keyDefinition, 1));
+
+  keyDefinition = KeyDefinition(2, 8, 68, KeyDataType::Float,
+                                UseExtendedDataType | Duplicates, false, 0, 0,
+                                0, "", std::vector<char>());
 
   keys.push_back(Key(&keyDefinition, 1));
 
@@ -1822,6 +1838,58 @@ TEST_F(BtrieveDriverTest, ACSInsertDuplicateFails) {
   ASSERT_EQ(database->insertRecord(std::basic_string_view<uint8_t>(
                 createRecord("SysoP").data(), ACS_RECORD_LENGTH)),
             std::make_pair(BtrieveError::DuplicateKeyValue, 0u));
+}
+
+TEST_F(BtrieveDriverTest, FloatSeekByKey) {
+  SqliteDatabase *database = new SqliteDatabase(SQLITE_OPEN_MEMORY);
+  BtrieveDriver driver(database);
+
+  auto recordLoader =
+      database->create(_TEXT("unused.db"), createACSBtrieveDatabase());
+  recordLoader->onRecordsComplete();
+
+  ASSERT_EQ(database->insertRecord(std::basic_string_view<uint8_t>(
+                createRecord("Sysop", 1.0f, 2.0).data(), ACS_RECORD_LENGTH)),
+            std::make_pair(BtrieveError::Success, 1u));
+
+  ASSERT_EQ(
+      database->insertRecord(std::basic_string_view<uint8_t>(
+          createRecord("Paladine", -1.0f, -2.0).data(), ACS_RECORD_LENGTH)),
+      std::make_pair(BtrieveError::Success, 2u));
+
+  float fkey = -1.0f;
+  std::basic_string_view<uint8_t> key(reinterpret_cast<const uint8_t *>(&fkey),
+                                      sizeof(fkey));
+
+  ASSERT_EQ(driver.performOperation(1, key, OperationCode::QueryEqual),
+            BtrieveError::Success);
+  auto data = driver.getRecord();
+  ASSERT_TRUE(data.first);
+  ASSERT_EQ(driver.getPosition(), 2);
+  ASSERT_EQ(data.second.getData().size(), ACS_RECORD_LENGTH);
+  ASSERT_EQ(memcmp(data.second.getData().data() + 2, "Paladine", 8), 0);
+  ASSERT_EQ(*reinterpret_cast<const float *>(data.second.getData().data() + 64),
+            -1.0f);
+  ASSERT_EQ(
+      *reinterpret_cast<const double *>(data.second.getData().data() + 68),
+      -2.0);
+
+  double dkey = 2.0f;
+  key = std::basic_string_view<uint8_t>(
+      reinterpret_cast<const uint8_t *>(&dkey), sizeof(dkey));
+
+  ASSERT_EQ(driver.performOperation(2, key, OperationCode::QueryEqual),
+            BtrieveError::Success);
+  data = driver.getRecord();
+  ASSERT_TRUE(data.first);
+  ASSERT_EQ(driver.getPosition(), 1);
+  ASSERT_EQ(data.second.getData().size(), ACS_RECORD_LENGTH);
+  ASSERT_EQ(memcmp(data.second.getData().data() + 2, "Sysop", 6), 0);
+  ASSERT_EQ(*reinterpret_cast<const float *>(data.second.getData().data() + 64),
+            1.0f);
+  ASSERT_EQ(
+      *reinterpret_cast<const double *>(data.second.getData().data() + 68),
+      2.0);
 }
 
 static BtrieveDatabase createKeylessBtrieveDatabase() {
