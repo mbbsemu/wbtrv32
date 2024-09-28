@@ -84,12 +84,12 @@ static void append(std::vector<uint8_t>& vector,
   memcpy(vector.data() + vectorSize, data.data(), data.size());
 }
 
-BtrieveDatabase::KEYDEFINITIONDATA BtrieveDatabase::validateDatabase(
+BtrieveDatabase::FCRDATA BtrieveDatabase::validateDatabase(
     FILE* f, const uint8_t* firstPage) {
   const uint8_t* fcr = firstPage;
-  KEYDEFINITIONDATA keyDefinitionData;
+  FCRDATA fcrData;
 
-  keyDefinitionData.fcrOffset = 0;
+  fcrData.fcrOffset = 0;
 
   v6 = fcr[0] == 'F' && fcr[1] == 'C' && fcr[2] == 0 && fcr[3] == 0;
 
@@ -119,12 +119,12 @@ BtrieveDatabase::KEYDEFINITIONDATA BtrieveDatabase::validateDatabase(
     // get the FCR based on usage counts, if first page we need to read in the
     // entire thing since pageLength might not equal 512 which we read initially
     if (usageCount1 > usageCount2) {
-      keyDefinitionData.fcrOffset = 0;
+      fcrData.fcrOffset = 0;
 
       fseek_s(f, 0, SEEK_SET);
       fread_s(wholePage, pageLength, f);
     } else {
-      keyDefinitionData.fcrOffset = pageLength;
+      fcrData.fcrOffset = pageLength;
     }
   } else {  // for v5 databases
     uint16_t versionCode = fcr[6] << 16 | fcr[7];
@@ -185,7 +185,7 @@ BtrieveDatabase::KEYDEFINITIONDATA BtrieveDatabase::validateDatabase(
 
   fileLength = ftell(f);
 
-  pageCount = fileLength / pageLength - 1;
+  pageCount = toUint16(fcr + 0x26) << 16 | toUint16(fcr + 0x28);
 
   recordCount = toUint16(fcr + 0x1A) << 16 | toUint16(fcr + 0x1C);
 
@@ -195,9 +195,13 @@ BtrieveDatabase::KEYDEFINITIONDATA BtrieveDatabase::validateDatabase(
 
   keys.resize(toUint16(fcr + 0x14));
 
-  keyDefinitionData.keyAttributeTableOffset =
-      keyDefinitionData.fcrOffset + (fcr[0x78] | fcr[0x79] << 8);
-  return keyDefinitionData;
+  fcrData.keyAttributeTableOffset =
+      fcrData.fcrOffset + (fcr[0x78] | fcr[0x79] << 8);
+
+  fcrData.deletedRecordPointer = getRecordPointer(
+      std::basic_string_view<uint8_t>(fcr + 0x10, sizeof(uint32_t)));
+
+  return fcrData;
 }
 
 bool BtrieveDatabase::isUnusedRecord(std::basic_string_view<uint8_t> data) {
@@ -232,8 +236,15 @@ void BtrieveDatabase::loadRecords(
 
   fseek_s(f, pageLength, SEEK_SET);
   // Starting at 1, since the first page is the header
-  for (unsigned int i = 1; i <= pageCount; i++, pageOffset += pageLength) {
+  for (unsigned int i = v6 ? 1 : 0; i <= pageCount;
+       i++, pageOffset += pageLength) {
+    int32_t physicalOffset = logicalPageToPhysicalOffset(f, i);
+    if (physicalOffset < 0) {
+      continue;
+    }
+
     // read in the entire page
+    fseek_s(f, physicalOffset, SEEK_SET);
     fread_s(data, pageLength, f);
     // Verify Data Page, high bit set on byte 5 (usage count)
     if ((data[0x5] & 0x80) == 0) {
@@ -244,10 +255,6 @@ void BtrieveDatabase::loadRecords(
     unsigned int recordOffset = 6;
     for (unsigned int j = 0; j < recordsInPage;
          j++, recordOffset += physicalRecordLength) {
-      if (recordsLoaded == recordCount) {
-        goto finished_loaded;
-      }
-
       // Marked for deletion? Skip
       if (deletedRecordOffsets.count(pageOffset + recordOffset) > 0) {
         continue;
@@ -285,7 +292,9 @@ void BtrieveDatabase::loadRecords(
         }
       }
 
-      recordsLoaded++;
+      if (++recordsLoaded == recordCount) {
+        goto finished_loaded;
+      }
     }
   }
 
@@ -296,7 +305,7 @@ finished_loaded:
   }
 }
 
-void BtrieveDatabase::parseDatabase(
+BtrieveError BtrieveDatabase::parseDatabase(
     const tchar* fileName, std::function<bool()> onMetadataLoaded,
     std::function<bool(const std::basic_string_view<uint8_t>)> onRecordLoaded,
     std::function<void()> onRecordsComplete) {
@@ -307,11 +316,11 @@ void BtrieveDatabase::parseDatabase(
 #endif
   if (f == nullptr) {
 #ifdef WIN32
-    fwprintf(stderr, _TEXT("Couldn't open %s\n"), fileName);
+    fwprintf(stderr, _TEXT("Couldn't open %s: %d\n"), fileName, errno);
 #else
-    fprintf(stderr, "Couldn't open %s\n", fileName);
+    fprintf(stderr, "Couldn't open %s: %d\n", fileName, errno);
 #endif
-    return;
+    return BtrieveError::FileNotFound;
   }
 
   from(f);
@@ -323,6 +332,7 @@ void BtrieveDatabase::parseDatabase(
   onRecordsComplete();
 
   fclose(f);
+  return BtrieveError::Success;
 }
 
 bool BtrieveDatabase::loadPAT(FILE* f, std::string& acsName,
@@ -401,10 +411,10 @@ bool BtrieveDatabase::loadACS(FILE* f, std::string& acsName,
   return true;
 }
 
-void BtrieveDatabase::loadKeyDefinitions(
-    FILE* f, const uint8_t* firstPage,
-    const KEYDEFINITIONDATA& keyDefinitionData, const std::string& acsName,
-    const std::vector<char>& acs) {
+void BtrieveDatabase::loadKeyDefinitions(FILE* f, const uint8_t* firstPage,
+                                         const FCRDATA& fcrData,
+                                         const std::string& acsName,
+                                         const std::vector<char>& acs) {
   const auto keyDefinitionLength = 0x1E;
 
   uint8_t data[512];
@@ -415,7 +425,7 @@ void BtrieveDatabase::loadKeyDefinitions(
 
   if (v6) {
     uint8_t* ptr = data;
-    fseek_s(f, keyDefinitionData.keyAttributeTableOffset, SEEK_SET);
+    fseek_s(f, fcrData.keyAttributeTableOffset, SEEK_SET);
     fread_s(data, sizeof(uint16_t) * totalKeys, f);
 
     for (size_t i = 0; i < totalKeys; ++i, ptr += 2) {
@@ -432,7 +442,7 @@ void BtrieveDatabase::loadKeyDefinitions(
   uint32_t keyOffset = keyOffsets[currentKeyNumber];
 
   while (currentKeyNumber < totalKeys) {
-    fseek_s(f, keyOffset + keyDefinitionData.fcrOffset, SEEK_SET);
+    fseek_s(f, keyOffset + fcrData.fcrOffset, SEEK_SET);
     fread_s(data, keyDefinitionLength, f);
 
     KeyDataType dataType;
@@ -489,17 +499,17 @@ void BtrieveDatabase::from(FILE* f) {
 
   fread_s(firstPage, sizeof(firstPage), f);
 
-  KEYDEFINITIONDATA keyDefinitionData = validateDatabase(f, firstPage);
+  FCRDATA fcrData = validateDatabase(f, firstPage);
 
   if (v6) {
     loadPAT(f, acsName, acs);
   } else {
-    getRecordPointerList(f, getRecordPointer(f, 0x10), deletedRecordOffsets);
+    getRecordPointerList(f, fcrData.deletedRecordPointer, deletedRecordOffsets);
 
     loadACS(f, acsName, acs, 1);  // acs always on first page
   }
 
-  loadKeyDefinitions(f, firstPage, keyDefinitionData, acsName, acs);
+  loadKeyDefinitions(f, firstPage, fcrData, acsName, acs);
 }
 
 #pragma pack(push, 1)
@@ -621,18 +631,13 @@ int32_t BtrieveDatabase::logicalPageToPhysicalOffset(FILE* f,
   uint8_t* activePat = (usageCount1 > usageCount2) ? pat1 : pat2;
 
   uint8_t* positionInPat = activePat + (logicalPage * 4) + 4;
-  if (positionInPat[1] != 'V') {
-    throw BtrieveException(
-        "Variable data page reference isn't a variable data page");
-  }
-
-  int64_t lp =
+  int64_t physicalPage =
       (positionInPat[0] << 16) | (positionInPat[3] << 8) | positionInPat[2];
 
-  if (lp == 0xFFFFFFL || lp < 0) {
+  if (physicalPage == 0xFFFFFFL || physicalPage < 0) {
     return -1;
   }
 
-  return static_cast<int32_t>(lp * pageLength);
+  return static_cast<int32_t>(physicalPage * pageLength);
 }
 }  // namespace btrieve

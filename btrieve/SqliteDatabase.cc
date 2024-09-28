@@ -68,12 +68,17 @@ class SqliteCreationRecordLoader : public RecordLoader {
     unsigned int parameterNumber = 2;
 
     for (auto &key : keys) {
-      insertionCommand->bindParameter(
-          parameterNumber++, key.extractKeyInRecordToSqliteObject(record));
+      auto param = key.extractKeyInRecordToSqliteObject(record);
+
+      insertionCommand->bindParameter(parameterNumber++, param);
     }
 
-    insertionCommand->execute();
-
+    try {
+      insertionCommand->execute();
+    } catch (BtrieveException &ex) {
+      // silently ignore, some databases have bad data
+      return true;
+    }
     return true;
   };
 
@@ -94,12 +99,13 @@ class SqliteCreationRecordLoader : public RecordLoader {
 
 // Opens a Btrieve database as a sql backed file. Will convert a legacy file
 // in place if required. Throws a BtrieveException if something fails.
-void SqliteDatabase::open(const tchar *fileName) {
+BtrieveError SqliteDatabase::open(const tchar *fileName) {
   sqlite3 *db;
   int errorCode = sqlite3_open_v2(toStdString(fileName).c_str(), &db,
                                   SQLITE_OPEN_READWRITE | openFlags, nullptr);
   if (errorCode != SQLITE_OK) {
     throwException(errorCode);
+    return BtrieveError::IOError;
   }
 
   this->database = std::shared_ptr<sqlite3>(db, &sqlite3_close);
@@ -109,6 +115,7 @@ void SqliteDatabase::open(const tchar *fileName) {
 
   loadSqliteMetadata(acsName, acs);
   loadSqliteKeys(acsName, acs);
+  return BtrieveError::Success;
 }
 
 void SqliteDatabase::loadSqliteMetadata(std::string &acsName,

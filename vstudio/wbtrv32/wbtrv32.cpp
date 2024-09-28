@@ -48,7 +48,11 @@ static btrieve::BtrieveError Open(BtrieveCommand &command) {
   mbstowcs_s(&unused, fileName, ARRAYSIZE(fileName), lpszFilename, _TRUNCATE);
 
   try {
-    db->open(fileName);
+    btrieve::BtrieveError error = db->open(fileName);
+    if (error != btrieve::BtrieveError::Success) {
+      delete db;
+      return error;
+    }
 
     // add to my list of open files
     GUID guid;

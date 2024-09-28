@@ -27,6 +27,9 @@
     <CopyFileToFolders Include="..\..\assets\WGSMENU2.DAT">
       <Filter>Assets</Filter>
     </CopyFileToFolders>
+    <CopyFileToFolders Include="..\..\assets\WCCACMS2.DAT">
+      <Filter>Assets</Filter>
+    </CopyFileToFolders>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\btrieve\LRUCache_test.cc">
@@ -45,6 +48,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="..\wbtrv32\wbtrv32_test.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\wbtrv32\bad_data.cc">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

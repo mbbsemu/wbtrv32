@@ -32,7 +32,7 @@ class SqlDatabase {
   virtual const tchar *getFileExtension() = 0;
 
   // Opens a Btrieve database as a sql backed file.
-  virtual void open(const tchar *fileName) = 0;
+  virtual BtrieveError open(const tchar *fileName) = 0;
 
   // Creates a new sql backed file using database as the source of records
   virtual std::unique_ptr<RecordLoader> create(

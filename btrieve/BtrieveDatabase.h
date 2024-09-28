@@ -6,6 +6,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "ErrorCode.h"
 #include "Key.h"
 #include "Text.h"
 
@@ -106,23 +107,24 @@ class BtrieveDatabase {
   // records. Calls onRecordLoaded for each record in the database. Return false
   // to discontinue enumeration. Throws BtrieveException when a critical error
   // is encountered.
-  void parseDatabase(
+  BtrieveError parseDatabase(
       const tchar *fileName, std::function<bool()> onMetadataLoaded,
       std::function<bool(const std::basic_string_view<uint8_t>)> onRecordLoaded,
       std::function<void()> onRecordsComplete = []() {});
 
  private:
-  typedef struct _tagKEYDEFINITION_DATA {
+  typedef struct _tagFCRDATA {
     uint16_t fcrOffset;
     uint32_t keyAttributeTableOffset;
-  } KEYDEFINITIONDATA;
+    uint32_t deletedRecordPointer;
+  } FCRDATA;
 
   // Reads and validates the metadata from the Btrieve database identified by f.
   void from(FILE *f);
 
   // Validates the Btrieve database header to ensure values are
   // expected/consistent.
-  KEYDEFINITIONDATA validateDatabase(FILE *f, const uint8_t *firstPage);
+  FCRDATA validateDatabase(FILE *f, const uint8_t *firstPage);
 
   // Loads the PAT and validates each page
   bool loadPAT(FILE *f, std::string &acsName, std::vector<char> &acs);
@@ -135,8 +137,7 @@ class BtrieveDatabase {
   // Loads the key definitions into the keys member variables, given the acs
   // loaded previously from loadACS. acsName and acs could both be empty.
   void loadKeyDefinitions(FILE *f, const uint8_t *firstPage,
-                          const KEYDEFINITIONDATA &keyDefinitionData,
-                          const std::string &acsName,
+                          const FCRDATA &fcrData, const std::string &acsName,
                           const std::vector<char> &acs);
 
   // Enumerates all records and calls onRecordLoaded for each one.

@@ -1,13 +1,16 @@
 #include "BtrieveDriver.h"
-#include "BtrieveDatabase.h"
-#include <filesystem>
-#include <memory>
+
 #include <sys/stat.h>
 #include <sys/types.h>
+
+#include <filesystem>
+#include <memory>
+
+#include "BtrieveDatabase.h"
 #ifdef _WIN32
 #include <io.h>
 #include <stdio.h>
-#define WIN32_LEAN_AND_MEAN // Exclude rarely-used stuff from Windows headers
+#define WIN32_LEAN_AND_MEAN  // Exclude rarely-used stuff from Windows headers
 #include <windows.h>
 #else
 #include <unistd.h>
@@ -54,7 +57,7 @@ static std::basic_string<tchar> toUpper(const std::basic_string<tchar> &value) {
 #define unlink _wunlink
 #endif
 
-void BtrieveDriver::open(const tchar *fileName) {
+BtrieveError BtrieveDriver::open(const tchar *fileName) {
   int64_t fileModificationTimeDat;
   int64_t fileModificationTimeDb;
 
@@ -84,12 +87,14 @@ void BtrieveDriver::open(const tchar *fileName) {
     dbExists = false;
   }
 
+  BtrieveError error;
+
   if (dbExists) {
-    sqlDatabase->open(dbPath.c_str());
+    error = sqlDatabase->open(dbPath.c_str());
   } else {
     BtrieveDatabase btrieveDatabase;
     std::unique_ptr<RecordLoader> recordLoader;
-    btrieveDatabase.parseDatabase(
+    error = btrieveDatabase.parseDatabase(
         fileName,
         [this, &dbPath, &btrieveDatabase, &recordLoader]() {
           recordLoader = sqlDatabase->create(dbPath.c_str(), btrieveDatabase);
@@ -101,9 +106,13 @@ void BtrieveDriver::open(const tchar *fileName) {
         [&recordLoader]() { recordLoader->onRecordsComplete(); });
   }
 
-  // Set Position to First Record
-  performOperation(0, std::basic_string_view<uint8_t>(),
-                   OperationCode::StepFirst);
+  if (error == BtrieveError::Success) {
+    // Set Position to First Record
+    performOperation(0, std::basic_string_view<uint8_t>(),
+                     OperationCode::StepFirst);
+  }
+
+  return error;
 }
 
 void BtrieveDriver::close() {
@@ -112,56 +121,55 @@ void BtrieveDriver::close() {
   sqlDatabase.reset(nullptr);
 }
 
-BtrieveError
-BtrieveDriver::performOperation(int keyNumber,
-                                std::basic_string_view<uint8_t> keyData,
-                                OperationCode operationCode) {
+BtrieveError BtrieveDriver::performOperation(
+    int keyNumber, std::basic_string_view<uint8_t> keyData,
+    OperationCode operationCode) {
   switch (operationCode) {
-  case OperationCode::Delete:
-    return sqlDatabase->deleteRecord();
-    /* lock biases, which we don't support / care about
-    +100 Single wait record lock.
-    +200 Single no-wait record lock.
-    +300 Multiple wait record lock.
-    +400 Multiple no-wait record lock.
-    */
-  case OperationCode::StepFirst:
-  case OperationCode::StepFirst + 100:
-  case OperationCode::StepFirst + 200:
-  case OperationCode::StepFirst + 300:
-  case OperationCode::StepFirst + 400:
-    return sqlDatabase->stepFirst();
-  case OperationCode::StepLast:
-  case OperationCode::StepLast + 100:
-  case OperationCode::StepLast + 200:
-  case OperationCode::StepLast + 300:
-  case OperationCode::StepLast + 400:
-    return sqlDatabase->stepLast();
-  case OperationCode::StepNext:
-  case OperationCode::StepNext + 100:
-  case OperationCode::StepNext + 200:
-  case OperationCode::StepNext + 300:
-  case OperationCode::StepNext + 400:
-  case OperationCode::StepNextExtended:
-  case OperationCode::StepNextExtended + 100:
-  case OperationCode::StepNextExtended + 200:
-  case OperationCode::StepNextExtended + 300:
-  case OperationCode::StepNextExtended + 400:
-    return sqlDatabase->stepNext();
-  case OperationCode::StepPrevious:
-  case OperationCode::StepPrevious + 100:
-  case OperationCode::StepPrevious + 200:
-  case OperationCode::StepPrevious + 300:
-  case OperationCode::StepPrevious + 400:
-  case OperationCode::StepPreviousExtended:
-  case OperationCode::StepPreviousExtended + 100:
-  case OperationCode::StepPreviousExtended + 200:
-  case OperationCode::StepPreviousExtended + 300:
-  case OperationCode::StepPreviousExtended + 400:
-    return sqlDatabase->stepPrevious();
-  default:
-      // fall through
-      ;
+    case OperationCode::Delete:
+      return sqlDatabase->deleteRecord();
+      /* lock biases, which we don't support / care about
+      +100 Single wait record lock.
+      +200 Single no-wait record lock.
+      +300 Multiple wait record lock.
+      +400 Multiple no-wait record lock.
+      */
+    case OperationCode::StepFirst:
+    case OperationCode::StepFirst + 100:
+    case OperationCode::StepFirst + 200:
+    case OperationCode::StepFirst + 300:
+    case OperationCode::StepFirst + 400:
+      return sqlDatabase->stepFirst();
+    case OperationCode::StepLast:
+    case OperationCode::StepLast + 100:
+    case OperationCode::StepLast + 200:
+    case OperationCode::StepLast + 300:
+    case OperationCode::StepLast + 400:
+      return sqlDatabase->stepLast();
+    case OperationCode::StepNext:
+    case OperationCode::StepNext + 100:
+    case OperationCode::StepNext + 200:
+    case OperationCode::StepNext + 300:
+    case OperationCode::StepNext + 400:
+    case OperationCode::StepNextExtended:
+    case OperationCode::StepNextExtended + 100:
+    case OperationCode::StepNextExtended + 200:
+    case OperationCode::StepNextExtended + 300:
+    case OperationCode::StepNextExtended + 400:
+      return sqlDatabase->stepNext();
+    case OperationCode::StepPrevious:
+    case OperationCode::StepPrevious + 100:
+    case OperationCode::StepPrevious + 200:
+    case OperationCode::StepPrevious + 300:
+    case OperationCode::StepPrevious + 400:
+    case OperationCode::StepPreviousExtended:
+    case OperationCode::StepPreviousExtended + 100:
+    case OperationCode::StepPreviousExtended + 200:
+    case OperationCode::StepPreviousExtended + 300:
+    case OperationCode::StepPreviousExtended + 400:
+      return sqlDatabase->stepPrevious();
+    default:
+        // fall through
+        ;
   }
 
   bool newQuery = !usesPreviousQuery(operationCode);
@@ -183,36 +191,36 @@ BtrieveDriver::performOperation(int keyNumber,
 
   // always using previousQuery from this point onward
   switch (operationCode) {
-  case OperationCode::AcquireFirst:
-  case OperationCode::QueryFirst:
-    return sqlDatabase->getByKeyFirst(previousQuery.get());
-  case OperationCode::AcquireLast:
-  case OperationCode::QueryLast:
-    return sqlDatabase->getByKeyLast(previousQuery.get());
-  case OperationCode::AcquireEqual:
-  case OperationCode::QueryEqual:
-    return sqlDatabase->getByKeyEqual(previousQuery.get());
-  case OperationCode::AcquireGreater:
-  case OperationCode::QueryGreater:
-    return sqlDatabase->getByKeyGreater(previousQuery.get());
-  case OperationCode::AcquireGreaterOrEqual:
-  case OperationCode::QueryGreaterOrEqual:
-    return sqlDatabase->getByKeyGreaterOrEqual(previousQuery.get());
-  case OperationCode::AcquireLess:
-  case OperationCode::QueryLess:
-    return sqlDatabase->getByKeyLess(previousQuery.get());
-  case OperationCode::AcquireLessOrEqual:
-  case OperationCode::QueryLessOrEqual:
-    return sqlDatabase->getByKeyLessOrEqual(previousQuery.get());
-  case OperationCode::AcquireNext:
-  case OperationCode::QueryNext:
-    return sqlDatabase->getByKeyNext(previousQuery.get());
-  case OperationCode::AcquirePrevious:
-  case OperationCode::QueryPrevious:
-    return sqlDatabase->getByKeyPrevious(previousQuery.get());
-  default:
-    return BtrieveError::OperationNotAllowed;
+    case OperationCode::AcquireFirst:
+    case OperationCode::QueryFirst:
+      return sqlDatabase->getByKeyFirst(previousQuery.get());
+    case OperationCode::AcquireLast:
+    case OperationCode::QueryLast:
+      return sqlDatabase->getByKeyLast(previousQuery.get());
+    case OperationCode::AcquireEqual:
+    case OperationCode::QueryEqual:
+      return sqlDatabase->getByKeyEqual(previousQuery.get());
+    case OperationCode::AcquireGreater:
+    case OperationCode::QueryGreater:
+      return sqlDatabase->getByKeyGreater(previousQuery.get());
+    case OperationCode::AcquireGreaterOrEqual:
+    case OperationCode::QueryGreaterOrEqual:
+      return sqlDatabase->getByKeyGreaterOrEqual(previousQuery.get());
+    case OperationCode::AcquireLess:
+    case OperationCode::QueryLess:
+      return sqlDatabase->getByKeyLess(previousQuery.get());
+    case OperationCode::AcquireLessOrEqual:
+    case OperationCode::QueryLessOrEqual:
+      return sqlDatabase->getByKeyLessOrEqual(previousQuery.get());
+    case OperationCode::AcquireNext:
+    case OperationCode::QueryNext:
+      return sqlDatabase->getByKeyNext(previousQuery.get());
+    case OperationCode::AcquirePrevious:
+    case OperationCode::QueryPrevious:
+      return sqlDatabase->getByKeyPrevious(previousQuery.get());
+    default:
+      return BtrieveError::OperationNotAllowed;
   }
 }
 
-} // namespace btrieve
+}  // namespace btrieve

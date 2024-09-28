@@ -21,7 +21,7 @@ class BtrieveDriver {
 
   ~BtrieveDriver();
 
-  void open(const tchar *fileName);
+  BtrieveError open(const tchar *fileName);
 
   // Closes an opened database.
   void close();
