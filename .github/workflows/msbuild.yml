@@ -43,6 +43,12 @@ jobs:
       # See https://docs.microsoft.com/visualstudio/msbuild/msbuild-command-line-reference
       run: msbuild /m /p:Configuration=${{env.BUILD_CONFIGURATION}} ${{env.SOLUTION_FILE_PATH}}
 
+    - name: List directories for debugging
+      working-directory: ${{env.GITHUB_WORKSPACE}}
+      shell: pwsh  # Using PowerShell
+      run: |
+        Get-ChildItem -Path "./vstudio" -Recurse
+    
     - name: Run Unit Tests
       working-directory: ${{env.GITHUB_WORKSPACE}}
       shell: pwsh  # Ensures this step runs with PowerShell
