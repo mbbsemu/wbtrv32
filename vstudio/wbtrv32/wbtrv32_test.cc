@@ -119,13 +119,13 @@ TEST_F(wbtrv32Test, StatsDatabase) {
   wbtrv32::LPFILESPEC lpFileSpec =
       reinterpret_cast<wbtrv32::LPFILESPEC>(buffer);
   EXPECT_EQ(lpFileSpec->logicalFixedRecordLength, 74);
-  EXPECT_EQ(lpFileSpec->pageSize, 512);
+  EXPECT_EQ(lpFileSpec->pageSize, 4096);
   EXPECT_EQ(lpFileSpec->numberOfKeys, 4);
-  EXPECT_EQ(lpFileSpec->fileVersion, 0x60);
+  EXPECT_EQ(lpFileSpec->fileVersion, 0);
   EXPECT_EQ(lpFileSpec->recordCount, 4);
   EXPECT_EQ(lpFileSpec->fileFlags, 0);
   EXPECT_EQ(lpFileSpec->numExtraPointers, 0);
-  EXPECT_EQ(lpFileSpec->physicalPageSize, 1);
+  EXPECT_EQ(lpFileSpec->physicalPageSize, 0);
   EXPECT_EQ(lpFileSpec->preallocatedPages, 0);
 
   wbtrv32::LPKEYSPEC lpKeySpec =
@@ -133,7 +133,7 @@ TEST_F(wbtrv32Test, StatsDatabase) {
   EXPECT_EQ(lpKeySpec->position, 3);
   EXPECT_EQ(lpKeySpec->length, 32);
   EXPECT_EQ(lpKeySpec->attributes, UseExtendedDataType | Duplicates);
-  EXPECT_EQ(lpKeySpec->uniqueKeys, 0);
+  EXPECT_EQ(lpKeySpec->uniqueKeys, 4);
   EXPECT_EQ(lpKeySpec->extendedDataType, btrieve::KeyDataType::Zstring);
   EXPECT_EQ(lpKeySpec->nullValue, 0);
   EXPECT_EQ(lpKeySpec->reserved, 0);
@@ -144,7 +144,7 @@ TEST_F(wbtrv32Test, StatsDatabase) {
   EXPECT_EQ(lpKeySpec->position, 35);
   EXPECT_EQ(lpKeySpec->length, 4);
   EXPECT_EQ(lpKeySpec->attributes, UseExtendedDataType | Modifiable);
-  EXPECT_EQ(lpKeySpec->uniqueKeys, 0);
+  EXPECT_EQ(lpKeySpec->uniqueKeys, 4);
   EXPECT_EQ(lpKeySpec->extendedDataType, btrieve::KeyDataType::Integer);
   EXPECT_EQ(lpKeySpec->nullValue, 0);
   EXPECT_EQ(lpKeySpec->reserved, 0);
@@ -156,7 +156,7 @@ TEST_F(wbtrv32Test, StatsDatabase) {
   EXPECT_EQ(lpKeySpec->length, 32);
   EXPECT_EQ(lpKeySpec->attributes,
             UseExtendedDataType | Modifiable | Duplicates);
-  EXPECT_EQ(lpKeySpec->uniqueKeys, 0);
+  EXPECT_EQ(lpKeySpec->uniqueKeys, 4);
   EXPECT_EQ(lpKeySpec->extendedDataType, btrieve::KeyDataType::Zstring);
   EXPECT_EQ(lpKeySpec->nullValue, 0);
   EXPECT_EQ(lpKeySpec->reserved, 0);
@@ -167,7 +167,7 @@ TEST_F(wbtrv32Test, StatsDatabase) {
   EXPECT_EQ(lpKeySpec->position, 71);
   EXPECT_EQ(lpKeySpec->length, 4);
   EXPECT_EQ(lpKeySpec->attributes, UseExtendedDataType);
-  EXPECT_EQ(lpKeySpec->uniqueKeys, 0);
+  EXPECT_EQ(lpKeySpec->uniqueKeys, 4);
   EXPECT_EQ(lpKeySpec->extendedDataType, btrieve::KeyDataType::AutoInc);
   EXPECT_EQ(lpKeySpec->nullValue, 0);
   EXPECT_EQ(lpKeySpec->reserved, 0);
@@ -201,13 +201,13 @@ TEST_F(wbtrv32Test, StatsV6DatabaseWithMultiSegmentKeys) {
   wbtrv32::LPFILESPEC lpFileSpec =
       reinterpret_cast<wbtrv32::LPFILESPEC>(buffer);
   EXPECT_EQ(lpFileSpec->logicalFixedRecordLength, 950);
-  EXPECT_EQ(lpFileSpec->pageSize, 512);
+  EXPECT_EQ(lpFileSpec->pageSize, 4096);
   EXPECT_EQ(lpFileSpec->numberOfKeys, 3);
-  EXPECT_EQ(lpFileSpec->fileVersion, 0x60);
+  EXPECT_EQ(lpFileSpec->fileVersion, 0);
   EXPECT_EQ(lpFileSpec->recordCount, 73);
   EXPECT_EQ(lpFileSpec->fileFlags, 0);
   EXPECT_EQ(lpFileSpec->numExtraPointers, 0);
-  EXPECT_EQ(lpFileSpec->physicalPageSize, 1);
+  EXPECT_EQ(lpFileSpec->physicalPageSize, 0);
   EXPECT_EQ(lpFileSpec->preallocatedPages, 0);
 
   wbtrv32::LPKEYSPEC lpKeySpec =
@@ -216,7 +216,7 @@ TEST_F(wbtrv32Test, StatsV6DatabaseWithMultiSegmentKeys) {
   EXPECT_EQ(lpKeySpec->length, 16);
   EXPECT_EQ(lpKeySpec->attributes,
             UseExtendedDataType | SegmentedKey | NumberedACS);
-  EXPECT_EQ(lpKeySpec->uniqueKeys, 0);
+  EXPECT_EQ(lpKeySpec->uniqueKeys, 73);
   EXPECT_EQ(lpKeySpec->extendedDataType, btrieve::KeyDataType::Zstring);
   EXPECT_EQ(lpKeySpec->nullValue, 0);
   EXPECT_EQ(lpKeySpec->reserved, 0);
@@ -227,7 +227,7 @@ TEST_F(wbtrv32Test, StatsV6DatabaseWithMultiSegmentKeys) {
   EXPECT_EQ(lpKeySpec->position, 17);
   EXPECT_EQ(lpKeySpec->length, 16);
   EXPECT_EQ(lpKeySpec->attributes, UseExtendedDataType | NumberedACS);
-  EXPECT_EQ(lpKeySpec->uniqueKeys, 0);
+  EXPECT_EQ(lpKeySpec->uniqueKeys, 73);
   EXPECT_EQ(lpKeySpec->extendedDataType, btrieve::KeyDataType::Zstring);
   EXPECT_EQ(lpKeySpec->nullValue, 0);
   EXPECT_EQ(lpKeySpec->reserved, 0);
@@ -239,7 +239,7 @@ TEST_F(wbtrv32Test, StatsV6DatabaseWithMultiSegmentKeys) {
   EXPECT_EQ(lpKeySpec->length, 16);
   EXPECT_EQ(lpKeySpec->attributes,
             UseExtendedDataType | NumberedACS | Duplicates);
-  EXPECT_EQ(lpKeySpec->uniqueKeys, 0);
+  EXPECT_EQ(lpKeySpec->uniqueKeys, 73);
   EXPECT_EQ(lpKeySpec->extendedDataType, btrieve::KeyDataType::Zstring);
   EXPECT_EQ(lpKeySpec->nullValue, 0);
   EXPECT_EQ(lpKeySpec->reserved, 0);
@@ -251,7 +251,7 @@ TEST_F(wbtrv32Test, StatsV6DatabaseWithMultiSegmentKeys) {
   EXPECT_EQ(lpKeySpec->length, 16);
   EXPECT_EQ(lpKeySpec->attributes,
             UseExtendedDataType | NumberedACS | Duplicates);
-  EXPECT_EQ(lpKeySpec->uniqueKeys, 0);
+  EXPECT_EQ(lpKeySpec->uniqueKeys, 73);
   EXPECT_EQ(lpKeySpec->extendedDataType, btrieve::KeyDataType::Zstring);
   EXPECT_EQ(lpKeySpec->nullValue, 0);
   EXPECT_EQ(lpKeySpec->reserved, 0);
@@ -1264,4 +1264,26 @@ TEST_F(wbtrv32Test, BadDataTest) {
   } while (btrcall(btrieve::OperationCode::AcquireNext, posBlock, &record,
                    &dwDataBufferLength, &key, sizeof(key),
                    0) == btrieve::BtrieveError::Success);
+}
+
+TEST_F(wbtrv32Test, StopClosesAllDatabases) {
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  ASSERT_FALSE(mbbsEmuDb.empty());
+
+  DWORD dwDataBufferLength = 0;
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr,
+                    &dwDataBufferLength,
+                    const_cast<LPVOID>(reinterpret_cast<LPCVOID>(
+                        toStdString(mbbsEmuDb.c_str()).c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Stop, posBlock, nullptr, nullptr,
+                    nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Close, posBlock, nullptr,
+                    &dwDataBufferLength, nullptr, 0, 0),
+            btrieve::BtrieveError::FileNotOpen);
 }

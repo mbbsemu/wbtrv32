@@ -111,6 +111,8 @@ enum OperationCode {
   //[QueryOnly]
   QueryLast = 0x3F,
 
+  Stop = 0x19,
+
   None = 0xFFFF,
 };
 
@@ -120,6 +122,6 @@ bool acquiresData(OperationCode operationCode);
 
 bool usesPreviousQuery(OperationCode operationCode);
 
-} // namespace btrieve
+}  // namespace btrieve
 
 #endif

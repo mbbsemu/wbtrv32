@@ -65,6 +65,7 @@ static btrieve::BtrieveError Open(BtrieveCommand &command) {
     db = nullptr;
 
     // write the GUID in the pos block for other calls
+    memset(command.lpPositionBlock, 0, POSBLOCK_LENGTH);
     memcpy(command.lpPositionBlock, &guid, sizeof(UUID));
 
     return btrieve::BtrieveError::Success;
@@ -108,7 +109,11 @@ static btrieve::BtrieveError Stat(BtrieveCommand &command) {
     return btrieve::BtrieveError::FileNotOpen;
   }
 
+  const bool includeFileVersion = (command.keyNumber == -1);
+
   if (command.lpKeyBuffer && command.lpKeyBufferLength > 0) {
+    // in a sane world I would zero all this memory out, but wgserver.exe
+    // crashes
     *reinterpret_cast<uint8_t *>(command.lpKeyBuffer) = 0;
   }
 
@@ -117,27 +122,33 @@ static btrieve::BtrieveError Stat(BtrieveCommand &command) {
     totalKeysIncludingSegmentedKeys += key.getSegments().size();
   }
 
-  unsigned int requiredSize = static_cast<unsigned int>(
+  const unsigned int requiredSize = static_cast<unsigned int>(
       sizeof(wbtrv32::FILESPEC) +
       (totalKeysIncludingSegmentedKeys * sizeof(wbtrv32::KEYSPEC)));
   if (*command.lpdwDataBufferLength < requiredSize) {
     return btrieve::BtrieveError::DataBufferLengthOverrun;
   }
 
+  // in a sane world I would zero all the memory out in command.lpDataBuffer
+  // that was passed to me, but wgserver.exe crashes
+
   *command.lpdwDataBufferLength = requiredSize;
 
-  wbtrv32::LPFILESPEC lpFileSpec =
+  const wbtrv32::LPFILESPEC lpFileSpec =
       reinterpret_cast<wbtrv32::LPFILESPEC>(command.lpDataBuffer);
   lpFileSpec->logicalFixedRecordLength = btrieveDriver->getRecordLength();
-  lpFileSpec->pageSize = 512;  // doesn't matter, not needed for sqlite
+  lpFileSpec->pageSize = 4096;  // doesn't matter, not needed for sqlite
   lpFileSpec->numberOfKeys = static_cast<uint8_t>(
       btrieveDriver->getKeys()
           .size());  // note: this is not totalKeysIncludingSegmentedKeys
-  lpFileSpec->fileVersion = 0x60;  // this is 6.0
+  lpFileSpec->fileVersion =
+      includeFileVersion ? 0x60 : 0;  // emulate btrieve 6.0
+
   lpFileSpec->recordCount = btrieveDriver->getRecordCount();
   lpFileSpec->fileFlags = btrieveDriver->isVariableLengthRecords() ? 1 : 0;
   lpFileSpec->numExtraPointers = 0;
-  lpFileSpec->physicalPageSize = 1;  // in 512-byte blocks
+  lpFileSpec->physicalPageSize =
+      0;  // only set for compressed, which we don't do
   lpFileSpec->preallocatedPages = 0;
 
   wbtrv32::LPKEYSPEC lpKeySpec =
@@ -148,7 +159,8 @@ static btrieve::BtrieveError Stat(BtrieveCommand &command) {
       lpKeySpec->position = segment.getPosition();
       lpKeySpec->length = segment.getLength();
       lpKeySpec->attributes = segment.getAttributes();
-      lpKeySpec->uniqueKeys = 0;
+      lpKeySpec->uniqueKeys =
+          btrieveDriver->getRecordCount();  // TODO do I need to calculate this?
       lpKeySpec->extendedDataType = segment.getDataType();
       lpKeySpec->nullValue = segment.getNullValue();
       lpKeySpec->reserved = 0;
@@ -381,6 +393,12 @@ static btrieve::BtrieveError Upsert(
   return ret;
 }
 
+static btrieve::BtrieveError Stop(const BtrieveCommand &command) {
+  _openFiles.clear();
+
+  return btrieve::BtrieveError::Success;
+}
+
 static btrieve::BtrieveError handle(BtrieveCommand &command) {
   switch (command.operation) {
     case btrieve::OperationCode::Open:
@@ -441,16 +459,20 @@ static btrieve::BtrieveError handle(BtrieveCommand &command) {
     case btrieve::OperationCode::GetDirectChunkOrRecord + 400:
       return GetDirectRecord(command);
     case btrieve::OperationCode::Update:
+      // TODO update logical currency
       return Upsert(command, [](btrieve::BtrieveDriver *driver,
                                 std::basic_string_view<uint8_t> record) {
         auto position = driver->getPosition();
         return std::make_pair(driver->updateRecord(position, record), position);
       });
     case btrieve::OperationCode::Insert:
+      // TODO update logical currency
       return Upsert(command, [](btrieve::BtrieveDriver *driver,
                                 std::basic_string_view<uint8_t> record) {
         return driver->insertRecord(record);
       });
+    case btrieve::OperationCode::Stop:
+      return Stop(command);
     default:
       return btrieve::BtrieveError::InvalidOperation;
   }
