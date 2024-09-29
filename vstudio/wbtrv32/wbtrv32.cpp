@@ -9,8 +9,24 @@
 #include "combaseapi.h"
 #include "framework.h"
 
-static std::unordered_map<std::wstring, std::unique_ptr<btrieve::BtrieveDriver>>
+static std::unordered_map<std::wstring, std::shared_ptr<btrieve::BtrieveDriver>>
     _openFiles;
+
+static void debug(const char *format, ...) {
+  char buf[256];
+
+  va_list args;
+  va_start(args, format);
+  int len = vsnprintf(buf, sizeof(buf), format, args);
+  va_end(args);
+
+  // append cr/lf
+  buf[len] = '\r';
+  buf[len + 1] = '\n';
+  buf[len + 2] = 0;
+
+  OutputDebugStringA(buf);
+}
 
 enum BtrieveOpenMode {
   Normal = 0,
@@ -34,45 +50,62 @@ struct BtrieveCommand {
   char keyNumber;
 };
 
+static void AddToOpenFiles(BtrieveCommand &command,
+                           std::shared_ptr<btrieve::BtrieveDriver> driver) {
+  // add to my list of open files
+  GUID guid;
+  CoCreateGuid(&guid);
+
+  WCHAR guidStr[64];
+  StringFromGUID2(guid, guidStr, ARRAYSIZE(guidStr));
+
+  _openFiles.emplace(std::make_pair(std::wstring(guidStr), driver));
+
+  // write the GUID in the pos block for other calls
+  memset(command.lpPositionBlock, 0, POSBLOCK_LENGTH);
+  memcpy(command.lpPositionBlock, &guid, sizeof(UUID));
+}
+
 static btrieve::BtrieveError Open(BtrieveCommand &command) {
   tchar fileName[MAX_PATH];
+  tchar fullPathFileName[MAX_PATH];
   size_t unused;
 
   const char *lpszFilename =
       reinterpret_cast<const char *>(command.lpKeyBuffer);
   auto openMode = static_cast<BtrieveOpenMode>(command.keyNumber);
 
-  btrieve::BtrieveDriver *db =
-      new btrieve::BtrieveDriver(new btrieve::SqliteDatabase());
+  debug("Attempting to open %s with openMode %d", lpszFilename, openMode);
 
   mbstowcs_s(&unused, fileName, ARRAYSIZE(fileName), lpszFilename, _TRUNCATE);
 
+  GetFullPathName(fileName, ARRAYSIZE(fullPathFileName), fullPathFileName,
+                  nullptr);
+
+  // see if we've already opened this file
+  for (auto iterator = _openFiles.begin(); iterator != _openFiles.end();
+       ++iterator) {
+    if (!_wcsicmp(iterator->second->getOpenedFilename().c_str(),
+                  fullPathFileName)) {
+      // already got one? let's reuse it
+      AddToOpenFiles(command, iterator->second);
+      return btrieve::BtrieveError::Success;
+    }
+  }
+
+  std::shared_ptr<btrieve::BtrieveDriver> driver =
+      std::make_shared<btrieve::BtrieveDriver>(new btrieve::SqliteDatabase());
+
   try {
-    btrieve::BtrieveError error = db->open(fileName);
+    btrieve::BtrieveError error = driver->open(fullPathFileName);
     if (error != btrieve::BtrieveError::Success) {
-      delete db;
       return error;
     }
 
-    // add to my list of open files
-    GUID guid;
-    CoCreateGuid(&guid);
-
-    WCHAR guidStr[64];
-    StringFromGUID2(guid, guidStr, ARRAYSIZE(guidStr));
-
-    _openFiles.emplace(std::make_pair(std::wstring(guidStr), db));
-    db = nullptr;
-
-    // write the GUID in the pos block for other calls
-    memset(command.lpPositionBlock, 0, POSBLOCK_LENGTH);
-    memcpy(command.lpPositionBlock, &guid, sizeof(UUID));
+    AddToOpenFiles(command, driver);
 
     return btrieve::BtrieveError::Success;
   } catch (const btrieve::BtrieveException &ex) {
-    if (db != nullptr) {
-      delete db;
-    }
     return btrieve::BtrieveError::FileNotFound;
   }
 }
@@ -400,15 +433,21 @@ static btrieve::BtrieveError Stop(const BtrieveCommand &command) {
 }
 
 static btrieve::BtrieveError handle(BtrieveCommand &command) {
+  btrieve::BtrieveError error;
+
   switch (command.operation) {
     case btrieve::OperationCode::Open:
-      return Open(command);
+      error = Open(command);
+      break;
     case btrieve::OperationCode::Close:
-      return Close(command);
+      error = Close(command);
+      break;
     case btrieve::OperationCode::Stat:
-      return Stat(command);
+      error = Stat(command);
+      break;
     case btrieve::OperationCode::Delete:
-      return Delete(command);
+      error = Delete(command);
+      break;
     case btrieve::OperationCode::StepFirst:
     case btrieve::OperationCode::StepFirst + 100:
     case btrieve::OperationCode::StepFirst + 200:
@@ -429,7 +468,8 @@ static btrieve::BtrieveError handle(BtrieveCommand &command) {
     case btrieve::OperationCode::StepPrevious + 200:
     case btrieve::OperationCode::StepPrevious + 300:
     case btrieve::OperationCode::StepPrevious + 400:
-      return Step(command);
+      error = Step(command);
+      break;
     case btrieve::OperationCode::AcquireFirst:
     case btrieve::OperationCode::AcquireLast:
     case btrieve::OperationCode::AcquireNext:
@@ -449,33 +489,44 @@ static btrieve::BtrieveError handle(BtrieveCommand &command) {
     case btrieve::OperationCode::QueryLess:
     case btrieve::OperationCode::QueryLessOrEqual:
       // TODO don't forget all +100-400 for these queries as well
-      return Query(command);
+      error = Query(command);
+      break;
     case btrieve::OperationCode::GetPosition:
-      return GetPosition(command);
+      error = GetPosition(command);
+      break;
     case btrieve::OperationCode::GetDirectChunkOrRecord:
     case btrieve::OperationCode::GetDirectChunkOrRecord + 100:
     case btrieve::OperationCode::GetDirectChunkOrRecord + 200:
     case btrieve::OperationCode::GetDirectChunkOrRecord + 300:
     case btrieve::OperationCode::GetDirectChunkOrRecord + 400:
-      return GetDirectRecord(command);
+      error = GetDirectRecord(command);
+      break;
     case btrieve::OperationCode::Update:
       // TODO update logical currency
-      return Upsert(command, [](btrieve::BtrieveDriver *driver,
-                                std::basic_string_view<uint8_t> record) {
+      error = Upsert(command, [](btrieve::BtrieveDriver *driver,
+                                 std::basic_string_view<uint8_t> record) {
         auto position = driver->getPosition();
         return std::make_pair(driver->updateRecord(position, record), position);
       });
+      break;
     case btrieve::OperationCode::Insert:
       // TODO update logical currency
-      return Upsert(command, [](btrieve::BtrieveDriver *driver,
-                                std::basic_string_view<uint8_t> record) {
+      error = Upsert(command, [](btrieve::BtrieveDriver *driver,
+                                 std::basic_string_view<uint8_t> record) {
         return driver->insertRecord(record);
       });
+      break;
     case btrieve::OperationCode::Stop:
-      return Stop(command);
+      error = Stop(command);
+      break;
     default:
-      return btrieve::BtrieveError::InvalidOperation;
+      error = btrieve::BtrieveError::InvalidOperation;
+      break;
   }
+
+  debug("handled %d, returned %d", command.operation, error);
+
+  return error;
 }
 
 extern "C" int __stdcall BTRCALL(WORD wOperation, LPVOID lpPositionBlock,

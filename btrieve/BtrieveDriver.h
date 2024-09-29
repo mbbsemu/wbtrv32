@@ -74,9 +74,12 @@ class BtrieveDriver {
     return ret;
   }
 
+  std::basic_string<tchar> getOpenedFilename() { return openedFilename; }
+
  private:
   std::unique_ptr<SqlDatabase> sqlDatabase;
   std::unique_ptr<Query> previousQuery;
+  std::basic_string<tchar> openedFilename;
 };
 }  // namespace btrieve
 #endif

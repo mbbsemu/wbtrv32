@@ -65,6 +65,8 @@ BtrieveError BtrieveDriver::open(const tchar *fileName) {
       std::filesystem::path(fileName).replace_extension(
           sqlDatabase->getFileExtension());
 
+  openedFilename = fileName;
+
   bool datExists = fileExists(fileName, fileModificationTimeDat);
   bool dbExists = fileExists(dbPath.c_str(), fileModificationTimeDb);
   if (!dbExists) {

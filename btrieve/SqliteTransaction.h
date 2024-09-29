@@ -1,15 +1,16 @@
 #ifndef __SQLITE_TRANSACTION_H_
 #define __SQLITE_TRANSACTION_H_
 
-#include "SqliteUtil.h"
-#include "sqlite/sqlite3.h"
 #include <atomic>
 #include <memory>
+
+#include "SqliteUtil.h"
+#include "sqlite/sqlite3.h"
 
 namespace btrieve {
 
 class SqliteTransaction {
-public:
+ public:
   SqliteTransaction(std::shared_ptr<sqlite3> database_) : database(database_) {
     beginTransaction();
   }
@@ -18,7 +19,7 @@ public:
 
   void rollback() { execute("ROLLBACK"); }
 
-private:
+ private:
   void beginTransaction() { execute("BEGIN"); }
 
   void execute(const char *sql) {
@@ -31,6 +32,6 @@ private:
 
   std::shared_ptr<sqlite3> database;
 };
-} // namespace btrieve
+}  // namespace btrieve
 
 #endif
