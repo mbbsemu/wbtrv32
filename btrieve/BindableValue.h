@@ -39,7 +39,7 @@ class BindableValue {
   }
 
   BindableValue(const char *str, size_t nChars) {
-    if (str == nullptr) {
+    if (str == nullptr || !*str) {
       type = Type::Null;
     } else {
       type = Type::Text;

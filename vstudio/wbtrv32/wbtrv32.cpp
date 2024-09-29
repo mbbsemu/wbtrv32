@@ -2,6 +2,8 @@
 //
 #include "wbtrv32.h"
 
+#include <filesystem>
+
 #include "btrieve\BtrieveDriver.h"
 #include "btrieve\ErrorCode.h"
 #include "btrieve\OperationCode.h"
@@ -9,7 +11,9 @@
 #include "combaseapi.h"
 #include "framework.h"
 
-static std::unordered_map<std::wstring, std::shared_ptr<btrieve::BtrieveDriver>>
+using namespace btrieve;
+
+static std::unordered_map<std::wstring, std::shared_ptr<BtrieveDriver>>
     _openFiles;
 
 static void debug(const char *format, ...) {
@@ -37,7 +41,7 @@ enum BtrieveOpenMode {
 };
 
 struct BtrieveCommand {
-  btrieve::OperationCode operation;
+  OperationCode operation;
 
   LPVOID lpPositionBlock;
 
@@ -51,7 +55,7 @@ struct BtrieveCommand {
 };
 
 static void AddToOpenFiles(BtrieveCommand &command,
-                           std::shared_ptr<btrieve::BtrieveDriver> driver) {
+                           std::shared_ptr<BtrieveDriver> driver) {
   // add to my list of open files
   GUID guid;
   CoCreateGuid(&guid);
@@ -66,7 +70,7 @@ static void AddToOpenFiles(BtrieveCommand &command,
   memcpy(command.lpPositionBlock, &guid, sizeof(UUID));
 }
 
-static btrieve::BtrieveError Open(BtrieveCommand &command) {
+static BtrieveError Open(BtrieveCommand &command) {
   tchar fileName[MAX_PATH];
   tchar fullPathFileName[MAX_PATH];
   size_t unused;
@@ -89,28 +93,28 @@ static btrieve::BtrieveError Open(BtrieveCommand &command) {
                   fullPathFileName)) {
       // already got one? let's reuse it
       AddToOpenFiles(command, iterator->second);
-      return btrieve::BtrieveError::Success;
+      return BtrieveError::Success;
     }
   }
 
-  std::shared_ptr<btrieve::BtrieveDriver> driver =
-      std::make_shared<btrieve::BtrieveDriver>(new btrieve::SqliteDatabase());
+  std::shared_ptr<BtrieveDriver> driver =
+      std::make_shared<BtrieveDriver>(new SqliteDatabase());
 
   try {
-    btrieve::BtrieveError error = driver->open(fullPathFileName);
-    if (error != btrieve::BtrieveError::Success) {
+    BtrieveError error = driver->open(fullPathFileName);
+    if (error != BtrieveError::Success) {
       return error;
     }
 
     AddToOpenFiles(command, driver);
 
-    return btrieve::BtrieveError::Success;
-  } catch (const btrieve::BtrieveException &ex) {
-    return btrieve::BtrieveError::FileNotFound;
+    return BtrieveError::Success;
+  } catch (const BtrieveException &ex) {
+    return BtrieveError::FileNotFound;
   }
 }
 
-static btrieve::BtrieveDriver *getOpenDatabase(LPVOID lpPositioningBlock) {
+static BtrieveDriver *getOpenDatabase(LPVOID lpPositioningBlock) {
   WCHAR guidStr[64];
   StringFromGUID2(*reinterpret_cast<GUID *>(lpPositioningBlock), guidStr,
                   ARRAYSIZE(guidStr));
@@ -122,24 +126,24 @@ static btrieve::BtrieveDriver *getOpenDatabase(LPVOID lpPositioningBlock) {
   return iterator->second.get();
 }
 
-static btrieve::BtrieveError Close(BtrieveCommand &command) {
+static BtrieveError Close(BtrieveCommand &command) {
   WCHAR guidStr[64];
   StringFromGUID2(*reinterpret_cast<GUID *>(command.lpPositionBlock), guidStr,
                   ARRAYSIZE(guidStr));
 
   if (!_openFiles.contains(guidStr)) {
-    return btrieve::BtrieveError::FileNotOpen;
+    return BtrieveError::FileNotOpen;
   }
 
   _openFiles.erase(guidStr);
   memset(command.lpPositionBlock, 0, POSBLOCK_LENGTH);
-  return btrieve::BtrieveError::Success;
+  return BtrieveError::Success;
 }
 
-static btrieve::BtrieveError Stat(BtrieveCommand &command) {
+static BtrieveError Stat(BtrieveCommand &command) {
   auto btrieveDriver = getOpenDatabase(command.lpPositionBlock);
   if (btrieveDriver == nullptr) {
-    return btrieve::BtrieveError::FileNotOpen;
+    return BtrieveError::FileNotOpen;
   }
 
   const bool includeFileVersion = (command.keyNumber == -1);
@@ -159,7 +163,7 @@ static btrieve::BtrieveError Stat(BtrieveCommand &command) {
       sizeof(wbtrv32::FILESPEC) +
       (totalKeysIncludingSegmentedKeys * sizeof(wbtrv32::KEYSPEC)));
   if (*command.lpdwDataBufferLength < requiredSize) {
-    return btrieve::BtrieveError::DataBufferLengthOverrun;
+    return BtrieveError::DataBufferLengthOverrun;
   }
 
   // in a sane world I would zero all the memory out in command.lpDataBuffer
@@ -205,41 +209,41 @@ static btrieve::BtrieveError Stat(BtrieveCommand &command) {
     ++keyNumber;
   }
 
-  return btrieve::BtrieveError::Success;
+  return BtrieveError::Success;
 }
 
-static btrieve::BtrieveError Delete(BtrieveCommand &command) {
+static BtrieveError Delete(BtrieveCommand &command) {
   auto btrieveDriver = getOpenDatabase(command.lpPositionBlock);
   if (btrieveDriver == nullptr) {
-    return btrieve::BtrieveError::FileNotOpen;
+    return BtrieveError::FileNotOpen;
   }
 
   return btrieveDriver->performOperation(-1, std::basic_string_view<uint8_t>(),
-                                         btrieve::OperationCode::Delete);
+                                         OperationCode::Delete);
 }
 
-static btrieve::BtrieveError Step(BtrieveCommand &command) {
+static BtrieveError Step(BtrieveCommand &command) {
   auto btrieveDriver = getOpenDatabase(command.lpPositionBlock);
   if (btrieveDriver == nullptr) {
-    return btrieve::BtrieveError::FileNotOpen;
+    return BtrieveError::FileNotOpen;
   }
 
   auto oldPosition = btrieveDriver->getPosition();
   auto result = btrieveDriver->performOperation(
       -1, std::basic_string_view<uint8_t>(), command.operation);
-  if (result != btrieve::BtrieveError::Success) {
+  if (result != BtrieveError::Success) {
     return result;
   }
 
   auto record = btrieveDriver->getRecord();
   if (!record.first) {
     btrieveDriver->setPosition(oldPosition);
-    return btrieve::BtrieveError::IOError;
+    return BtrieveError::IOError;
   }
 
   if (*command.lpdwDataBufferLength < record.second.getData().size()) {
     btrieveDriver->setPosition(oldPosition);
-    return btrieve::BtrieveError::DataBufferLengthOverrun;
+    return BtrieveError::DataBufferLengthOverrun;
   }
 
   *command.lpdwDataBufferLength =
@@ -247,17 +251,17 @@ static btrieve::BtrieveError Step(BtrieveCommand &command) {
   memcpy(command.lpDataBuffer, record.second.getData().data(),
          record.second.getData().size());
 
-  return btrieve::BtrieveError::Success;
+  return BtrieveError::Success;
 }
 
-static btrieve::BtrieveError GetPosition(BtrieveCommand &command) {
+static BtrieveError GetPosition(BtrieveCommand &command) {
   auto btrieveDriver = getOpenDatabase(command.lpPositionBlock);
   if (btrieveDriver == nullptr) {
-    return btrieve::BtrieveError::FileNotOpen;
+    return BtrieveError::FileNotOpen;
   }
 
   if (*command.lpdwDataBufferLength < sizeof(uint32_t)) {
-    return btrieve::BtrieveError::DataBufferLengthOverrun;
+    return BtrieveError::DataBufferLengthOverrun;
   }
 
   *command.lpdwDataBufferLength = sizeof(uint32_t);
@@ -265,44 +269,44 @@ static btrieve::BtrieveError GetPosition(BtrieveCommand &command) {
       btrieveDriver->getPosition();
 
   // TODO can this be InvalidPositioning, say on an empty file?
-  return btrieve::BtrieveError::Success;
+  return BtrieveError::Success;
 }
 
-static btrieve::BtrieveError GetDirectRecord(BtrieveCommand &command) {
+static BtrieveError GetDirectRecord(BtrieveCommand &command) {
   auto btrieveDriver = getOpenDatabase(command.lpPositionBlock);
   if (btrieveDriver == nullptr) {
-    return btrieve::BtrieveError::FileNotOpen;
+    return BtrieveError::FileNotOpen;
   }
 
   if (*command.lpdwDataBufferLength < 4) {
-    return btrieve::BtrieveError::DataBufferLengthOverrun;
+    return BtrieveError::DataBufferLengthOverrun;
   }
 
   uint32_t position = *reinterpret_cast<uint32_t *>(command.lpDataBuffer);
 
   auto record = btrieveDriver->getRecord(position);
   if (!record.first) {
-    return btrieve::BtrieveError::InvalidRecordAddress;
+    return BtrieveError::InvalidRecordAddress;
   }
 
   if (*command.lpdwDataBufferLength < record.second.getData().size()) {
-    return btrieve::BtrieveError::DataBufferLengthOverrun;
+    return BtrieveError::DataBufferLengthOverrun;
   }
 
   if (command.keyNumber >= 0) {
     if (static_cast<uint32_t>(command.keyNumber) >=
         btrieveDriver->getKeys().size()) {
-      return btrieve::BtrieveError::InvalidKeyNumber;
+      return BtrieveError::InvalidKeyNumber;
     }
 
     const auto &key = btrieveDriver->getKeys().at(command.keyNumber);
     if (command.lpKeyBufferLength < key.getLength()) {
-      return btrieve::BtrieveError::KeyBufferTooShort;
+      return BtrieveError::KeyBufferTooShort;
     }
 
     auto error =
         btrieveDriver->logicalCurrencySeek(command.keyNumber, position);
-    if (error != btrieve::BtrieveError::Success) {
+    if (error != BtrieveError::Success) {
       return error;
     }
 
@@ -318,24 +322,24 @@ static btrieve::BtrieveError GetDirectRecord(BtrieveCommand &command) {
 
   memcpy(command.lpDataBuffer, record.second.getData().data(),
          record.second.getData().size());
-  return btrieve::BtrieveError::Success;
+  return BtrieveError::Success;
 }
 
-static btrieve::BtrieveError Query(BtrieveCommand &command) {
+static BtrieveError Query(BtrieveCommand &command) {
   auto btrieveDriver = getOpenDatabase(command.lpPositionBlock);
   if (btrieveDriver == nullptr) {
-    return btrieve::BtrieveError::FileNotOpen;
+    return BtrieveError::FileNotOpen;
   }
 
   std::basic_string_view<uint8_t> keyData;
 
-  if (btrieve::requiresKey(command.operation)) {
+  if (requiresKey(command.operation)) {
     if (static_cast<uint32_t>(command.keyNumber) >=
         btrieveDriver->getKeys().size()) {
-      return btrieve::BtrieveError::InvalidKeyNumber;
+      return BtrieveError::InvalidKeyNumber;
     } else if (command.lpKeyBufferLength <
                btrieveDriver->getKeys().at(command.keyNumber).getLength()) {
-      return btrieve::BtrieveError::KeyBufferTooShort;
+      return BtrieveError::KeyBufferTooShort;
     }
 
     keyData = std::basic_string_view<uint8_t>(
@@ -343,18 +347,17 @@ static btrieve::BtrieveError Query(BtrieveCommand &command) {
         command.lpKeyBufferLength);
   }
 
-  btrieve::BtrieveError error = btrieveDriver->performOperation(
+  BtrieveError error = btrieveDriver->performOperation(
       command.keyNumber, keyData, command.operation);
 
-  if (error != btrieve::BtrieveError::Success) {
+  if (error != BtrieveError::Success) {
     return error;
   }
 
   auto record = btrieveDriver->getRecord();
   if (!record.first) {
-    return btrieve::requiresKey(command.operation)
-               ? btrieve::BtrieveError::KeyValueNotFound
-               : btrieve::BtrieveError::EndOfFile;
+    return requiresKey(command.operation) ? BtrieveError::KeyValueNotFound
+                                          : BtrieveError::EndOfFile;
   }
 
   // always copy the key back to the client
@@ -366,35 +369,35 @@ static btrieve::BtrieveError Query(BtrieveCommand &command) {
 
   memcpy(command.lpKeyBuffer, keyDataVector.data(), keyDataVector.size());
 
-  if (btrieve::acquiresData(command.operation)) {
+  if (acquiresData(command.operation)) {
     if (*command.lpdwDataBufferLength < record.second.getData().size()) {
-      return btrieve::BtrieveError::DataBufferLengthOverrun;
+      return BtrieveError::DataBufferLengthOverrun;
     }
 
     memcpy(command.lpDataBuffer, record.second.getData().data(),
            record.second.getData().size());
   }
 
-  return btrieve::BtrieveError::Success;
+  return BtrieveError::Success;
 }
 
-static btrieve::BtrieveError Upsert(
+static BtrieveError Upsert(
     BtrieveCommand &command,
-    std::function<std::pair<btrieve::BtrieveError, unsigned int>(
-        btrieve::BtrieveDriver *, std::basic_string_view<uint8_t> record)>
+    std::function<std::pair<BtrieveError, unsigned int>(
+        BtrieveDriver *, std::basic_string_view<uint8_t> record)>
         upsertFunction) {
   auto btrieveDriver = getOpenDatabase(command.lpPositionBlock);
   if (btrieveDriver == nullptr) {
-    return btrieve::BtrieveError::FileNotOpen;
+    return BtrieveError::FileNotOpen;
   }
 
   if (command.keyNumber >= 0) {
     if (static_cast<uint32_t>(command.keyNumber) >=
         btrieveDriver->getKeys().size()) {
-      return btrieve::BtrieveError::InvalidKeyNumber;
+      return BtrieveError::InvalidKeyNumber;
     } else if (command.lpKeyBufferLength <
                btrieveDriver->getKeys().at(command.keyNumber).getLength()) {
-      return btrieve::BtrieveError::KeyBufferTooShort;
+      return BtrieveError::KeyBufferTooShort;
     }
   }
 
@@ -404,18 +407,18 @@ static btrieve::BtrieveError Upsert(
 
   auto insertedPosition = upsertFunction(btrieveDriver, record);
 
-  if (insertedPosition.first != btrieve::BtrieveError::Success) {
+  if (insertedPosition.first != BtrieveError::Success) {
     return insertedPosition.first;
   }
 
   if (command.keyNumber < 0) {
-    return btrieve::BtrieveError::Success;
+    return BtrieveError::Success;
   }
 
   auto ret = btrieveDriver->logicalCurrencySeek(command.keyNumber,
                                                 insertedPosition.second);
 
-  if (ret == btrieve::BtrieveError::Success) {
+  if (ret == BtrieveError::Success) {
     // copy the key back to the client
     auto keyDataVector = btrieveDriver->getKeys()
                              .at(command.keyNumber)
@@ -426,101 +429,189 @@ static btrieve::BtrieveError Upsert(
   return ret;
 }
 
-static btrieve::BtrieveError Stop(const BtrieveCommand &command) {
+static BtrieveError Stop(const BtrieveCommand &command) {
   _openFiles.clear();
 
-  return btrieve::BtrieveError::Success;
+  return BtrieveError::Success;
 }
 
-static btrieve::BtrieveError handle(BtrieveCommand &command) {
-  btrieve::BtrieveError error;
+typedef struct _tagACSCREATEDATA {
+  char header;    // should be 0xAC
+  char name[8];   // not necessarily null terminated
+  char acs[256];  // the table itself
+} ACSCREATEDATA, *LPACSCREATEDATA;
+
+static_assert(sizeof(ACSCREATEDATA) == 265);
+
+static BtrieveError Create(BtrieveCommand &command) {
+  const char *lpszFileName =
+      reinterpret_cast<const char *>(command.lpKeyBuffer);
+  tchar fileName[MAX_PATH];
+  tchar fullPathFileName[MAX_PATH];
+  SqliteDatabase sql;
+
+  wbtrv32::LPFILESPEC lpFileSpec =
+      reinterpret_cast<wbtrv32::LPFILESPEC>(command.lpDataBuffer);
+  wbtrv32::LPKEYSPEC lpKeySpec =
+      reinterpret_cast<wbtrv32::LPKEYSPEC>(lpFileSpec + 1);
+  size_t unused;
+
+  mbstowcs_s(&unused, fileName, ARRAYSIZE(fileName), lpszFileName, _TRUNCATE);
+
+  GetFullPathName(fileName, ARRAYSIZE(fullPathFileName), fullPathFileName,
+                  nullptr);
+
+  std::filesystem::path dbPath = std::filesystem::path(fullPathFileName)
+                                     .replace_extension(sql.getFileExtension());
+
+  if (command.keyNumber == -1) {
+    if (GetFileAttributes(fullPathFileName) != 0xFFFFFFFF ||
+        GetFileAttributes(dbPath.c_str()) != 0xFFFFFFFF) {
+      return BtrieveError::FileAlreadyExists;
+    }
+  }
+
+  std::vector<Key> keys;
+  for (uint16_t i = 0; i < lpFileSpec->numberOfKeys; ++i) {
+    char acsName[9];
+    std::vector<char> acs;
+
+    if (lpKeySpec->attributes & NumberedACS) {
+      LPACSCREATEDATA lpAcsCreateData = reinterpret_cast<LPACSCREATEDATA>(
+          reinterpret_cast<uint8_t *>(command.lpDataBuffer) +
+          *command.lpdwDataBufferLength - sizeof(ACSCREATEDATA));
+
+      if (lpAcsCreateData->header != 0xAC) {
+        return BtrieveError::InvalidACS;
+      }
+
+      memcpy(acsName, lpAcsCreateData->name, 8);
+      acsName[8] = 0;
+
+      acs.resize(ACS_LENGTH);
+      memcpy(acs.data(), lpAcsCreateData->acs, ACS_LENGTH);
+    } else {
+      acsName[0] = 0;
+    }
+
+    // TODO figure out segment stuff later
+    KeyDefinition keyDefinition(
+        i, static_cast<uint16_t>(lpKeySpec->length),
+        static_cast<uint16_t>(lpKeySpec->position) - 1,
+        static_cast<KeyDataType>(lpKeySpec->extendedDataType),
+        lpKeySpec->attributes, false, 0, 0, lpKeySpec->nullValue, acsName, acs);
+
+    keys.push_back(Key(&keyDefinition, 1));
+  }
+
+  RecordType recordType = RecordType::Fixed;
+  if (lpFileSpec->fileFlags & 2) {
+    recordType = RecordType::VariableTruncated;
+  } else if (lpFileSpec->fileFlags & 1) {
+    recordType = RecordType::Variable;
+  }
+
+  BtrieveDatabase database(keys, static_cast<uint16_t>(lpFileSpec->pageSize), 0,
+                           lpFileSpec->logicalFixedRecordLength,
+                           lpFileSpec->logicalFixedRecordLength, 0, 0,
+                           recordType, true, 0);
+
+  sql.create(dbPath.c_str(), database);
+  return BtrieveError::Success;
+}
+
+static BtrieveError handle(BtrieveCommand &command) {
+  BtrieveError error;
 
   switch (command.operation) {
-    case btrieve::OperationCode::Open:
-      error = Open(command);
+    case OperationCode::Open:
+      error = ::Open(command);
       break;
-    case btrieve::OperationCode::Close:
-      error = Close(command);
+    case OperationCode::Close:
+      error = ::Close(command);
       break;
-    case btrieve::OperationCode::Stat:
-      error = Stat(command);
+    case OperationCode::Stat:
+      error = ::Stat(command);
       break;
-    case btrieve::OperationCode::Delete:
-      error = Delete(command);
+    case OperationCode::Delete:
+      error = ::Delete(command);
       break;
-    case btrieve::OperationCode::StepFirst:
-    case btrieve::OperationCode::StepFirst + 100:
-    case btrieve::OperationCode::StepFirst + 200:
-    case btrieve::OperationCode::StepFirst + 300:
-    case btrieve::OperationCode::StepFirst + 400:
-    case btrieve::OperationCode::StepLast:
-    case btrieve::OperationCode::StepLast + 100:
-    case btrieve::OperationCode::StepLast + 200:
-    case btrieve::OperationCode::StepLast + 300:
-    case btrieve::OperationCode::StepLast + 400:
-    case btrieve::OperationCode::StepNext:
-    case btrieve::OperationCode::StepNext + 100:
-    case btrieve::OperationCode::StepNext + 200:
-    case btrieve::OperationCode::StepNext + 300:
-    case btrieve::OperationCode::StepNext + 400:
-    case btrieve::OperationCode::StepPrevious:
-    case btrieve::OperationCode::StepPrevious + 100:
-    case btrieve::OperationCode::StepPrevious + 200:
-    case btrieve::OperationCode::StepPrevious + 300:
-    case btrieve::OperationCode::StepPrevious + 400:
-      error = Step(command);
+    case OperationCode::StepFirst:
+    case OperationCode::StepFirst + 100:
+    case OperationCode::StepFirst + 200:
+    case OperationCode::StepFirst + 300:
+    case OperationCode::StepFirst + 400:
+    case OperationCode::StepLast:
+    case OperationCode::StepLast + 100:
+    case OperationCode::StepLast + 200:
+    case OperationCode::StepLast + 300:
+    case OperationCode::StepLast + 400:
+    case OperationCode::StepNext:
+    case OperationCode::StepNext + 100:
+    case OperationCode::StepNext + 200:
+    case OperationCode::StepNext + 300:
+    case OperationCode::StepNext + 400:
+    case OperationCode::StepPrevious:
+    case OperationCode::StepPrevious + 100:
+    case OperationCode::StepPrevious + 200:
+    case OperationCode::StepPrevious + 300:
+    case OperationCode::StepPrevious + 400:
+      error = ::Step(command);
       break;
-    case btrieve::OperationCode::AcquireFirst:
-    case btrieve::OperationCode::AcquireLast:
-    case btrieve::OperationCode::AcquireNext:
-    case btrieve::OperationCode::AcquirePrevious:
-    case btrieve::OperationCode::AcquireEqual:
-    case btrieve::OperationCode::AcquireGreater:
-    case btrieve::OperationCode::AcquireGreaterOrEqual:
-    case btrieve::OperationCode::AcquireLess:
-    case btrieve::OperationCode::AcquireLessOrEqual:
-    case btrieve::OperationCode::QueryFirst:
-    case btrieve::OperationCode::QueryLast:
-    case btrieve::OperationCode::QueryNext:
-    case btrieve::OperationCode::QueryPrevious:
-    case btrieve::OperationCode::QueryEqual:
-    case btrieve::OperationCode::QueryGreater:
-    case btrieve::OperationCode::QueryGreaterOrEqual:
-    case btrieve::OperationCode::QueryLess:
-    case btrieve::OperationCode::QueryLessOrEqual:
+    case OperationCode::AcquireFirst:
+    case OperationCode::AcquireLast:
+    case OperationCode::AcquireNext:
+    case OperationCode::AcquirePrevious:
+    case OperationCode::AcquireEqual:
+    case OperationCode::AcquireGreater:
+    case OperationCode::AcquireGreaterOrEqual:
+    case OperationCode::AcquireLess:
+    case OperationCode::AcquireLessOrEqual:
+    case OperationCode::QueryFirst:
+    case OperationCode::QueryLast:
+    case OperationCode::QueryNext:
+    case OperationCode::QueryPrevious:
+    case OperationCode::QueryEqual:
+    case OperationCode::QueryGreater:
+    case OperationCode::QueryGreaterOrEqual:
+    case OperationCode::QueryLess:
+    case OperationCode::QueryLessOrEqual:
       // TODO don't forget all +100-400 for these queries as well
-      error = Query(command);
+      error = ::Query(command);
       break;
-    case btrieve::OperationCode::GetPosition:
-      error = GetPosition(command);
+    case OperationCode::GetPosition:
+      error = ::GetPosition(command);
       break;
-    case btrieve::OperationCode::GetDirectChunkOrRecord:
-    case btrieve::OperationCode::GetDirectChunkOrRecord + 100:
-    case btrieve::OperationCode::GetDirectChunkOrRecord + 200:
-    case btrieve::OperationCode::GetDirectChunkOrRecord + 300:
-    case btrieve::OperationCode::GetDirectChunkOrRecord + 400:
-      error = GetDirectRecord(command);
+    case OperationCode::GetDirectChunkOrRecord:
+    case OperationCode::GetDirectChunkOrRecord + 100:
+    case OperationCode::GetDirectChunkOrRecord + 200:
+    case OperationCode::GetDirectChunkOrRecord + 300:
+    case OperationCode::GetDirectChunkOrRecord + 400:
+      error = ::GetDirectRecord(command);
       break;
-    case btrieve::OperationCode::Update:
+    case OperationCode::Update:
       // TODO update logical currency
-      error = Upsert(command, [](btrieve::BtrieveDriver *driver,
-                                 std::basic_string_view<uint8_t> record) {
+      error = ::Upsert(command, [](BtrieveDriver *driver,
+                                   std::basic_string_view<uint8_t> record) {
         auto position = driver->getPosition();
         return std::make_pair(driver->updateRecord(position, record), position);
       });
       break;
-    case btrieve::OperationCode::Insert:
+    case OperationCode::Insert:
       // TODO update logical currency
-      error = Upsert(command, [](btrieve::BtrieveDriver *driver,
-                                 std::basic_string_view<uint8_t> record) {
+      error = ::Upsert(command, [](BtrieveDriver *driver,
+                                   std::basic_string_view<uint8_t> record) {
         return driver->insertRecord(record);
       });
       break;
-    case btrieve::OperationCode::Stop:
-      error = Stop(command);
+    case OperationCode::Stop:
+      error = ::Stop(command);
+      break;
+    case OperationCode::Create:
+      error = ::Create(command);
       break;
     default:
-      error = btrieve::BtrieveError::InvalidOperation;
+      error = BtrieveError::InvalidOperation;
       break;
   }
 
@@ -536,7 +627,7 @@ extern "C" int __stdcall BTRCALL(WORD wOperation, LPVOID lpPositionBlock,
                                  CHAR sbKeyNumber) {
   // TODO change to initializer
   BtrieveCommand btrieveCommand;
-  btrieveCommand.operation = static_cast<btrieve::OperationCode>(wOperation);
+  btrieveCommand.operation = static_cast<OperationCode>(wOperation);
   btrieveCommand.lpPositionBlock = lpPositionBlock;
   btrieveCommand.lpDataBuffer = lpDataBuffer;
   btrieveCommand.lpdwDataBufferLength = lpdwDataBufferLength;
