@@ -38,17 +38,6 @@ class BindableValue {
     }
   }
 
-  BindableValue(const char *str, size_t nChars) {
-    if (str == nullptr || !*str) {
-      type = Type::Null;
-    } else {
-      type = Type::Text;
-      text_value = new std::string();
-      text_value->resize(nChars);
-      memcpy(text_value->data(), str, nChars);
-    }
-  }
-
   BindableValue(const std::string_view data)
       : type(Type::Text), text_value(new std::string(data)) {}
 

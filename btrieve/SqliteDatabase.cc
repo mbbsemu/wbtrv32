@@ -250,8 +250,15 @@ void SqliteDatabase::createSqliteMetadataTable(
   command.bindParameter(5, BindableValue(CURRENT_VERSION));
   if (!database.getKeys().empty()) {
     command.bindParameter(6, BindableValue(database.getKeys()[0].getACSName()));
-    command.bindParameter(
-        7, BindableValue(database.getKeys()[0].getACS(), ACS_LENGTH));
+    if (database.getKeys()[0].getACS() == nullptr) {
+      command.bindParameter(7, BindableValue());  // bind null
+    } else {
+      command.bindParameter(
+          7,
+          BindableValue(std::basic_string<uint8_t>(
+              reinterpret_cast<const uint8_t *>(database.getKeys()[0].getACS()),
+              ACS_LENGTH)));
+    }
   } else {
     command.bindParameter(6, BindableValue());
     command.bindParameter(7, BindableValue());

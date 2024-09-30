@@ -590,7 +590,6 @@ static BtrieveError handle(BtrieveCommand &command) {
       error = ::GetDirectRecord(command);
       break;
     case OperationCode::Update:
-      // TODO update logical currency
       error = ::Upsert(command, [](BtrieveDriver *driver,
                                    std::basic_string_view<uint8_t> record) {
         auto position = driver->getPosition();
@@ -598,7 +597,6 @@ static BtrieveError handle(BtrieveCommand &command) {
       });
       break;
     case OperationCode::Insert:
-      // TODO update logical currency
       error = ::Upsert(command, [](BtrieveDriver *driver,
                                    std::basic_string_view<uint8_t> record) {
         return driver->insertRecord(record);
