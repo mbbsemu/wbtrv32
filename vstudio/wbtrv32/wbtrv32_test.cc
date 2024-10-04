@@ -5,6 +5,7 @@
 #include "../../btrieve/AttributeMask.h"
 #include "../../btrieve/ErrorCode.h"
 #include "../../btrieve/KeyDataType.h"
+#include "../../btrieve/OpenMode.h"
 #include "../../btrieve/TestBase.h"
 #include "btrieve/OperationCode.h"
 #include "gtest/gtest.h"
@@ -115,6 +116,27 @@ TEST_F(wbtrv32Test, LoadsSameDatabaseTwice) {
                     &dwDataBufferLength, nullptr, 0, 0),
             btrieve::BtrieveError::Success);
   ASSERT_EQ(btrcall(btrieve::OperationCode::Close, posBlock2, nullptr,
+                    &dwDataBufferLength, nullptr, 0, 0),
+            btrieve::BtrieveError::FileNotOpen);
+}
+
+TEST_F(wbtrv32Test, LoadsAndClosesDatabaseAsReadOnly) {
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DAT");
+  ASSERT_FALSE(mbbsEmuDb.empty());
+
+  DWORD dwDataBufferLength = 0;
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr,
+                    &dwDataBufferLength,
+                    const_cast<LPVOID>(reinterpret_cast<LPCVOID>(
+                        toStdString(mbbsEmuDb.c_str()).c_str())),
+                    -1, btrieve::OpenMode::ReadOnly),
+            btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Close, posBlock, nullptr,
+                    &dwDataBufferLength, nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Close, posBlock, nullptr,
                     &dwDataBufferLength, nullptr, 0, 0),
             btrieve::BtrieveError::FileNotOpen);
 }
@@ -958,6 +980,52 @@ TEST_F(wbtrv32Test, InsertWithKeyBufferTooShort) {
             btrieve::BtrieveError::Success);
 
   ASSERT_EQ(reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 4);
+}
+
+TEST_F(wbtrv32Test, InsertNoKeyReadOnly) {
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  ASSERT_FALSE(mbbsEmuDb.empty());
+
+  RECORD record;
+  uint32_t position = 0;
+  char buffer[80];
+  DWORD dwDataBufferLength = sizeof(record);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr, nullptr,
+                    const_cast<LPVOID>(reinterpret_cast<LPCVOID>(
+                        toStdString(mbbsEmuDb.c_str()).c_str())),
+                    -1, btrieve::OpenMode::ReadOnly),
+            btrieve::BtrieveError::Success);
+
+  record.int1 = 10000;
+  record.int2 = 5;
+  strcpy(record.string1, "Sysop");
+  strcpy(record.string2, "whatever");
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Insert, posBlock, &record,
+                    &dwDataBufferLength, nullptr, 0, -1),
+            btrieve::BtrieveError::AccessDenied);
+
+  dwDataBufferLength = sizeof(buffer);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Stat, posBlock, buffer,
+                    &dwDataBufferLength, nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 4);
+
+  // requery just to make sure the data is readable in readonly mode
+  memset(&record, 0, sizeof(record));
+
+  *reinterpret_cast<uint32_t*>(&record) = 4;
+  dwDataBufferLength = sizeof(record);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::GetDirectChunkOrRecord, posBlock,
+                    &record, &dwDataBufferLength, nullptr, 0, -1),
+            btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(record.int1, -615634567);
+  ASSERT_EQ(record.int2, 4);
+  ASSERT_STREQ(record.string1, "Sysop");
+  ASSERT_STREQ(record.string2, "stringValue");
 }
 
 TEST_F(wbtrv32Test, UpdateNoKey) {

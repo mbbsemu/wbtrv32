@@ -4,6 +4,7 @@
 #include <memory>
 
 #include "ErrorCode.h"
+#include "OpenMode.h"
 #include "OperationCode.h"
 #include "Record.h"
 #include "SqlDatabase.h"
@@ -21,7 +22,8 @@ class BtrieveDriver {
 
   ~BtrieveDriver();
 
-  BtrieveError open(const tchar *fileName);
+  BtrieveError open(const tchar *fileName,
+                    OpenMode openMode = OpenMode::Normal);
 
   // Closes an opened database.
   void close();

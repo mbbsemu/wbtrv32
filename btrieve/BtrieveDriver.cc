@@ -57,7 +57,7 @@ static std::basic_string<tchar> toUpper(const std::basic_string<tchar> &value) {
 #define unlink _wunlink
 #endif
 
-BtrieveError BtrieveDriver::open(const tchar *fileName) {
+BtrieveError BtrieveDriver::open(const tchar *fileName, OpenMode openMode) {
   int64_t fileModificationTimeDat;
   int64_t fileModificationTimeDb;
 
@@ -92,13 +92,13 @@ BtrieveError BtrieveDriver::open(const tchar *fileName) {
   BtrieveError error;
 
   if (dbExists) {
-    error = sqlDatabase->open(dbPath.c_str());
+    error = sqlDatabase->open(dbPath.c_str(), openMode);
   } else {
     BtrieveDatabase btrieveDatabase;
     std::unique_ptr<RecordLoader> recordLoader;
     error = btrieveDatabase.parseDatabase(
         fileName,
-        [this, &dbPath, &btrieveDatabase, &recordLoader]() {
+        [this, &dbPath, &btrieveDatabase, &recordLoader, openMode]() {
           recordLoader = sqlDatabase->create(dbPath.c_str(), btrieveDatabase);
           return true;
         },
@@ -106,6 +106,12 @@ BtrieveError BtrieveDriver::open(const tchar *fileName) {
           return recordLoader->onRecordLoaded(record);
         },
         [&recordLoader]() { recordLoader->onRecordsComplete(); });
+
+    // if newly created and they want read-only, close and reopen
+    if (openMode == OpenMode::ReadOnly) {
+      sqlDatabase->close();
+      error = sqlDatabase->open(dbPath.c_str(), openMode);
+    }
   }
 
   if (error == BtrieveError::Success) {

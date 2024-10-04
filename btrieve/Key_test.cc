@@ -324,7 +324,7 @@ createACSReplacementMultipleKey() {
 INSTANTIATE_TEST_CASE_P(Key, ParameterizedACSReplacementMultipleKeyFixture,
                         ::testing::ValuesIn(createACSReplacementMultipleKey()));
 
-TEST(FloatKeys) {
+TEST(Key, FloatKeys) {
   KeyDefinition keyDefinition(0, sizeof(float), 0, KeyDataType::Float,
                               UseExtendedDataType, false, 0, 0, 0, "",
                               std::vector<char>());
@@ -341,7 +341,7 @@ TEST(FloatKeys) {
   EXPECT_EQ(actual, value);
 }
 
-TEST(DoubleKeys) {
+TEST(Key, DoubleKeys) {
   KeyDefinition keyDefinition(0, sizeof(double), 0, KeyDataType::Float,
                               UseExtendedDataType, false, 0, 0, 0, "",
                               std::vector<char>());

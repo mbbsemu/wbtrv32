@@ -16,29 +16,30 @@ using namespace btrieve;
 static std::unordered_map<std::wstring, std::shared_ptr<BtrieveDriver>>
     _openFiles;
 
-static void debug(const char *format, ...) {
-  char buf[256];
+static std::unique_ptr<FILE, decltype(&fclose)> _logFile(nullptr, &fclose);
 
-  va_list args;
-  va_start(args, format);
-  int len = vsnprintf(buf, sizeof(buf), format, args);
-  va_end(args);
-
-  // append cr/lf
-  buf[len] = '\r';
-  buf[len + 1] = '\n';
-  buf[len + 2] = 0;
-
-  OutputDebugStringA(buf);
+void wbtrv32::processAttach() {
+  _logFile.reset(_wfsopen(L"wbtrv32.log", L"ab", _SH_DENYWR));
 }
 
-enum BtrieveOpenMode {
-  Normal = 0,
-  Accelerated = -1,
-  ReadOnly = -2,
-  VerifyWriteOperations = -3,
-  ExclusiveAccess = -4
-};
+void wbtrv32::processDetach() { _logFile.reset(nullptr); }
+
+static BtrieveDriver *getOpenDatabase(LPVOID lpPositioningBlock) {
+  WCHAR guidStr[64];
+
+  if (lpPositioningBlock == nullptr) {
+    return nullptr;
+  }
+
+  StringFromGUID2(*reinterpret_cast<GUID *>(lpPositioningBlock), guidStr,
+                  ARRAYSIZE(guidStr));
+
+  auto iterator = _openFiles.find(std::wstring(guidStr));
+  if (iterator == _openFiles.end()) {
+    return nullptr;
+  }
+  return iterator->second.get();
+}
 
 struct BtrieveCommand {
   OperationCode operation;
@@ -53,6 +54,38 @@ struct BtrieveCommand {
 
   char keyNumber;
 };
+
+static void debug(const BtrieveCommand &command, const char *format, ...) {
+  BtrieveDriver *driver = getOpenDatabase(command.lpPositionBlock);
+  char buf[256];
+  int len;
+
+  if (driver != nullptr) {
+    len = snprintf(buf, sizeof(buf),
+                   "[%S]: ", driver->getOpenedFilename().c_str());
+    OutputDebugStringA(buf);
+    if (_logFile) {
+      fwrite(buf, 1, len, _logFile.get());
+    }
+  }
+
+  va_list args;
+  va_start(args, format);
+  len = vsnprintf(buf, sizeof(buf) - 2, format, args);
+  va_end(args);
+
+  // append cr/lf
+  buf[len] = '\r';
+  buf[len + 1] = '\n';
+  buf[len + 2] = 0;
+
+  OutputDebugStringA(buf);
+
+  if (_logFile) {
+    fwrite(buf, 1, len + 2, _logFile.get());
+    fflush(_logFile.get());
+  }
+}
 
 static void AddToOpenFiles(BtrieveCommand &command,
                            std::shared_ptr<BtrieveDriver> driver) {
@@ -77,9 +110,10 @@ static BtrieveError Open(BtrieveCommand &command) {
 
   const char *lpszFilename =
       reinterpret_cast<const char *>(command.lpKeyBuffer);
-  auto openMode = static_cast<BtrieveOpenMode>(command.keyNumber);
+  auto openMode = static_cast<OpenMode>(command.keyNumber);
 
-  debug("Attempting to open %s with openMode %d", lpszFilename, openMode);
+  debug(command, "Attempting to open %s with openMode %d", lpszFilename,
+        openMode);
 
   mbstowcs_s(&unused, fileName, ARRAYSIZE(fileName), lpszFilename, _TRUNCATE);
 
@@ -101,7 +135,7 @@ static BtrieveError Open(BtrieveCommand &command) {
       std::make_shared<BtrieveDriver>(new SqliteDatabase());
 
   try {
-    BtrieveError error = driver->open(fullPathFileName);
+    BtrieveError error = driver->open(fullPathFileName, openMode);
     if (error != BtrieveError::Success) {
       return error;
     }
@@ -112,18 +146,6 @@ static BtrieveError Open(BtrieveCommand &command) {
   } catch (const BtrieveException &ex) {
     return BtrieveError::FileNotFound;
   }
-}
-
-static BtrieveDriver *getOpenDatabase(LPVOID lpPositioningBlock) {
-  WCHAR guidStr[64];
-  StringFromGUID2(*reinterpret_cast<GUID *>(lpPositioningBlock), guidStr,
-                  ARRAYSIZE(guidStr));
-
-  auto iterator = _openFiles.find(std::wstring(guidStr));
-  if (iterator == _openFiles.end()) {
-    return nullptr;
-  }
-  return iterator->second.get();
 }
 
 static BtrieveError Close(BtrieveCommand &command) {
@@ -613,7 +635,9 @@ static BtrieveError handle(BtrieveCommand &command) {
       break;
   }
 
-  debug("handled %d, returned %d", command.operation, error);
+  if (error != BtrieveError::Success) {
+    debug(command, "handled %d, returned %d", command.operation, error);
+  }
 
   return error;
 }
@@ -623,7 +647,6 @@ extern "C" int __stdcall BTRCALL(WORD wOperation, LPVOID lpPositionBlock,
                                  LPDWORD lpdwDataBufferLength,
                                  LPVOID lpKeyBuffer, BYTE bKeyLength,
                                  CHAR sbKeyNumber) {
-  // TODO change to initializer
   BtrieveCommand btrieveCommand;
   btrieveCommand.operation = static_cast<OperationCode>(wOperation);
   btrieveCommand.lpPositionBlock = lpPositionBlock;

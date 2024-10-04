@@ -23,7 +23,8 @@ class SqliteDatabase : public SqlDatabase {
 
   virtual const tchar *getFileExtension() override { return _TEXT("db"); };
 
-  virtual BtrieveError open(const tchar *fileName) override;
+  virtual BtrieveError open(const tchar *fileName,
+                            OpenMode openMode = OpenMode::Normal) override;
 
   virtual std::unique_ptr<RecordLoader> create(
       const tchar *fileName, const BtrieveDatabase &database) override;

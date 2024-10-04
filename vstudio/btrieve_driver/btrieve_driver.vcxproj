@@ -29,6 +29,7 @@
     <ClInclude Include="..\..\btrieve\KeyDataType.h" />
     <ClInclude Include="..\..\btrieve\KeyDefinition.h" />
     <ClInclude Include="..\..\btrieve\LRUCache.h" />
+    <ClInclude Include="..\..\btrieve\OpenMode.h" />
     <ClInclude Include="..\..\btrieve\OperationCode.h" />
     <ClInclude Include="..\..\btrieve\Query.h" />
     <ClInclude Include="..\..\btrieve\Reader.h" />

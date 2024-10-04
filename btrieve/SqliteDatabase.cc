@@ -99,10 +99,14 @@ class SqliteCreationRecordLoader : public RecordLoader {
 
 // Opens a Btrieve database as a sql backed file. Will convert a legacy file
 // in place if required. Throws a BtrieveException if something fails.
-BtrieveError SqliteDatabase::open(const tchar *fileName) {
+BtrieveError SqliteDatabase::open(const tchar *fileName, OpenMode openMode) {
   sqlite3 *db;
-  int errorCode = sqlite3_open_v2(toStdString(fileName).c_str(), &db,
-                                  SQLITE_OPEN_READWRITE | openFlags, nullptr);
+  unsigned int openFlags = this->openFlags | (openMode == OpenMode::ReadOnly)
+                               ? SQLITE_OPEN_READONLY
+                               : SQLITE_OPEN_READWRITE;
+
+  int errorCode =
+      sqlite3_open_v2(toStdString(fileName).c_str(), &db, openFlags, nullptr);
   if (errorCode != SQLITE_OK) {
     throwException(errorCode);
     return BtrieveError::IOError;
@@ -367,6 +371,9 @@ void SqliteDatabase::createSqliteTriggers(const BtrieveDatabase &database) {
 void SqliteDatabase::close() {
   preparedStatements.clear();
   database.reset();
+
+  keys.clear();
+  cache.clear();
 }
 
 SqlitePreparedStatement &SqliteDatabase::getPreparedStatement(
@@ -513,6 +520,8 @@ class SqliteErrorConverter {
       } else if (extendedErrorCode == SQLITE_CONSTRAINT_TRIGGER) {
         error = BtrieveError::NonModifiableKeyValue;
       }
+    } else if (errorCode == SQLITE_READONLY) {
+      error = BtrieveError::AccessDenied;
     }
   }
 

@@ -8,9 +8,9 @@
 #include <unordered_map>
 
 namespace btrieve {
-template <typename K, typename V> class LRUCache {
-
-public:
+template <typename K, typename V>
+class LRUCache {
+ public:
   LRUCache(size_t maxSize_) : maxSize(maxSize_) {}
 
   V &cache(const K &key, const V &value) {
@@ -67,7 +67,7 @@ public:
     keyValuesMap.erase(key);
   }
 
-private:
+ private:
   size_t maxSize;
   // most recently used is at the front, least recently used at the back
   std::list<K> orderedKeys;
@@ -75,5 +75,5 @@ private:
       K, std::pair<std::shared_ptr<V>, typename std::list<K>::iterator>>
       keyValuesMap;
 };
-} // namespace btrieve
+}  // namespace btrieve
 #endif

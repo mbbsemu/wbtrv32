@@ -35,6 +35,10 @@ typedef struct _tagKEYSPEC {
 
 static_assert(sizeof(FILESPEC) == 16);
 static_assert(sizeof(KEYSPEC) == 16);
+
+void processAttach();
+
+void processDetach();
 }  // namespace wbtrv32
 
 #endif
