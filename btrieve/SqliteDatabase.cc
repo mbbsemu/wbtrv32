@@ -13,7 +13,7 @@
 
 namespace btrieve {
 
-static const unsigned int CURRENT_VERSION = 2;
+static const unsigned int CURRENT_VERSION = 3;
 
 template <class InputIt, class UnaryPred>
 static std::string commaDelimited(InputIt first, InputIt last, UnaryPred pred) {
@@ -99,14 +99,14 @@ class SqliteCreationRecordLoader : public RecordLoader {
 
 // Opens a Btrieve database as a sql backed file. Will convert a legacy file
 // in place if required. Throws a BtrieveException if something fails.
-BtrieveError SqliteDatabase::open(const tchar *fileName, OpenMode openMode) {
+BtrieveError SqliteDatabase::open(const tchar *filename, OpenMode openMode) {
   sqlite3 *db;
   unsigned int openFlags = this->openFlags | (openMode == OpenMode::ReadOnly)
                                ? SQLITE_OPEN_READONLY
                                : SQLITE_OPEN_READWRITE;
 
   int errorCode =
-      sqlite3_open_v2(toStdString(fileName).c_str(), &db, openFlags, nullptr);
+      sqlite3_open_v2(toStdString(filename).c_str(), &db, openFlags, nullptr);
   if (errorCode != SQLITE_OK) {
     throwException(errorCode);
     return BtrieveError::IOError;
@@ -114,53 +114,120 @@ BtrieveError SqliteDatabase::open(const tchar *fileName, OpenMode openMode) {
 
   this->database = std::shared_ptr<sqlite3>(db, &sqlite3_close);
 
-  std::string acsName;
-  std::vector<char> acs;
-
-  loadSqliteMetadata(acsName, acs);
-  loadSqliteKeys(acsName, acs);
+  loadSqliteMetadata(filename, openFlags);
+  loadSqliteKeys();
   return BtrieveError::Success;
 }
 
-void SqliteDatabase::loadSqliteMetadata(std::string &acsName,
-                                        std::vector<char> &acs) {
-  SqlitePreparedStatement command(
-      database,
-      "SELECT record_length, variable_length_records, version, acs_name, acs "
-      "FROM metadata_t");
-  std::unique_ptr<SqliteReader> reader = command.executeReader();
-  if (!reader->read()) {
-    throw BtrieveException("Can't read metadata_t");
-  }
-
-  recordLength = reader->getInt32(0);
-  variableLengthRecords = reader->getBoolean(1);
-  acsName = reader->getString(3);
-
-  if (!reader->isDBNull(4)) {
-    std::vector<uint8_t> readAcs = reader->getBlob(4);
-    if (readAcs.size() != ACS_LENGTH) {
-      std::vector<uint8_t> readAcs2 = reader->getBlob(4);
-      throw BtrieveException(
-          "The ACS length is not 256 in the database. This is corrupt.");
+void SqliteDatabase::loadSqliteMetadata(const tchar *filename,
+                                        unsigned int openFlags) {
+  uint32_t version = 0;
+  {  // start a block since command needs to go out of scope before
+     // upgradeDatabaseFromVersion can be called
+    SqlitePreparedStatement command(
+        database,
+        "SELECT record_length, variable_length_records, version "
+        "FROM metadata_t");
+    std::unique_ptr<SqliteReader> reader = command.executeReader();
+    if (!reader->read()) {
+      throw BtrieveException("Can't read metadata_t");
     }
 
-    acs.reserve(ACS_LENGTH);
-    std::copy(readAcs.begin(), readAcs.end(), std::back_inserter(acs));
+    recordLength = reader->getInt32(0);
+    variableLengthRecords = reader->getBoolean(1);
+
+    version = reader->getInt32(2);
   }
 
-  uint32_t version = reader->getInt32(2);
   if (version != CURRENT_VERSION) {
-    upgradeDatabaseFromVersion(version);
+    upgradeDatabaseFromVersion(version, filename, openFlags);
   }
 }
 
-void SqliteDatabase::upgradeDatabaseFromVersion(uint32_t currentVersion) {
-  // no need for version upgrades - yet
+void SqliteDatabase::upgradeDatabaseFromVersion(uint32_t currentVersion,
+                                                const tchar *filename,
+                                                unsigned int openFlags) {
+  int errorCode;
+  sqlite3 *db;
+  // if we opened read only, we need to reopen as readwrite to update the db
+  if (openFlags & SQLITE_OPEN_READONLY) {
+    close();
+
+    errorCode = sqlite3_open_v2(
+        toStdString(filename).c_str(), &db,
+        (openFlags & ~SQLITE_OPEN_READONLY) | SQLITE_OPEN_READWRITE, nullptr);
+    if (errorCode != SQLITE_OK) {
+      throwException(errorCode);
+    }
+
+    this->database = std::shared_ptr<sqlite3>(db, &sqlite3_close);
+  }
+
+  // actually do the upgrading
+  if (currentVersion == 2) {
+    upgradeDatabaseFrom2To3();
+  }
+
+  // we're done upgrading, so we may have to reopen as readonly again
+  if (openFlags & SQLITE_OPEN_READONLY) {
+    preparedStatements.clear();
+    database.reset();
+
+    errorCode =
+        sqlite3_open_v2(toStdString(filename).c_str(), &db, openFlags, nullptr);
+    if (errorCode != SQLITE_OK) {
+      throwException(errorCode);
+    }
+
+    this->database = std::shared_ptr<sqlite3>(db, &sqlite3_close);
+  }
 }
 
-void SqliteDatabase::loadSqliteKeys(const std::string &acsName,
-                                    const std::vector<char> &acs) {
+void SqliteDatabase::upgradeDatabaseFrom2To3() {
+  // update the ACS tables
+  {
+    SqlitePreparedStatement statement(
+        database, "ALTER TABLE keys_t ADD COLUMN acs_name STRING");
+    statement.execute();
+  }
+  {
+    SqlitePreparedStatement statement(database,
+                                      "ALTER TABLE keys_t ADD COLUMN acs BLOB");
+    statement.execute();
+  }
+  // now copy the acs values
+  {
+    SqlitePreparedStatement statement(database,
+                                      "SELECT acs_name, acs FROM metadata_t");
+
+    auto reader = statement.executeReader();
+    if (reader->read()) {
+      const BindableValue &acsName = reader->getBindableValue(0);
+      const BindableValue &acs = reader->getBindableValue(1);
+      if (!acsName.isNull() && !acs.isNull()) {
+      }
+    }
+  }
+  // remove old acs tables
+  {
+    SqlitePreparedStatement statement(database,
+                                      "ALTER TABLE metadata_t DROP COLUMN acs");
+    statement.execute();
+  }
+  {
+    SqlitePreparedStatement statement(
+        database, "ALTER TABLE metadata_t DROP COLUMN acs_name");
+    statement.execute();
+  }
+  // bump version
+  {
+    SqlitePreparedStatement statement(
+        database, "UPDATE metadata_t SET version = %d", CURRENT_VERSION);
+    statement.execute();
+  }
+}
+
+void SqliteDatabase::loadSqliteKeys() {
   unsigned int numKeys = 0;
   {
     SqlitePreparedStatement keyCountCommand(database,
@@ -176,15 +243,30 @@ void SqliteDatabase::loadSqliteKeys(const std::string &acsName,
 
   keys.resize(numKeys);
 
-  SqlitePreparedStatement command(database,
-                                  "SELECT number, segment, attributes, "
-                                  "data_type, offset, length, null_value "
-                                  "FROM keys_t ORDER BY number, segment");
+  SqlitePreparedStatement command(
+      database,
+      "SELECT number, segment, attributes, "
+      "data_type, offset, length, null_value, acs_name, acs "
+      "FROM keys_t ORDER BY number, segment");
   std::unique_ptr<SqliteReader> reader = command.executeReader();
 
   unsigned int segmentIndex = 0;
   while (reader->read()) {
     unsigned int number = reader->getInt32(0);
+    std::string acsName;
+    std::vector<char> acs;
+
+    acsName = reader->getString(7);
+    if (!reader->isDBNull(8)) {
+      std::vector<uint8_t> acsBlob = reader->getBlob(8);
+      if (acsBlob.size() != ACS_LENGTH) {
+        throw BtrieveException(
+            "The ACS length is not 256 bytes, this is a corrupt database.");
+      }
+
+      acs.reserve(ACS_LENGTH);
+      std::copy(acsBlob.begin(), acsBlob.end(), std::back_inserter(acs));
+    }
 
     KeyDefinition keyDefinition(
         number, reader->getInt32(5), reader->getInt32(4),
@@ -233,8 +315,7 @@ void SqliteDatabase::createSqliteMetadataTable(
   const char *const createTableStatement =
       "CREATE TABLE metadata_t(record_length INTEGER NOT NULL, "
       "physical_record_length INTEGER NOT NULL, page_length INTEGER NOT NULL, "
-      "variable_length_records INTEGER NOT NULL, version INTEGER NOT NULL, "
-      "acs_name STRING, acs BLOB)";
+      "variable_length_records INTEGER NOT NULL, version INTEGER NOT NULL)";
 
   SqlitePreparedStatement createTableCommand(this->database,
                                              createTableStatement);
@@ -242,9 +323,9 @@ void SqliteDatabase::createSqliteMetadataTable(
 
   const char *const insertIntoTableStatement =
       "INSERT INTO metadata_t(record_length, physical_record_length, "
-      "page_length, variable_length_records, version, acs_name, acs) "
+      "page_length, variable_length_records, version) "
       "VALUES(@record_length, @physical_record_length, @page_length, "
-      "@variable_length_records, @version, @acs_name, @acs)";
+      "@variable_length_records, @version)";
 
   SqlitePreparedStatement command(this->database, insertIntoTableStatement);
   command.bindParameter(1, BindableValue(database.getRecordLength()));
@@ -252,21 +333,6 @@ void SqliteDatabase::createSqliteMetadataTable(
   command.bindParameter(3, BindableValue(database.getPageLength()));
   command.bindParameter(4, BindableValue(database.isVariableLengthRecords()));
   command.bindParameter(5, BindableValue(CURRENT_VERSION));
-  if (!database.getKeys().empty()) {
-    command.bindParameter(6, BindableValue(database.getKeys()[0].getACSName()));
-    if (database.getKeys()[0].getACS() == nullptr) {
-      command.bindParameter(7, BindableValue());  // bind null
-    } else {
-      command.bindParameter(
-          7,
-          BindableValue(std::basic_string<uint8_t>(
-              reinterpret_cast<const uint8_t *>(database.getKeys()[0].getACS()),
-              ACS_LENGTH)));
-    }
-  } else {
-    command.bindParameter(6, BindableValue());
-    command.bindParameter(7, BindableValue());
-  }
 
   command.execute();
 }
@@ -276,7 +342,8 @@ void SqliteDatabase::createSqliteKeysTable(const BtrieveDatabase &database) {
       "CREATE TABLE keys_t(id INTEGER PRIMARY KEY, number INTEGER NOT NULL, "
       "segment INTEGER NOT NULL, attributes INTEGER NOT NULL, data_type "
       "INTEGER NOT NULL, offset INTEGER NOT NULL, length INTEGER NOT NULL, "
-      "null_value INTEGER NOT NULL, UNIQUE(number, segment))";
+      "null_value INTEGER NOT NULL, acs_name STRING, acs BLOB, UNIQUE(number, "
+      "segment))";
 
   SqlitePreparedStatement createTableCommand(this->database,
                                              createTableStatement);
@@ -284,8 +351,9 @@ void SqliteDatabase::createSqliteKeysTable(const BtrieveDatabase &database) {
 
   const char *const insertIntoTableStatement =
       "INSERT INTO keys_t(number, segment, attributes, data_type, offset, "
-      "length, null_value) VALUES(@number, @segment, @attributes, @data_type, "
-      "@offset, @length, @null_value)";
+      "length, null_value, acs_name, acs) VALUES(@number, @segment, "
+      "@attributes, @data_type, "
+      "@offset, @length, @null_value, @acs_name, @acs)";
 
   SqlitePreparedStatement insertIntoTableCommand(this->database,
                                                  insertIntoTableStatement);
@@ -308,6 +376,15 @@ void SqliteDatabase::createSqliteKeysTable(const BtrieveDatabase &database) {
           6, BindableValue(keyDefinition.getLength()));
       insertIntoTableCommand.bindParameter(
           7, BindableValue(keyDefinition.getNullValue()));
+      insertIntoTableCommand.bindParameter(8, BindableValue(key.getACSName()));
+      if (key.getACS() == nullptr) {
+        insertIntoTableCommand.bindParameter(9, BindableValue());
+      } else {
+        insertIntoTableCommand.bindParameter(
+            9,
+            BindableValue(std::basic_string_view<uint8_t>(
+                reinterpret_cast<const uint8_t *>(key.getACS()), ACS_LENGTH)));
+      }
 
       insertIntoTableCommand.execute();
     }

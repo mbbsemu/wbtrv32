@@ -75,8 +75,8 @@ class SqliteDatabase : public SqlDatabase {
   void createSqliteDataIndices(const BtrieveDatabase &database);
   void createSqliteTriggers(const BtrieveDatabase &database);
 
-  void loadSqliteMetadata(std::string &acsName, std::vector<char> &acs);
-  void loadSqliteKeys(const std::string &acsName, const std::vector<char> &acs);
+  void loadSqliteMetadata(const tchar *filename, unsigned int openFlags);
+  void loadSqliteKeys();
 
   BtrieveError getByKeyGreater(Query *query, const char *opurator);
   virtual BtrieveError getByKeyGreater(Query *query) override {
@@ -103,7 +103,11 @@ class SqliteDatabase : public SqlDatabase {
 
   BtrieveError nextReader(Query *query, CursorDirection cursorDirection);
 
-  void upgradeDatabaseFromVersion(uint32_t currentVersion);
+  void upgradeDatabaseFromVersion(uint32_t currentVersion,
+                                  const tchar *filename,
+                                  unsigned int openFlags);
+
+  void upgradeDatabaseFrom2To3();
 
   unsigned int openFlags;
   mutable std::unordered_map<std::string, SqlitePreparedStatement>

@@ -125,7 +125,7 @@ TEST_F(BtrieveDriverTest, LoadsAndConverts) {
   ASSERT_EQ(sqlite_exec(db, "SELECT version FROM metadata_t",
                         [](int numResults, char **data, char **columns) {
                           ASSERT_EQ(numResults, 1);
-                          ASSERT_STREQ(data[0], "2");
+                          ASSERT_STREQ(data[0], "3");
                         }),
             SQLITE_OK);
 
@@ -135,7 +135,7 @@ TEST_F(BtrieveDriverTest, LoadsAndConverts) {
       "INTEGER "
       "NOT NULL, page_length INTEGER NOT NULL, variable_length_records INTEGER "
       "NOT "
-      "NULL, version INTEGER NOT NULL, acs_name STRING, acs BLOB)";
+      "NULL, version INTEGER NOT NULL)";
 
   ASSERT_EQ(
       sqlite_exec(db, "SELECT sql FROM sqlite_master WHERE name = 'metadata_t'",
@@ -150,7 +150,7 @@ TEST_F(BtrieveDriverTest, LoadsAndConverts) {
       "INTEGER PRIMARY KEY, number INTEGER NOT NULL, segment INTEGER NOT "
       "NULL, attributes INTEGER NOT NULL, data_type INTEGER NOT NULL, offset "
       "INTEGER NOT NULL, length INTEGER NOT NULL, null_value INTEGER NOT "
-      "NULL, UNIQUE(number, segment))";
+      "NULL, acs_name STRING, acs BLOB, UNIQUE(number, segment))";
 
   ASSERT_EQ(
       sqlite_exec(db, "SELECT sql FROM sqlite_master WHERE name = 'keys_t'",

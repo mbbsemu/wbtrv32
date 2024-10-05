@@ -130,7 +130,7 @@ class BindableValue {
 
   const std::vector<uint8_t> &getBlobValue() const { return *blob_value; }
 
-  bool isNull() { return getType() == Type::Null; }
+  bool isNull() const { return getType() == Type::Null; }
 
  private:
   Type type;
