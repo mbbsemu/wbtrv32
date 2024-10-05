@@ -104,5 +104,8 @@
     <ClCompile Include="..\..\btrieve\SqliteUtil.cc">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\btrieve\ErrorCode.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
 </Project>

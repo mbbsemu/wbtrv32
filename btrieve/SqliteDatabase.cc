@@ -130,7 +130,7 @@ void SqliteDatabase::loadSqliteMetadata(const tchar *filename,
         "FROM metadata_t");
     std::unique_ptr<SqliteReader> reader = command.executeReader();
     if (!reader->read()) {
-      throw BtrieveException("Can't read metadata_t");
+      throw BtrieveException(BtrieveError::IOError, "Can't read metadata_t");
     }
 
     recordLength = reader->getInt32(0);
@@ -261,6 +261,7 @@ void SqliteDatabase::loadSqliteKeys() {
       std::vector<uint8_t> acsBlob = reader->getBlob(8);
       if (acsBlob.size() != ACS_LENGTH) {
         throw BtrieveException(
+            BtrieveError::InvalidACS,
             "The ACS length is not 256 bytes, this is a corrupt database.");
       }
 

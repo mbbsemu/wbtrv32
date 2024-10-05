@@ -122,6 +122,8 @@ bool acquiresData(OperationCode operationCode);
 
 bool usesPreviousQuery(OperationCode operationCode);
 
+const char* toString(OperationCode operationCode);
+
 }  // namespace btrieve
 
 #endif

@@ -46,6 +46,9 @@ key-only file or a Get operation on a data only file */
   InvalidInterface = 53,
   FileAlreadyExists = 59,
 };
+
+const char* errorToString(BtrieveError error);
+
 }  // namespace btrieve
 
 #endif

@@ -8,6 +8,7 @@ static size_t fread_s(void* ptr, size_t bytes, FILE* stream) {
   size_t numRead = fread(ptr, 1, bytes, stream);
   if (numRead != bytes) {
     throw BtrieveException(
+        BtrieveError::IOError,
         "Failed to read all bytes, got %d, wanted %d, errno=%d", numRead, bytes,
         errno);
   }
@@ -18,6 +19,7 @@ static int fseek_s(FILE* stream, long offset, int whence) {
   int ret = fseek(stream, offset, whence);
   if (ret != 0) {
     throw BtrieveException(
+        BtrieveError::IOError,
         "Failed to seek in file to position [%d|%d], errno=%d", offset, whence,
         errno);
   }
@@ -95,12 +97,14 @@ BtrieveDatabase::FCRDATA BtrieveDatabase::validateDatabase(
 
   if (fcr[0] != 0 && fcr[1] != 0 && fcr[2] != 0 && fcr[3] != 0) {
     throw BtrieveException(
+        BtrieveError::NotBtrieveFile,
         "Doesn't appear to be a v5 Btrieve database - bad header");
   }
 
   pageLength = toUint16(fcr + 0x8);
   if (pageLength < 512 || (pageLength & 0x1FF) != 0) {
     throw BtrieveException(
+        BtrieveError::NotBtrieveFile,
         "Invalid PageLength, must be multiple of 512. Got %d", pageLength);
   }
 
@@ -134,7 +138,8 @@ BtrieveDatabase::FCRDATA BtrieveDatabase::validateDatabase(
       case 5:
         break;
       default:
-        throw BtrieveException("Invalid version code, expected 3/4/5, got %d",
+        throw BtrieveException(BtrieveError::NotBtrieveFile,
+                               "Invalid version code, expected 3/4/5, got %d",
                                versionCode);
     }
 
@@ -142,6 +147,7 @@ BtrieveDatabase::FCRDATA BtrieveDatabase::validateDatabase(
     if (needsRecovery) {
       if (needsRecovery) {
         throw BtrieveException(
+            BtrieveError::IOError,
             "Cannot import Btrieve database since it's marked inconsistent and "
             "needs recovery.");
       }
@@ -150,13 +156,16 @@ BtrieveDatabase::FCRDATA BtrieveDatabase::validateDatabase(
 
   auto accelFlags = toUint16(fcr + 0xA);
   if (accelFlags != 0) {
-    throw BtrieveException("Invalid accel flags, got %d, expected 0",
+    throw BtrieveException(BtrieveError::NotBtrieveFile,
+                           "Invalid accel flags, got %d, expected 0",
                            accelFlags);
   }
 
   auto usrflgs = toUint16(fcr + 0x106);
   if ((usrflgs & 0x8) != 0) {
-    throw BtrieveException("firstPage is compressed, cannot handle");
+    // TODO HANDLE THIS CASE
+    throw BtrieveException(BtrieveError::NotBtrieveFile,
+                           "firstPage is compressed, cannot handle");
   }
 
   auto variableRecordFlags = fcr[0x38];
@@ -178,7 +187,8 @@ BtrieveDatabase::FCRDATA BtrieveDatabase::validateDatabase(
   }
 
   if (v6 && (fcr[0x76] != fcr[0x14])) {
-    throw BtrieveException("Key count and KAT key count differ!");
+    throw BtrieveException(BtrieveError::NotBtrieveFile,
+                           "Key count and KAT key count differ!");
   }
 
   fseek_s(f, 0, SEEK_END);
@@ -344,10 +354,12 @@ bool BtrieveDatabase::loadPAT(FILE* f, std::string& acsName,
   fread_s(pat1, pageLength * 2, f);
 
   if (pat1[0] != 'P' || pat1[1] != 'P') {
-    throw BtrieveException("PAT1 table is invalid");
+    throw BtrieveException(BtrieveError::NotBtrieveFile,
+                           "PAT1 table is invalid");
   }
   if (pat2[0] != 'P' || pat2[1] != 'P') {
-    throw BtrieveException("PAT2 table is invalid");
+    throw BtrieveException(BtrieveError::NotBtrieveFile,
+                           "PAT2 table is invalid");
   }
 
   // check out the usage count to find active pat1/2
@@ -373,7 +385,7 @@ bool BtrieveDatabase::loadPAT(FILE* f, std::string& acsName,
     }
 
     if (type != 0 && type != 'A' && type != 'D' && type != 'E' && type != 'V') {
-      throw BtrieveException("Bad PAT entry");
+      throw BtrieveException(BtrieveError::NotBtrieveFile, "Bad PAT entry");
     }
   }
 
@@ -390,7 +402,8 @@ bool BtrieveDatabase::loadACS(FILE* f, std::string& acsName,
 
   if (v6) {
     if (acsPage[1] != 'A' && acsPage[6] != 0xAC) {
-      throw BtrieveException("Bad v6 ACS header!");
+      throw BtrieveException(BtrieveError::NotBtrieveFile,
+                             "Bad v6 ACS header!");
     }
   } else {
     if (memcmp(acsPage, ACS_PAGE_HEADER, sizeof(ACS_PAGE_HEADER))) {
@@ -623,7 +636,7 @@ int32_t BtrieveDatabase::logicalPageToPhysicalOffset(FILE* f,
 
   // pick the one with best usage count
   if (pat1[0] != 'P' && pat1[1] != 'P' && pat2[0] != 'P' && pat2[1] != 'P') {
-    throw BtrieveException("Not a valid PAT");
+    throw BtrieveException(BtrieveError::NotBtrieveFile, "Not a valid PAT");
   }
 
   uint32_t usageCount1 = toUint32(pat1 + 4);

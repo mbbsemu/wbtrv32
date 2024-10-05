@@ -134,18 +134,14 @@ static BtrieveError Open(BtrieveCommand &command) {
   std::shared_ptr<BtrieveDriver> driver =
       std::make_shared<BtrieveDriver>(new SqliteDatabase());
 
-  try {
-    BtrieveError error = driver->open(fullPathFileName, openMode);
-    if (error != BtrieveError::Success) {
-      return error;
-    }
-
-    AddToOpenFiles(command, driver);
-
-    return BtrieveError::Success;
-  } catch (const BtrieveException &ex) {
-    return BtrieveError::FileNotFound;
+  BtrieveError error = driver->open(fullPathFileName, openMode);
+  if (error != BtrieveError::Success) {
+    return error;
   }
+
+  AddToOpenFiles(command, driver);
+
+  return BtrieveError::Success;
 }
 
 static BtrieveError Close(BtrieveCommand &command) {
@@ -543,21 +539,15 @@ static BtrieveError Create(BtrieveCommand &command) {
 }
 
 static BtrieveError handle(BtrieveCommand &command) {
-  BtrieveError error;
-
   switch (command.operation) {
     case OperationCode::Open:
-      error = ::Open(command);
-      break;
+      return ::Open(command);
     case OperationCode::Close:
-      error = ::Close(command);
-      break;
+      return ::Close(command);
     case OperationCode::Stat:
-      error = ::Stat(command);
-      break;
+      return ::Stat(command);
     case OperationCode::Delete:
-      error = ::Delete(command);
-      break;
+      return ::Delete(command);
     case OperationCode::StepFirst:
     case OperationCode::StepFirst + 100:
     case OperationCode::StepFirst + 200:
@@ -578,8 +568,7 @@ static BtrieveError handle(BtrieveCommand &command) {
     case OperationCode::StepPrevious + 200:
     case OperationCode::StepPrevious + 300:
     case OperationCode::StepPrevious + 400:
-      error = ::Step(command);
-      break;
+      return ::Step(command);
     case OperationCode::AcquireFirst:
     case OperationCode::AcquireLast:
     case OperationCode::AcquireNext:
@@ -599,47 +588,33 @@ static BtrieveError handle(BtrieveCommand &command) {
     case OperationCode::QueryLess:
     case OperationCode::QueryLessOrEqual:
       // TODO don't forget all +100-400 for these queries as well
-      error = ::Query(command);
-      break;
+      return ::Query(command);
     case OperationCode::GetPosition:
-      error = ::GetPosition(command);
-      break;
+      return ::GetPosition(command);
     case OperationCode::GetDirectChunkOrRecord:
     case OperationCode::GetDirectChunkOrRecord + 100:
     case OperationCode::GetDirectChunkOrRecord + 200:
     case OperationCode::GetDirectChunkOrRecord + 300:
     case OperationCode::GetDirectChunkOrRecord + 400:
-      error = ::GetDirectRecord(command);
-      break;
+      return ::GetDirectRecord(command);
     case OperationCode::Update:
-      error = ::Upsert(command, [](BtrieveDriver *driver,
-                                   std::basic_string_view<uint8_t> record) {
+      return ::Upsert(command, [](BtrieveDriver *driver,
+                                  std::basic_string_view<uint8_t> record) {
         auto position = driver->getPosition();
         return std::make_pair(driver->updateRecord(position, record), position);
       });
-      break;
     case OperationCode::Insert:
-      error = ::Upsert(command, [](BtrieveDriver *driver,
-                                   std::basic_string_view<uint8_t> record) {
+      return ::Upsert(command, [](BtrieveDriver *driver,
+                                  std::basic_string_view<uint8_t> record) {
         return driver->insertRecord(record);
       });
-      break;
     case OperationCode::Stop:
-      error = ::Stop(command);
-      break;
+      return ::Stop(command);
     case OperationCode::Create:
-      error = ::Create(command);
-      break;
+      return ::Create(command);
     default:
-      error = BtrieveError::InvalidOperation;
-      break;
+      return BtrieveError::InvalidOperation;
   }
-
-  if (error != BtrieveError::Success) {
-    debug(command, "handled %d, returned %d", command.operation, error);
-  }
-
-  return error;
 }
 
 extern "C" int __stdcall BTRCALL(WORD wOperation, LPVOID lpPositionBlock,
@@ -648,6 +623,8 @@ extern "C" int __stdcall BTRCALL(WORD wOperation, LPVOID lpPositionBlock,
                                  LPVOID lpKeyBuffer, BYTE bKeyLength,
                                  CHAR sbKeyNumber) {
   BtrieveCommand btrieveCommand;
+  BtrieveError error;
+
   btrieveCommand.operation = static_cast<OperationCode>(wOperation);
   btrieveCommand.lpPositionBlock = lpPositionBlock;
   btrieveCommand.lpDataBuffer = lpDataBuffer;
@@ -656,5 +633,18 @@ extern "C" int __stdcall BTRCALL(WORD wOperation, LPVOID lpPositionBlock,
   btrieveCommand.lpKeyBufferLength = bKeyLength;
   btrieveCommand.keyNumber = sbKeyNumber;
 
-  return handle(btrieveCommand);
+  try {
+    error = handle(btrieveCommand);
+  } catch (const BtrieveException &ex) {
+    // make sure we don't leak the exception back to our caller
+    error = ex.getError();
+  }
+
+  if (error != BtrieveError::Success) {
+    debug(btrieveCommand, "handled %s [key %d], returned %s",
+          toString(btrieveCommand.operation), btrieveCommand.keyNumber,
+          errorToString(error));
+  }
+
+  return error;
 }

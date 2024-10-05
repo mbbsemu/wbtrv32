@@ -200,7 +200,8 @@ BindableValue Key::keyDataToSqliteObject(
               *reinterpret_cast<double *>(modifiedKeyData.data()));
         default:
           // should never happen since we verify on db creation
-          throw BtrieveException("Float key not 4/8 bytes");
+          throw BtrieveException(BtrieveError::BadKeyLength,
+                                 "Float key not 4/8 bytes");
           break;
       }
       break;

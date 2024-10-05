@@ -46,6 +46,7 @@
   <ItemGroup>
     <ClCompile Include="..\..\btrieve\BtrieveDatabase.cc" />
     <ClCompile Include="..\..\btrieve\BtrieveDriver.cc" />
+    <ClCompile Include="..\..\btrieve\ErrorCode.cc" />
     <ClCompile Include="..\..\btrieve\Key.cc" />
     <ClCompile Include="..\..\btrieve\OperationCode.cc" />
     <ClCompile Include="..\..\btrieve\SqliteDatabase.cc" />

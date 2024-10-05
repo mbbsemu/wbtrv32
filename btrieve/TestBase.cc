@@ -1,8 +1,10 @@
 #include "TestBase.h"
-#include "BtrieveException.h"
+
 #include <filesystem>
 #include <list>
 #include <string>
+
+#include "BtrieveException.h"
 
 #ifdef WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -105,7 +107,8 @@ std::basic_string<tchar> TempPath::copyToTempPath(const char *filePath) {
     FILE *src = fopen(filePath, "rb");
     std::unique_ptr<FILE, decltype(&fclose)> sourceFile(src, &fclose);
     if (!sourceFile) {
-      throw btrieve::BtrieveException("Can't open %s\n", filePath);
+      throw btrieve::BtrieveException(btrieve::BtrieveError::FileNotFound,
+                                      "Can't open %s\n", filePath);
     }
 
     std::unique_ptr<FILE, decltype(&fclose)> destFile(
@@ -115,7 +118,8 @@ std::basic_string<tchar> TempPath::copyToTempPath(const char *filePath) {
         fopen(destPath.c_str(), "wb"), &fclose);
 #endif
     if (!destFile) {
-      throw btrieve::BtrieveException("Can't open %s\n", destPath.c_str());
+      throw btrieve::BtrieveException(btrieve::BtrieveError::IOError,
+                                      "Can't open %s\n", destPath.c_str());
     }
 
     size_t numRead;
@@ -126,7 +130,8 @@ std::basic_string<tchar> TempPath::copyToTempPath(const char *filePath) {
       numWritten = fwrite(reinterpret_cast<void *>(buffer.get()), 1, numRead,
                           destFile.get());
       if (numWritten != numRead) {
-        throw btrieve::BtrieveException("Can't write data\n");
+        throw btrieve::BtrieveException(btrieve::BtrieveError::IOError,
+                                        "Can't write data\n");
       }
     }
   }

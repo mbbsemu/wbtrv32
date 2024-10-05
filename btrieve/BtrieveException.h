@@ -1,14 +1,18 @@
 #ifndef __FILE_EXCEPTION_H_
 #define __FILE_EXCEPTION_H_
 
-#include <cstdarg>
 #include <stdio.h>
+
+#include <cstdarg>
 #include <string>
+
+#include "ErrorCode.h"
 
 namespace btrieve {
 class BtrieveException {
-public:
-  BtrieveException(const char *format, ...) {
+ public:
+  BtrieveException(BtrieveError error_, const char *format, ...)
+      : error(error_) {
     char buf[256];
 
     va_list args;
@@ -27,9 +31,12 @@ public:
 
   const std::string &getErrorMessage() const { return errorMessage; }
 
-private:
+  BtrieveError getError() const { return error; }
+
+ private:
+  BtrieveError error;
   std::string errorMessage;
 };
-} // namespace btrieve
+}  // namespace btrieve
 
 #endif
