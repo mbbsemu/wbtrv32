@@ -11,18 +11,47 @@
 #include "combaseapi.h"
 #include "framework.h"
 
+// Define this to pop up a messagebox when wbtrv32.dll is loaded, to allow you
+// to attach a debugger on startup
+//
+// #define DEBUG_ATTACH
+
+// Define this to log errors to wbtrv32.log
+// #define LOG_TO_FILE
+
+#ifdef DEBUG_ATTACH
+#include "Psapi.h"
+#endif
+
 using namespace btrieve;
 
 static std::unordered_map<std::wstring, std::shared_ptr<BtrieveDriver>>
     _openFiles;
 
+#ifdef LOG_TO_FILE
 static std::unique_ptr<FILE, decltype(&fclose)> _logFile(nullptr, &fclose);
+#endif
 
 void wbtrv32::processAttach() {
+#ifdef DEBUG_ATTACH
+  {
+    TCHAR buf[MAX_PATH];
+
+    GetProcessImageFileName(GetCurrentProcess(), buf, ARRAYSIZE(buf));
+    MessageBox(NULL, TEXT("Attach now"), buf, MB_OK);
+  }
+#endif
+
+#ifdef LOG_TO_FILE
   _logFile.reset(_wfsopen(L"wbtrv32.log", L"ab", _SH_DENYWR));
+#endif
 }
 
-void wbtrv32::processDetach() { _logFile.reset(nullptr); }
+void wbtrv32::processDetach() {
+#ifdef LOG_TO_FILE
+  _logFile.reset(nullptr);
+#endif
+}
 
 static BtrieveDriver *getOpenDatabase(LPVOID lpPositioningBlock) {
   WCHAR guidStr[64];
@@ -64,9 +93,11 @@ static void debug(const BtrieveCommand &command, const char *format, ...) {
     len = snprintf(buf, sizeof(buf),
                    "[%S]: ", driver->getOpenedFilename().c_str());
     OutputDebugStringA(buf);
+#ifdef LOG_TO_FILE
     if (_logFile) {
       fwrite(buf, 1, len, _logFile.get());
     }
+#endif
   }
 
   va_list args;
@@ -81,10 +112,12 @@ static void debug(const BtrieveCommand &command, const char *format, ...) {
 
   OutputDebugStringA(buf);
 
+#ifdef LOG_TO_FILE
   if (_logFile) {
     fwrite(buf, 1, len + 2, _logFile.get());
     fflush(_logFile.get());
   }
+#endif
 }
 
 static void AddToOpenFiles(BtrieveCommand &command,
