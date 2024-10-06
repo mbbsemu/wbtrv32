@@ -1,11 +1,14 @@
 #include "wbtrv32.h"
 
+#include <filesystem>
 #include <memory>
 
 #include "../../btrieve/AttributeMask.h"
+#include "../../btrieve/BtrieveDriver.h"
 #include "../../btrieve/ErrorCode.h"
 #include "../../btrieve/KeyDataType.h"
 #include "../../btrieve/OpenMode.h"
+#include "../../btrieve/SqliteDatabase.h"
 #include "../../btrieve/TestBase.h"
 #include "btrieve/OperationCode.h"
 #include "gtest/gtest.h"
@@ -1390,4 +1393,227 @@ TEST_F(wbtrv32Test, StopClosesAllDatabases) {
   ASSERT_EQ(btrcall(btrieve::OperationCode::Close, posBlock, nullptr,
                     &dwDataBufferLength, nullptr, 0, 0),
             btrieve::BtrieveError::FileNotOpen);
+}
+
+TEST_F(wbtrv32Test, CreateSingleKey) {
+  unsigned char buffer[1024];
+  auto mbbsEmuDb = tempPath->getTempPath();
+  std::filesystem::path path(mbbsEmuDb);
+  path /= L"test.dat";
+
+  memset(buffer, 0, sizeof(buffer));
+
+  wbtrv32::LPFILESPEC lpFileSpec =
+      reinterpret_cast<wbtrv32::LPFILESPEC>(buffer);
+
+  lpFileSpec->pageSize = 4096;
+  lpFileSpec->numberOfKeys = 1;
+  lpFileSpec->logicalFixedRecordLength = 128;
+  lpFileSpec->fileVersion = 0x60;
+  lpFileSpec->physicalPageSize = 4096 / 512;
+  lpFileSpec->fileFlags = 0;  // not variable
+
+  wbtrv32::LPKEYSPEC lpKeySpec =
+      reinterpret_cast<wbtrv32::LPKEYSPEC>(lpFileSpec + 1);
+  lpKeySpec->position = 3;
+  lpKeySpec->length = 4;
+  lpKeySpec->attributes = UseExtendedDataType | Duplicates;
+  lpKeySpec->extendedDataType = btrieve::KeyDataType::Integer;
+
+  DWORD dwDataBufferLength =
+      reinterpret_cast<unsigned char*>(lpKeySpec + 1) - buffer;
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Create, nullptr, buffer,
+                    &dwDataBufferLength,
+                    const_cast<LPVOID>(reinterpret_cast<LPCVOID>(
+                        toStdString(path.c_str()).c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
+
+  path = mbbsEmuDb;
+  path /= "test.db";
+  ASSERT_NE(GetFileAttributesW(path.c_str()), 0xFFFFFFFF);
+
+  btrieve::BtrieveDriver driver(new btrieve::SqliteDatabase());
+  ASSERT_EQ(driver.open(path.c_str()), btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(driver.getRecordCount(), 0);
+  ASSERT_EQ(driver.isVariableLengthRecords(), false);
+  ASSERT_EQ(driver.getKeys().size(), 1);
+
+  EXPECT_EQ(driver.getKeys()[0].getPrimarySegment(),
+            btrieve::KeyDefinition(0, 4, 2, btrieve::KeyDataType::Integer,
+                                   Duplicates | UseExtendedDataType, false, 0,
+                                   0, 0, "", std::vector<char>()));
+}
+
+TEST_F(wbtrv32Test, CreateSingleKeyWithAcs) {
+  unsigned char buffer[1024];
+  auto mbbsEmuDb = tempPath->getTempPath();
+  std::filesystem::path path(mbbsEmuDb);
+  path /= L"test.dat";
+
+  memset(buffer, 0, sizeof(buffer));
+
+  wbtrv32::LPFILESPEC lpFileSpec =
+      reinterpret_cast<wbtrv32::LPFILESPEC>(buffer);
+
+  lpFileSpec->pageSize = 4096;
+  lpFileSpec->numberOfKeys = 1;
+  lpFileSpec->logicalFixedRecordLength = 128;
+  lpFileSpec->fileVersion = 0x60;
+  lpFileSpec->physicalPageSize = 4096 / 512;
+  lpFileSpec->fileFlags = 1;  // variable
+
+  wbtrv32::LPKEYSPEC lpKeySpec =
+      reinterpret_cast<wbtrv32::LPKEYSPEC>(lpFileSpec + 1);
+  lpKeySpec->position = 3;
+  lpKeySpec->length = 16;
+  lpKeySpec->attributes = UseExtendedDataType | Duplicates | NumberedACS;
+  lpKeySpec->extendedDataType = btrieve::KeyDataType::Zstring;
+
+  wbtrv32::LPACSCREATEDATA lpAcsCreateData =
+      reinterpret_cast<wbtrv32::LPACSCREATEDATA>(lpKeySpec + 1);
+  lpAcsCreateData->header = 0xAC;
+  strcpy(lpAcsCreateData->name, "ALLCAPS");
+  for (int i = 0; i < ARRAYSIZE(lpAcsCreateData->acs); ++i) {
+    lpAcsCreateData->acs[i] = toupper(i);
+  }
+
+  DWORD dwDataBufferLength =
+      reinterpret_cast<unsigned char*>(lpAcsCreateData + 1) - buffer;
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Create, nullptr, buffer,
+                    &dwDataBufferLength,
+                    const_cast<LPVOID>(reinterpret_cast<LPCVOID>(
+                        toStdString(path.c_str()).c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
+
+  path = mbbsEmuDb;
+  path /= "test.db";
+  ASSERT_NE(GetFileAttributesW(path.c_str()), 0xFFFFFFFF);
+
+  btrieve::BtrieveDriver driver(new btrieve::SqliteDatabase());
+  ASSERT_EQ(driver.open(path.c_str()), btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(driver.getRecordCount(), 0);
+  ASSERT_EQ(driver.isVariableLengthRecords(), true);
+  ASSERT_EQ(driver.getKeys().size(), 1);
+
+  std::vector<char> acsVector(ACS_LENGTH);
+  memcpy(acsVector.data(), lpAcsCreateData->acs, ACS_LENGTH);
+
+  EXPECT_EQ(
+      driver.getKeys()[0].getPrimarySegment(),
+      btrieve::KeyDefinition(0, 16, 2, btrieve::KeyDataType::Zstring,
+                             Duplicates | UseExtendedDataType | NumberedACS,
+                             false, 0, 0, 0, "ALLCAPS", acsVector));
+}
+
+TEST_F(wbtrv32Test, CreateMultipleKeysWithAcs) {
+  unsigned char buffer[1024];
+  auto mbbsEmuDb = tempPath->getTempPath();
+  std::filesystem::path path(mbbsEmuDb);
+  path /= L"test.dat";
+
+  memset(buffer, 0, sizeof(buffer));
+
+  wbtrv32::LPFILESPEC lpFileSpec =
+      reinterpret_cast<wbtrv32::LPFILESPEC>(buffer);
+
+  lpFileSpec->pageSize = 4096;
+  lpFileSpec->numberOfKeys = 3;
+  lpFileSpec->logicalFixedRecordLength = 128;
+  lpFileSpec->fileVersion = 0x60;
+  lpFileSpec->physicalPageSize = 4096 / 512;
+  lpFileSpec->fileFlags = 1;  // variable
+
+  // first key with an acs
+  wbtrv32::LPKEYSPEC lpKeySpec =
+      reinterpret_cast<wbtrv32::LPKEYSPEC>(lpFileSpec + 1);
+  lpKeySpec->number = 0;
+  lpKeySpec->position = 3;
+  lpKeySpec->length = 16;
+  lpKeySpec->attributes = UseExtendedDataType | Duplicates | NumberedACS;
+  lpKeySpec->extendedDataType = btrieve::KeyDataType::Zstring;
+
+  // second key, which will have two segments
+  ++lpKeySpec;
+  lpKeySpec->number = 1;
+  lpKeySpec->position = 21;
+  lpKeySpec->length = 4;
+  lpKeySpec->attributes = UseExtendedDataType | SegmentedKey;
+  lpKeySpec->extendedDataType = btrieve::KeyDataType::Integer;
+
+  ++lpKeySpec;
+  lpKeySpec->number = 1;
+  lpKeySpec->position = 25;
+  lpKeySpec->length = 8;
+  lpKeySpec->attributes = UseExtendedDataType;
+  lpKeySpec->extendedDataType = btrieve::KeyDataType::Float;
+
+  // third key with a second acs
+  ++lpKeySpec;
+  lpKeySpec->number = 2;
+  lpKeySpec->position = 31;
+  lpKeySpec->length = 16;
+  lpKeySpec->attributes = UseExtendedDataType | NumberedACS;
+  lpKeySpec->extendedDataType = btrieve::KeyDataType::Zstring;
+  lpKeySpec->acsNumber = 1;
+
+  // first acs
+  wbtrv32::LPACSCREATEDATA lpAcsCreateData1 =
+      reinterpret_cast<wbtrv32::LPACSCREATEDATA>(lpKeySpec + 1);
+  lpAcsCreateData1->header = 0xAC;
+  strcpy(lpAcsCreateData1->name, "ALLCAPS");
+  for (int i = 0; i < ARRAYSIZE(lpAcsCreateData1->acs); ++i) {
+    lpAcsCreateData1->acs[i] = toupper(i);
+  }
+
+  // second acs
+  wbtrv32::LPACSCREATEDATA lpAcsCreateData2 = lpAcsCreateData1 + 1;
+  lpAcsCreateData2->header = 0xAC;
+  strcpy(lpAcsCreateData2->name, "LOWER");
+  for (int i = 0; i < ARRAYSIZE(lpAcsCreateData2->acs); ++i) {
+    lpAcsCreateData2->acs[i] = tolower(i);
+  }
+
+  DWORD dwDataBufferLength =
+      reinterpret_cast<unsigned char*>(lpAcsCreateData2 + 1) - buffer;
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Create, nullptr, buffer,
+                    &dwDataBufferLength,
+                    const_cast<LPVOID>(reinterpret_cast<LPCVOID>(
+                        toStdString(path.c_str()).c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
+
+  path = mbbsEmuDb;
+  path /= "test.db";
+  ASSERT_NE(GetFileAttributesW(path.c_str()), 0xFFFFFFFF);
+
+  btrieve::BtrieveDriver driver(new btrieve::SqliteDatabase());
+  ASSERT_EQ(driver.open(path.c_str()), btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(driver.getRecordCount(), 0);
+  ASSERT_EQ(driver.isVariableLengthRecords(), true);
+  ASSERT_EQ(driver.getKeys().size(), 3);
+
+  std::vector<char> acsVector(ACS_LENGTH);
+  memcpy(acsVector.data(), lpAcsCreateData1->acs, ACS_LENGTH);
+
+  EXPECT_EQ(
+      driver.getKeys()[0].getPrimarySegment(),
+      btrieve::KeyDefinition(0, 16, 2, btrieve::KeyDataType::Zstring,
+                             Duplicates | UseExtendedDataType | NumberedACS,
+                             false, 0, 0, 0, "ALLCAPS", acsVector));
+
+  EXPECT_EQ(driver.getKeys()[1].isComposite(), true);
+  EXPECT_EQ(driver.getKeys()[1].getSegments().size(), 2);
+  EXPECT_EQ(driver.getKeys()[1].getNumber(), 1);
+  EXPECT_EQ(driver.getKeys()[1].getLength(), 12);
+
+  memcpy(acsVector.data(), lpAcsCreateData2->acs, ACS_LENGTH);
+  EXPECT_EQ(driver.getKeys()[2].getPrimarySegment(),
+            btrieve::KeyDefinition(2, 16, 30, btrieve::KeyDataType::Zstring,
+                                   UseExtendedDataType | NumberedACS, false, 0,
+                                   0, 0, "LOWER", acsVector));
 }

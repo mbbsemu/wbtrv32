@@ -31,10 +31,18 @@ typedef struct _tagKEYSPEC {
   uint8_t number;
   uint8_t acsNumber;
 } KEYSPEC, *LPKEYSPEC;
+
+typedef struct _tagACSCREATEDATA {
+  uint8_t header;  // should be 0xAC
+  char name[8];    // not necessarily null terminated
+  char acs[256];   // the table itself
+} ACSCREATEDATA, *LPACSCREATEDATA;
+
 #pragma pack(pop)
 
 static_assert(sizeof(FILESPEC) == 16);
 static_assert(sizeof(KEYSPEC) == 16);
+static_assert(sizeof(ACSCREATEDATA) == 265);
 
 void processAttach();
 

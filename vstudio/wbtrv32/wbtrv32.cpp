@@ -453,14 +453,6 @@ static BtrieveError Stop(const BtrieveCommand &command) {
   return BtrieveError::Success;
 }
 
-typedef struct _tagACSCREATEDATA {
-  char header;    // should be 0xAC
-  char name[8];   // not necessarily null terminated
-  char acs[256];  // the table itself
-} ACSCREATEDATA, *LPACSCREATEDATA;
-
-static_assert(sizeof(ACSCREATEDATA) == 265);
-
 static BtrieveError Create(BtrieveCommand &command) {
   const char *lpszFileName =
       reinterpret_cast<const char *>(command.lpKeyBuffer);
@@ -489,19 +481,42 @@ static BtrieveError Create(BtrieveCommand &command) {
     }
   }
 
+  std::vector<wbtrv32::LPACSCREATEDATA> clientProvidedAcs;
+  uint8_t numberOfAcs = 0;
+  // find and categorize all the key data before populating everything
+  for (uint16_t i = 0; i < lpFileSpec->numberOfKeys; ++i, ++lpKeySpec) {
+  check_acs:
+    if (lpKeySpec->attributes & NumberedACS) {
+      numberOfAcs = max(numberOfAcs, lpKeySpec->acsNumber + 1);
+    }
+
+    if (lpKeySpec->attributes & SegmentedKey) {
+      ++lpKeySpec;
+      goto check_acs;
+    }
+  }
+  // at this point we are pointing at the ACS data, so store it now
+  wbtrv32::LPACSCREATEDATA lpAcsCreateData =
+      reinterpret_cast<wbtrv32::LPACSCREATEDATA>(lpKeySpec);
+  while (numberOfAcs--) {
+    if (lpAcsCreateData->header != 0xAC) {
+      return BtrieveError::InvalidACS;
+    }
+
+    clientProvidedAcs.push_back(lpAcsCreateData++);
+  }
+
+  lpKeySpec = reinterpret_cast<wbtrv32::LPKEYSPEC>(lpFileSpec + 1);
   std::vector<Key> keys;
-  for (uint16_t i = 0; i < lpFileSpec->numberOfKeys; ++i) {
+  for (uint16_t i = 0; i < lpFileSpec->numberOfKeys; ++i, ++lpKeySpec) {
     char acsName[9];
     std::vector<char> acs;
+    std::vector<KeyDefinition> keyDefinitions;
 
+  process_key:
     if (lpKeySpec->attributes & NumberedACS) {
-      LPACSCREATEDATA lpAcsCreateData = reinterpret_cast<LPACSCREATEDATA>(
-          reinterpret_cast<uint8_t *>(command.lpDataBuffer) +
-          *command.lpdwDataBufferLength - sizeof(ACSCREATEDATA));
-
-      if (lpAcsCreateData->header != 0xAC) {
-        return BtrieveError::InvalidACS;
-      }
+      wbtrv32::LPACSCREATEDATA lpAcsCreateData =
+          clientProvidedAcs[lpKeySpec->acsNumber];
 
       memcpy(acsName, lpAcsCreateData->name, 8);
       acsName[8] = 0;
@@ -517,9 +532,18 @@ static BtrieveError Create(BtrieveCommand &command) {
         i, static_cast<uint16_t>(lpKeySpec->length),
         static_cast<uint16_t>(lpKeySpec->position) - 1,
         static_cast<KeyDataType>(lpKeySpec->extendedDataType),
-        lpKeySpec->attributes, false, 0, 0, lpKeySpec->nullValue, acsName, acs);
+        lpKeySpec->attributes, lpKeySpec->attributes & SegmentedKey,
+        lpKeySpec->attributes & SegmentedKey ? i : 0, 0, lpKeySpec->nullValue,
+        acsName, acs);
 
-    keys.push_back(Key(&keyDefinition, 1));
+    keyDefinitions.push_back(keyDefinition);
+
+    if (lpKeySpec->attributes & SegmentedKey) {
+      ++lpKeySpec;
+      goto process_key;
+    }
+
+    keys.push_back(Key(keyDefinitions.data(), keyDefinitions.size()));
   }
 
   RecordType recordType = RecordType::Fixed;
