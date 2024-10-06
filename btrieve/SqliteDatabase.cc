@@ -207,6 +207,15 @@ void SqliteDatabase::upgradeDatabaseFrom2To3() {
         const BindableValue &acsName = reader->getBindableValue(0);
         const BindableValue &acs = reader->getBindableValue(1);
         if (!acsName.isNull() && !acs.isNull()) {
+          SqlitePreparedStatement insert(
+              database,
+              "UPDATE keys_t SET acs_name = @acs_name, acs = @acs WHERE "
+              "attributes & %d",
+              NumberedACS);
+
+          insert.bindParameter(1, acsName);
+          insert.bindParameter(2, acs);
+          insert.execute();
         }
       }
     }
