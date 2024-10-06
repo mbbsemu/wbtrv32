@@ -11,5 +11,6 @@
 #define RepeatingDuplicatesKey (1 << 7)
 #define UseExtendedDataType (1 << 8)
 #define NullAnySegment (1 << 9)
+#define MultipleACS ((1 << 10) | NumberedACS)
 
 #endif

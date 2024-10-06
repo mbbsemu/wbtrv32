@@ -30,6 +30,12 @@
     <CopyFileToFolders Include="..\..\assets\WCCACMS2.DAT">
       <Filter>Assets</Filter>
     </CopyFileToFolders>
+    <CopyFileToFolders Include="..\..\assets\MBBSEMU.DB.V2">
+      <Filter>Assets</Filter>
+    </CopyFileToFolders>
+    <CopyFileToFolders Include="..\..\assets\MULTIACS.DAT">
+      <Filter>Assets</Filter>
+    </CopyFileToFolders>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\btrieve\LRUCache_test.cc">

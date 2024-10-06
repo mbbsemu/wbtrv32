@@ -205,3 +205,23 @@ TEST(BtrieveDatabase, LoadsFixedDatV6) {
   ASSERT_EQ(database.getKeys()[2].getPrimarySegment().getPosition(), 17);
   ASSERT_EQ(database.getKeys()[2].getPrimarySegment().getLength(), 16);
 }
+
+TEST(BtrieveDatabase, LoadsMultiAcsDatV6) {
+  BtrieveDatabase database;
+
+  database.parseDatabase(
+      _TEXT("assets/MULTIACS.DAT"),
+      [&database]() {
+        EXPECT_EQ(database.getRecordLength(), 128);
+
+        return database.getRecordLength() == 128;
+      },
+      [](std::basic_string_view<uint8_t> record) { return true; });
+
+  ASSERT_EQ(database.getRecordCount(), 0);
+
+  ASSERT_EQ(database.getKeys().size(), 3);
+
+  ASSERT_STREQ(database.getKeys().at(0).getACSName(), "ALLCAPS");
+  ASSERT_STREQ(database.getKeys().at(2).getACSName(), "LOWER");
+}

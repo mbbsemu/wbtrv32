@@ -132,7 +132,12 @@ class BtrieveDatabase {
   // Loads the ACS, if present, into acs, which is expected to be at least 256
   // bytes in size. If no ACS, acsName and acs are emptied.
   bool loadACS(FILE *f, std::string &acsName, std::vector<char> &acs,
-               uint32_t pageNumber);
+               uint32_t logicalPage);
+
+  // Loads the ACS, if present, into acs, which is expected to be at least 256
+  // bytes in size. If no ACS, acsName and acs are emptied.
+  bool loadACSAtPhysicalOffset(FILE *f, std::string &acsName,
+                               std::vector<char> &acs, uint32_t physicalOffset);
 
   // Loads the key definitions into the keys member variables, given the acs
   // loaded previously from loadACS. acsName and acs could both be empty.

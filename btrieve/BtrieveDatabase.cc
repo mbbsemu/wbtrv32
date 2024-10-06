@@ -381,7 +381,7 @@ bool BtrieveDatabase::loadPAT(FILE* f, std::string& acsName,
     }
 
     if (type == 'A') {
-      loadACS(f, acsName, acs, pageNumber);
+      loadACSAtPhysicalOffset(f, acsName, acs, pageNumber * pageLength);
     }
 
     if (type != 0 && type != 'A' && type != 'D' && type != 'E' && type != 'V') {
@@ -393,11 +393,25 @@ bool BtrieveDatabase::loadPAT(FILE* f, std::string& acsName,
 }
 
 bool BtrieveDatabase::loadACS(FILE* f, std::string& acsName,
-                              std::vector<char>& acs, uint32_t pageNumber) {
+                              std::vector<char>& acs, uint32_t logicalPage) {
+  int32_t physicalOffset = logicalPageToPhysicalOffset(f, logicalPage);
+  if (physicalOffset < 0) {
+    throw BtrieveException(BtrieveError::InvalidACS,
+                           "Can't map logical page %d to physical page",
+                           logicalPage);
+  }
+
+  return loadACSAtPhysicalOffset(f, acsName, acs, physicalOffset);
+}
+
+bool BtrieveDatabase::loadACSAtPhysicalOffset(FILE* f, std::string& acsName,
+                                              std::vector<char>& acs,
+                                              uint32_t physicalOffset) {
   static const uint8_t ACS_PAGE_HEADER[] = {0, 0, 1, 0, 0, 0, 0xAC};
 
   char* acsPage = reinterpret_cast<char*>(_alloca(pageLength));
-  fseek_s(f, pageNumber * pageLength, SEEK_SET);
+
+  fseek_s(f, physicalOffset, SEEK_SET);
   fread_s(acsPage, pageLength, f);
 
   if (v6) {
@@ -434,6 +448,11 @@ void BtrieveDatabase::loadKeyDefinitions(FILE* f, const uint8_t* firstPage,
   size_t totalKeys = keys.size();
   unsigned int currentKeyNumber = 0;
   std::vector<uint32_t> keyOffsets;
+  std::string multiAcsName;
+  std::vector<char> multiAcs;
+  const std::string* keyAcsName = &acsName;
+  const std::vector<char>* keyAcs = &acs;
+
   keyOffsets.resize(totalKeys + 1);
 
   if (v6) {
@@ -468,6 +487,16 @@ void BtrieveDatabase::loadKeyDefinitions(FILE* f, const uint8_t* firstPage,
                                                : KeyDataType::OldAscii;
     }
 
+    if (attributes & MultipleACS) {
+      uint32_t acsLogicalPage = data[0x19] << 16 | toUint16(data + 0x1A);
+      if (!loadACS(f, multiAcsName, multiAcs, acsLogicalPage)) {
+        throw BtrieveException(BtrieveError::InvalidACS, "Can't load ACS");
+      }
+
+      keyAcsName = &multiAcsName;
+      keyAcs = &multiAcs;
+    }
+
     uint16_t offset = toUint16(data + 0x14);
     // v6 databases have that 2 byte usage count prefix, so account for that
     if (v6) {
@@ -483,7 +512,7 @@ void BtrieveDatabase::loadKeyDefinitions(FILE* f, const uint8_t* firstPage,
         (attributes & SegmentedKey) ? currentKeyNumber
                                     : static_cast<uint16_t>(0),
         /* segmentIndex= */ 0,
-        /* nullValue= */ data[0x1D], acsName, acs);
+        /* nullValue= */ data[0x1D], *keyAcsName, *keyAcs);
 
     // If it's a segmented key, don't increment so the next key gets added to
     // the same ordinal as an additional segment
