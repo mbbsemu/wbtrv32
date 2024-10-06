@@ -184,46 +184,54 @@ void SqliteDatabase::upgradeDatabaseFromVersion(uint32_t currentVersion,
 }
 
 void SqliteDatabase::upgradeDatabaseFrom2To3() {
-  // update the ACS tables
-  {
-    SqlitePreparedStatement statement(
-        database, "ALTER TABLE keys_t ADD COLUMN acs_name STRING");
-    statement.execute();
-  }
-  {
-    SqlitePreparedStatement statement(database,
-                                      "ALTER TABLE keys_t ADD COLUMN acs BLOB");
-    statement.execute();
-  }
-  // now copy the acs values
-  {
-    SqlitePreparedStatement statement(database,
-                                      "SELECT acs_name, acs FROM metadata_t");
+  SqliteTransaction transaction(database);
+  try {
+    // update the ACS tables
+    {
+      SqlitePreparedStatement statement(
+          database, "ALTER TABLE keys_t ADD COLUMN acs_name STRING");
+      statement.execute();
+    }
+    {
+      SqlitePreparedStatement statement(
+          database, "ALTER TABLE keys_t ADD COLUMN acs BLOB");
+      statement.execute();
+    }
+    // now copy the acs values
+    {
+      SqlitePreparedStatement statement(database,
+                                        "SELECT acs_name, acs FROM metadata_t");
 
-    auto reader = statement.executeReader();
-    if (reader->read()) {
-      const BindableValue &acsName = reader->getBindableValue(0);
-      const BindableValue &acs = reader->getBindableValue(1);
-      if (!acsName.isNull() && !acs.isNull()) {
+      auto reader = statement.executeReader();
+      if (reader->read()) {
+        const BindableValue &acsName = reader->getBindableValue(0);
+        const BindableValue &acs = reader->getBindableValue(1);
+        if (!acsName.isNull() && !acs.isNull()) {
+        }
       }
     }
-  }
-  // remove old acs tables
-  {
-    SqlitePreparedStatement statement(database,
-                                      "ALTER TABLE metadata_t DROP COLUMN acs");
-    statement.execute();
-  }
-  {
-    SqlitePreparedStatement statement(
-        database, "ALTER TABLE metadata_t DROP COLUMN acs_name");
-    statement.execute();
-  }
-  // bump version
-  {
-    SqlitePreparedStatement statement(
-        database, "UPDATE metadata_t SET version = %d", CURRENT_VERSION);
-    statement.execute();
+    // remove old acs tables
+    {
+      SqlitePreparedStatement statement(
+          database, "ALTER TABLE metadata_t DROP COLUMN acs");
+      statement.execute();
+    }
+    {
+      SqlitePreparedStatement statement(
+          database, "ALTER TABLE metadata_t DROP COLUMN acs_name");
+      statement.execute();
+    }
+    // bump version
+    {
+      SqlitePreparedStatement statement(
+          database, "UPDATE metadata_t SET version = %d", CURRENT_VERSION);
+      statement.execute();
+    }
+
+    transaction.commit();
+  } catch (const BtrieveException &ex) {
+    transaction.rollback();
+    throw ex;
   }
 }
 
