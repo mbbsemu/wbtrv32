@@ -286,6 +286,14 @@ void SqliteDatabase::loadSqliteKeys() {
 std::unique_ptr<RecordLoader> SqliteDatabase::create(
     const tchar *fileName, const BtrieveDatabase &database) {
   sqlite3 *db;
+
+  // remove the file if is exists since we're creating it anew
+#ifdef WIN32
+  _wunlink(fileName);
+#else
+  unlink(fileName);
+#endif
+
   int errorCode = sqlite3_open_v2(
       toStdString(fileName).c_str(), &db,
       SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | openFlags, nullptr);
