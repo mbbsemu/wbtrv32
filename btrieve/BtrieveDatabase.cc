@@ -66,19 +66,6 @@ static inline uint32_t getPageFromVariableLengthRecordPointer(
          static_cast<uint32_t>(data[2]) << 8;
 }
 
-static uint16_t getPageOffsetFromFragmentArray(
-    std::basic_string_view<uint8_t> arrayEntry, bool& nextPointerExists) {
-  if (arrayEntry[0] == 0xFF && arrayEntry[1] == 0xFF) {
-    nextPointerExists = false;
-    return 0xFFFF;
-  }
-
-  uint16_t offset = static_cast<uint16_t>(arrayEntry[0]) |
-                    (static_cast<uint16_t>(arrayEntry[1]) & 0x7F) << 8;
-  nextPointerExists = (arrayEntry[1] & 0x80) != 0;
-  return offset;
-}
-
 static void append(std::vector<uint8_t>& vector,
                    std::basic_string_view<uint8_t> data) {
   size_t vectorSize = vector.size();
@@ -110,7 +97,7 @@ BtrieveDatabase::FCRDATA BtrieveDatabase::validateDatabase(
 
   // find the valid FCR in v6
   if (v6) {
-    uint8_t* wholePage = reinterpret_cast<uint8_t*>(_alloca(pageLength));
+    uint8_t* wholePage = reinterpret_cast<uint8_t*>(alloca(pageLength));
     fseek_s(f, pageLength, SEEK_SET);
     fread_s(wholePage, pageLength, f);
 
@@ -220,7 +207,7 @@ bool BtrieveDatabase::isUnusedRecord(std::basic_string_view<uint8_t> data) {
       return true;
     }
     // first two bytes are usage count, which will be non-zero if used
-    uint16_t usageCount = data[0] << 8 || data[1];
+    uint16_t usageCount = data[0] << 8 | data[1];
     return usageCount == 0;
   } else if (data.size() >= 4 &&
              data.substr(4).find_first_not_of(static_cast<uint8_t>(0)) ==
@@ -347,7 +334,7 @@ BtrieveError BtrieveDatabase::parseDatabase(
 
 bool BtrieveDatabase::loadPAT(FILE* f, std::string& acsName,
                               std::vector<char>& acs) {
-  uint8_t* pat1 = reinterpret_cast<uint8_t*>(_alloca(pageLength * 2));
+  uint8_t* pat1 = reinterpret_cast<uint8_t*>(alloca(pageLength * 2));
   uint8_t* pat2 = pat1 + pageLength;  // pat2 is sequentially after pat1
 
   fseek_s(f, pageLength * 2, SEEK_SET);  // starts on third page
@@ -367,7 +354,6 @@ bool BtrieveDatabase::loadPAT(FILE* f, std::string& acsName,
   uint16_t usageCount2 = toUint16(pat2 + 4);
   // scan page type code to find ACS/Index/etc pages
   uint8_t* activePat = (usageCount1 > usageCount2) ? pat1 : pat2;
-  uint16_t sequenceNumber = activePat[2] << 8 | activePat[3];
 
   // enumerate all pages
   for (int i = 8; i < pageLength; i += 4) {
@@ -409,7 +395,7 @@ bool BtrieveDatabase::loadACSAtPhysicalOffset(FILE* f, std::string& acsName,
                                               uint32_t physicalOffset) {
   static const uint8_t ACS_PAGE_HEADER[] = {0, 0, 1, 0, 0, 0, 0xAC};
 
-  char* acsPage = reinterpret_cast<char*>(_alloca(pageLength));
+  char* acsPage = reinterpret_cast<char*>(alloca(pageLength));
 
   fseek_s(f, physicalOffset, SEEK_SET);
   fread_s(acsPage, pageLength, f);
@@ -572,7 +558,7 @@ static inline int32_t getVRecordPage(VRECPTR* x) {
 void BtrieveDatabase::getVariableLengthData(
     FILE* f, std::basic_string_view<uint8_t> recordData,
     std::vector<uint8_t>& stream) {
-  uint8_t* const data = reinterpret_cast<uint8_t*>(_alloca(pageLength));
+  uint8_t* const data = reinterpret_cast<uint8_t*>(alloca(pageLength));
   const unsigned int filePosition = ftell(f);
   VRECPTR Vrec =
       *reinterpret_cast<const VRECPTR*>(recordData.data() + recordLength);
@@ -649,7 +635,7 @@ int32_t BtrieveDatabase::logicalPageToPhysicalOffset(FILE* f,
     ret += (pageLength / 4u);
   }
 
-  uint8_t* pat1 = reinterpret_cast<uint8_t*>(_alloca(pageLength * 2));
+  uint8_t* pat1 = reinterpret_cast<uint8_t*>(alloca(pageLength * 2));
   uint8_t* pat2 = pat1 + pageLength;
 
   const uint32_t physicalOffset = ret * pageLength;
