@@ -2,6 +2,13 @@
 #define __OPERATION_CODES_H_
 
 namespace btrieve {
+
+#define WITH_RECORD_LOCK(a, value)                   \
+  a = value, a##_SingleWaitRecordLock = value + 100, \
+  a##_SingleNoWaitRecordLock = value + 200,          \
+  a##_MultipleWaitRecordLock = value + 300,          \
+  a##_MultipleNoWaitRecordLock = value + 400
+
 enum OperationCode {
   // Utility
   Open = 0x0,
@@ -13,103 +20,103 @@ enum OperationCode {
   // Acquire Operations
   //[AcquiresData]
   //[RequiresKey]
-  AcquireEqual = 0x5,
+  WITH_RECORD_LOCK(AcquireEqual, 0x5),
 
   //[AcquiresData]
   //[UsesPreviousQuery]
-  AcquireNext = 0x6,
+  WITH_RECORD_LOCK(AcquireNext, 0x6),
 
   //[AcquiresData]
   //[UsesPreviousQuery]
-  AcquirePrevious = 0x7,
+  WITH_RECORD_LOCK(AcquirePrevious, 0x7),
 
   //[AcquiresData]
   //[RequiresKey]
-  AcquireGreater = 0x8,
+  WITH_RECORD_LOCK(AcquireGreater, 0x8),
 
   //[AcquiresData]
   //[RequiresKey]
-  AcquireGreaterOrEqual = 0x9,
+  WITH_RECORD_LOCK(AcquireGreaterOrEqual, 0x9),
 
   //[AcquiresData]
   //[RequiresKey]
-  AcquireLess = 0xA,
+  WITH_RECORD_LOCK(AcquireLess, 0xA),
 
   //[AcquiresData]
   //[RequiresKey]
-  AcquireLessOrEqual = 0xB,
+  WITH_RECORD_LOCK(AcquireLessOrEqual, 0xB),
 
   //[AcquiresData]
-  AcquireFirst = 0xC,
+  WITH_RECORD_LOCK(AcquireFirst, 0xC),
 
   //[AcquiresData]
-  AcquireLast = 0xD,
+  WITH_RECORD_LOCK(AcquireLast, 0xD),
 
   Create = 0xE,
   // Information Operations
   Stat = 0xF,
   Extend = 0x10,
   GetPosition = 0x16,
-  GetDirectChunkOrRecord = 0x17,
+  WITH_RECORD_LOCK(GetDirectChunkOrRecord, 0x17),
   SetOwner = 0x1D,
 
   // Step Operations, operates on physical offset not keys
   //[AcquiresData]
-  StepFirst = 0x21,
+  WITH_RECORD_LOCK(StepFirst, 0x21),
 
   //[AcquiresData]
-  StepLast = 0x22,
-
-  //[AcquiresData]
-  //[UsesPreviousQuery]
-  StepNext = 0x18,
+  WITH_RECORD_LOCK(StepLast, 0x22),
 
   //[AcquiresData]
   //[UsesPreviousQuery]
-  StepNextExtended = 0x26,
+  WITH_RECORD_LOCK(StepNext, 0x18),
 
   //[AcquiresData]
   //[UsesPreviousQuery]
-  StepPrevious = 0x23,
+  WITH_RECORD_LOCK(StepNextExtended, 0x26),
 
   //[AcquiresData]
   //[UsesPreviousQuery]
-  StepPreviousExtended = 0x27,
+  WITH_RECORD_LOCK(StepPrevious, 0x23),
+
+  //[AcquiresData]
+  //[UsesPreviousQuery]
+  WITH_RECORD_LOCK(StepPreviousExtended, 0x27),
 
   // Query Operations
   //[QueryOnly]
   //[RequiresKey]
-  QueryEqual = 0x37,
+  WITH_RECORD_LOCK(QueryEqual, 0x37),
 
   //[QueryOnly]
   //[UsesPreviousQuery]
-  QueryNext = 0x38,
+  WITH_RECORD_LOCK(QueryNext, 0x38),
 
   //[QueryOnly]
   //[UsesPreviousQuery]
-  QueryPrevious = 0x39,
+  WITH_RECORD_LOCK(QueryPrevious, 0x39),
 
   //[QueryOnly]
   //[RequiresKey]
-  QueryGreater = 0x3A,
+  WITH_RECORD_LOCK(QueryGreater, 0x3A),
 
   //[QueryOnly]
   //[RequiresKey]
-  QueryGreaterOrEqual = 0x3B,
+  WITH_RECORD_LOCK(QueryGreaterOrEqual, 0x3B),
 
   //[QueryOnly]
   //[RequiresKey]
-  QueryLess = 0x3C,
+  WITH_RECORD_LOCK(QueryLess, 0x3C),
 
   //[QueryOnly]
   //[RequiresKey]
-  QueryLessOrEqual = 0x3D,
+  WITH_RECORD_LOCK(QueryLessOrEqual, 0x3D),
 
   //[QueryOnly]
-  QueryFirst = 0x3E,
+  WITH_RECORD_LOCK(QueryFirst, 0x3E),
 
   //[QueryOnly]
-  QueryLast = 0x3F,
+  WITH_RECORD_LOCK(QueryLast, 0x3F),
 
   Stop = 0x19,
 

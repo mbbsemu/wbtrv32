@@ -592,6 +592,14 @@ static BtrieveError Create(BtrieveCommand &command) {
   return BtrieveError::Success;
 }
 
+#define CASE_WITH_RECORD_LOCK(a)   \
+  case a:                          \
+  case a##_SingleWaitRecordLock:   \
+  case a##_SingleNoWaitRecordLock: \
+  case a##_MultipleWaitRecordLock: \
+  case a##_MultipleNoWaitRecordLock
+
+// clang-format off
 static BtrieveError handle(BtrieveCommand &command) {
   switch (command.operation) {
     case OperationCode::Open:
@@ -602,54 +610,33 @@ static BtrieveError handle(BtrieveCommand &command) {
       return ::Stat(command);
     case OperationCode::Delete:
       return ::Delete(command);
-    case OperationCode::StepFirst:
-    case OperationCode::StepFirst + 100:
-    case OperationCode::StepFirst + 200:
-    case OperationCode::StepFirst + 300:
-    case OperationCode::StepFirst + 400:
-    case OperationCode::StepLast:
-    case OperationCode::StepLast + 100:
-    case OperationCode::StepLast + 200:
-    case OperationCode::StepLast + 300:
-    case OperationCode::StepLast + 400:
-    case OperationCode::StepNext:
-    case OperationCode::StepNext + 100:
-    case OperationCode::StepNext + 200:
-    case OperationCode::StepNext + 300:
-    case OperationCode::StepNext + 400:
-    case OperationCode::StepPrevious:
-    case OperationCode::StepPrevious + 100:
-    case OperationCode::StepPrevious + 200:
-    case OperationCode::StepPrevious + 300:
-    case OperationCode::StepPrevious + 400:
+    CASE_WITH_RECORD_LOCK(OperationCode::StepFirst):
+    CASE_WITH_RECORD_LOCK(OperationCode::StepLast):
+    CASE_WITH_RECORD_LOCK(OperationCode::StepNext):
+    CASE_WITH_RECORD_LOCK(OperationCode::StepPrevious):
       return ::Step(command);
-    case OperationCode::AcquireFirst:
-    case OperationCode::AcquireLast:
-    case OperationCode::AcquireNext:
-    case OperationCode::AcquirePrevious:
-    case OperationCode::AcquireEqual:
-    case OperationCode::AcquireGreater:
-    case OperationCode::AcquireGreaterOrEqual:
-    case OperationCode::AcquireLess:
-    case OperationCode::AcquireLessOrEqual:
-    case OperationCode::QueryFirst:
-    case OperationCode::QueryLast:
-    case OperationCode::QueryNext:
-    case OperationCode::QueryPrevious:
-    case OperationCode::QueryEqual:
-    case OperationCode::QueryGreater:
-    case OperationCode::QueryGreaterOrEqual:
-    case OperationCode::QueryLess:
-    case OperationCode::QueryLessOrEqual:
-      // TODO don't forget all +100-400 for these queries as well
+    CASE_WITH_RECORD_LOCK(OperationCode::AcquireFirst):
+    CASE_WITH_RECORD_LOCK(OperationCode::AcquireLast):
+    CASE_WITH_RECORD_LOCK(OperationCode::AcquireNext):
+    CASE_WITH_RECORD_LOCK(OperationCode::AcquirePrevious):
+    CASE_WITH_RECORD_LOCK(OperationCode::AcquireEqual):
+    CASE_WITH_RECORD_LOCK(OperationCode::AcquireGreater):
+    CASE_WITH_RECORD_LOCK(OperationCode::AcquireGreaterOrEqual):
+    CASE_WITH_RECORD_LOCK(OperationCode::AcquireLess):
+    CASE_WITH_RECORD_LOCK(OperationCode::AcquireLessOrEqual):
+    CASE_WITH_RECORD_LOCK(OperationCode::QueryFirst):
+    CASE_WITH_RECORD_LOCK(OperationCode::QueryLast):
+    CASE_WITH_RECORD_LOCK(OperationCode::QueryNext):
+    CASE_WITH_RECORD_LOCK(OperationCode::QueryPrevious):
+    CASE_WITH_RECORD_LOCK(OperationCode::QueryEqual):
+    CASE_WITH_RECORD_LOCK(OperationCode::QueryGreater):
+    CASE_WITH_RECORD_LOCK(OperationCode::QueryGreaterOrEqual):
+    CASE_WITH_RECORD_LOCK(OperationCode::QueryLess):
+    CASE_WITH_RECORD_LOCK(OperationCode::QueryLessOrEqual):
       return ::Query(command);
     case OperationCode::GetPosition:
       return ::GetPosition(command);
-    case OperationCode::GetDirectChunkOrRecord:
-    case OperationCode::GetDirectChunkOrRecord + 100:
-    case OperationCode::GetDirectChunkOrRecord + 200:
-    case OperationCode::GetDirectChunkOrRecord + 300:
-    case OperationCode::GetDirectChunkOrRecord + 400:
+    CASE_WITH_RECORD_LOCK(OperationCode::GetDirectChunkOrRecord):
       return ::GetDirectRecord(command);
     case OperationCode::Update:
       return ::Upsert(command, [](BtrieveDriver *driver,
@@ -670,6 +657,7 @@ static BtrieveError handle(BtrieveCommand &command) {
       return BtrieveError::InvalidOperation;
   }
 }
+// clang-format on
 
 extern "C" int __stdcall BTRCALL(WORD wOperation, LPVOID lpPositionBlock,
                                  LPVOID lpDataBuffer,
