@@ -247,8 +247,7 @@ static BtrieveError Stat(BtrieveCommand &command) {
       lpKeySpec->position = segment.getPosition();
       lpKeySpec->length = segment.getLength();
       lpKeySpec->attributes = segment.getAttributes();
-      lpKeySpec->uniqueKeys =
-          btrieveDriver->getRecordCount();  // TODO do I need to calculate this?
+      lpKeySpec->uniqueKeys = btrieveDriver->getRecordCount();
       lpKeySpec->extendedDataType = segment.getDataType();
       lpKeySpec->nullValue = segment.getNullValue();
       lpKeySpec->reserved = 0;
@@ -319,7 +318,6 @@ static BtrieveError GetPosition(BtrieveCommand &command) {
   *reinterpret_cast<uint32_t *>(command.lpDataBuffer) =
       btrieveDriver->getPosition();
 
-  // TODO can this be InvalidPositioning, say on an empty file?
   return BtrieveError::Success;
 }
 
@@ -560,7 +558,6 @@ static BtrieveError Create(BtrieveCommand &command) {
       acsName[0] = 0;
     }
 
-    // TODO figure out segment stuff later
     KeyDefinition keyDefinition(
         i, static_cast<uint16_t>(lpKeySpec->length),
         static_cast<uint16_t>(lpKeySpec->position) - 1,

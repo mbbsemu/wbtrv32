@@ -29,7 +29,6 @@ static inline bool fileExists(const tchar *filename,
     return false;
   }
 
-  // TODO check this
   fileModificationNanos =
       *reinterpret_cast<int64_t *>(&fileAttributeData.ftLastWriteTime);
   return true;

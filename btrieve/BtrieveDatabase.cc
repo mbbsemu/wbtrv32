@@ -621,7 +621,6 @@ void BtrieveDatabase::getVariableLengthData(
 
   if (recordType == RecordType::VariableTruncated) {
     for (uint16_t i = 0; i < truncatedBytes; ++i) {
-      // TODO - instead of pushing space, should it be database's nullChar?
       stream.push_back(' ');
     }
   }
