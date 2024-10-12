@@ -11,6 +11,10 @@
 #include "SqliteUtil.h"
 #include "sqlite/sqlite3.h"
 
+#ifndef WIN32
+#include <unistd.h>
+#endif
+
 namespace btrieve {
 
 static const unsigned int CURRENT_VERSION = 3;

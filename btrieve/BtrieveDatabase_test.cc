@@ -136,7 +136,7 @@ TEST(BtrieveDatabase, LoadsVariableDatV6) {
   BtrieveDatabase database;
 
   std::unordered_map<std::string, uint32_t> expectedData;
-  for (int i = 0; i < sizeof(variableData) / sizeof(variableData[0]); ++i) {
+  for (size_t i = 0; i < sizeof(variableData) / sizeof(variableData[0]); ++i) {
     expectedData[variableData[i].key] = variableData[i].recordLength;
   }
 
