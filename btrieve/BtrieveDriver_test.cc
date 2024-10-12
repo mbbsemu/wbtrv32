@@ -1792,11 +1792,16 @@ TEST_F(BtrieveDriverTest, SeekByKeyEqualWithDuplicatesUpAndDown) {
   ASSERT_EQ(driver.getPosition(), 1);
 
   ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryPrevious),
+            BtrieveError::EndOfFile);
+
+  // and up one and back down again for good measure
+  ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryNext),
             BtrieveError::Success);
-  ASSERT_EQ(driver.getPosition(), 0);
+  ASSERT_EQ(driver.getPosition(), 2);
 
   ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryPrevious),
-            BtrieveError::EndOfFile);
+            BtrieveError::Success);
+  ASSERT_EQ(driver.getPosition(), 1);
 }
 
 const unsigned int ACS_RECORD_LENGTH = 128;
