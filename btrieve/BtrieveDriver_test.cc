@@ -1717,7 +1717,87 @@ TEST_F(BtrieveDriverTest, SeekByKeyLessOrEqualNotFound) {
             BtrieveError::EndOfFile);
 }
 
-// TODO add tests for queryEqual/Less/Greater when there are duplicates
+TEST_F(BtrieveDriverTest, SeekByKeyEqualWithDuplicates) {
+  BtrieveDriver driver(new SqliteDatabase());
+
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  driver.open(mbbsEmuDb.c_str());
+
+  const char *sysopKey = "Sysop";
+  auto key = std::basic_string_view<uint8_t>(
+      reinterpret_cast<const uint8_t *>(sysopKey), strlen(sysopKey));
+
+  ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryEqual),
+            BtrieveError::Success);
+  ASSERT_EQ(driver.getPosition(), 1);
+
+  ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryNext),
+            BtrieveError::Success);
+  ASSERT_EQ(driver.getPosition(), 2);
+
+  ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryNext),
+            BtrieveError::Success);
+  ASSERT_EQ(driver.getPosition(), 3);
+
+  ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryNext),
+            BtrieveError::Success);
+  ASSERT_EQ(driver.getPosition(), 4);
+
+  ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryNext),
+            BtrieveError::EndOfFile);
+  ASSERT_EQ(driver.getPosition(), 4);
+}
+
+TEST_F(BtrieveDriverTest, SeekByKeyEqualWithDuplicatesUpAndDown) {
+  BtrieveDriver driver(new SqliteDatabase());
+
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  driver.open(mbbsEmuDb.c_str());
+
+  const char *sysopKey = "Sysop";
+  auto key = std::basic_string_view<uint8_t>(
+      reinterpret_cast<const uint8_t *>(sysopKey), strlen(sysopKey));
+
+  ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryEqual),
+            BtrieveError::Success);
+  ASSERT_EQ(driver.getPosition(), 1);
+
+  ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryNext),
+            BtrieveError::Success);
+  ASSERT_EQ(driver.getPosition(), 2);
+
+  ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryNext),
+            BtrieveError::Success);
+  ASSERT_EQ(driver.getPosition(), 3);
+
+  ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryNext),
+            BtrieveError::Success);
+  ASSERT_EQ(driver.getPosition(), 4);
+
+  ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryNext),
+            BtrieveError::EndOfFile);
+  ASSERT_EQ(driver.getPosition(), 4);
+
+  // now go backwards
+  ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryPrevious),
+            BtrieveError::Success);
+  ASSERT_EQ(driver.getPosition(), 3);
+
+  ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryPrevious),
+            BtrieveError::Success);
+  ASSERT_EQ(driver.getPosition(), 2);
+
+  ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryPrevious),
+            BtrieveError::Success);
+  ASSERT_EQ(driver.getPosition(), 1);
+
+  ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryPrevious),
+            BtrieveError::Success);
+  ASSERT_EQ(driver.getPosition(), 0);
+
+  ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryPrevious),
+            BtrieveError::EndOfFile);
+}
 
 const unsigned int ACS_RECORD_LENGTH = 128;
 
