@@ -22,7 +22,7 @@ int main(int argc, const char **argv) {
 
       for (auto &key : database.getKeys()) {
         for (auto &segment : key.getSegments()) {
-         printf("Key datatype %d\n", segment.getDataType());
+          printf("Key datatype %d\n", segment.getDataType());
         }
       }
     } catch (btrieve::BtrieveException &ex) {

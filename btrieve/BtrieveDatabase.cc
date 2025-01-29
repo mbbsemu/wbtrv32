@@ -309,7 +309,8 @@ BtrieveError BtrieveDatabase::parseDatabase(
     std::function<void()> onRecordsComplete) {
   FILE* f = fopen(toStdString(fileName).c_str(), "rb");
   if (f == nullptr) {
-    fprintf(stderr, "Couldn't open %s: %d\n", toStdString(fileName).c_str(), errno);
+    fprintf(stderr, "Couldn't open %s: %d\n", toStdString(fileName).c_str(),
+            errno);
     return BtrieveError::FileNotFound;
   }
 

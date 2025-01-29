@@ -44,7 +44,8 @@ static inline bool fileExists(const wchar_t *filename,
 #endif
 }
 
-static std::basic_string<wchar_t> toUpper(const std::basic_string<wchar_t> &value) {
+static std::basic_string<wchar_t> toUpper(
+    const std::basic_string<wchar_t> &value) {
   std::basic_string<wchar_t> ret(value);
   for (size_t i = 0; i < ret.size(); ++i) {
     ret[i] = toupper(ret[i]);
@@ -67,12 +68,14 @@ BtrieveError BtrieveDriver::open(const wchar_t *fileName, OpenMode openMode) {
   openedFilename = fileName;
 
   bool datExists = fileExists(fileName, fileModificationTimeDat);
-  bool dbExists = fileExists(toWideString(dbPath).c_str(), fileModificationTimeDb);
+  bool dbExists =
+      fileExists(toWideString(dbPath).c_str(), fileModificationTimeDb);
   if (!dbExists) {
     // failed to find db, let's uppercase and try again
     std::filesystem::path dbPathUpper = dbPath;
     dbPathUpper.replace_extension(toUpper(sqlDatabase->getFileExtension()));
-    dbExists = fileExists(toWideString(dbPathUpper).c_str(), fileModificationTimeDb);
+    dbExists =
+        fileExists(toWideString(dbPathUpper).c_str(), fileModificationTimeDb);
     if (dbExists) {
       dbPath = dbPathUpper;
     }
@@ -98,7 +101,8 @@ BtrieveError BtrieveDriver::open(const wchar_t *fileName, OpenMode openMode) {
     error = btrieveDatabase.parseDatabase(
         fileName,
         [this, &dbPath, &btrieveDatabase, &recordLoader, openMode]() {
-          recordLoader = sqlDatabase->create(toWideString(dbPath).c_str(), btrieveDatabase);
+          recordLoader = sqlDatabase->create(toWideString(dbPath).c_str(),
+                                             btrieveDatabase);
           return true;
         },
         [&recordLoader](const std::basic_string_view<uint8_t> record) {

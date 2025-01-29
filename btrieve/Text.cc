@@ -16,6 +16,7 @@ std::string toStdString(const wchar_t *str) {
 #else
 
 #include <stdint.h>
+
 #include <cstring>
 
 std::string toStdString(const wchar_t *str) {
@@ -33,11 +34,12 @@ std::basic_string<wchar_t> toWideString(const std::filesystem::path &dbPath) {
 
 std::basic_string<wchar_t> toWideString(const char *str) {
   size_t destBufferSizeInBytes = (strlen(str) + 1) * sizeof(wchar_t);
-  wchar_t *destBuffer = reinterpret_cast<wchar_t *>(alloca(destBufferSizeInBytes));
+  wchar_t *destBuffer =
+      reinterpret_cast<wchar_t *>(alloca(destBufferSizeInBytes));
 
   mbstowcs(destBuffer, str, destBufferSizeInBytes);
   return std::basic_string<wchar_t>(destBuffer);
 }
 
 #endif
-} // namespace btrieve
+}  // namespace btrieve
