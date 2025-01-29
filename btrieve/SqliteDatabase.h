@@ -21,13 +21,13 @@ class SqliteDatabase : public SqlDatabase {
 
   virtual ~SqliteDatabase() { close(); }
 
-  virtual const tchar *getFileExtension() override { return _TEXT("db"); };
+  virtual const wchar_t *getFileExtension() override { return _TEXT("db"); };
 
-  virtual BtrieveError open(const tchar *fileName,
+  virtual BtrieveError open(const wchar_t *fileName,
                             OpenMode openMode = OpenMode::Normal) override;
 
   virtual std::unique_ptr<RecordLoader> create(
-      const tchar *fileName, const BtrieveDatabase &database) override;
+      const wchar_t *fileName, const BtrieveDatabase &database) override;
 
   virtual void close() override;
 
@@ -75,7 +75,7 @@ class SqliteDatabase : public SqlDatabase {
   void createSqliteDataIndices(const BtrieveDatabase &database);
   void createSqliteTriggers(const BtrieveDatabase &database);
 
-  void loadSqliteMetadata(const tchar *filename, unsigned int openFlags);
+  void loadSqliteMetadata(const wchar_t *filename, unsigned int openFlags);
   void loadSqliteKeys();
 
   BtrieveError getByKeyGreater(Query *query, const char *opurator);
@@ -104,7 +104,7 @@ class SqliteDatabase : public SqlDatabase {
   BtrieveError nextReader(Query *query, CursorDirection cursorDirection);
 
   void upgradeDatabaseFromVersion(uint32_t currentVersion,
-                                  const tchar *filename,
+                                  const wchar_t *filename,
                                   unsigned int openFlags);
 
   void upgradeDatabaseFrom2To3();

@@ -1,6 +1,7 @@
 #include "btrieve/BtrieveDriver.h"
 #include "btrieve/BtrieveException.h"
 #include "btrieve/SqliteDatabase.h"
+#include "btrieve/Text.h"
 
 int main(int argc, const char **argv) {
 
@@ -9,7 +10,7 @@ int main(int argc, const char **argv) {
 
     btrieve::BtrieveDriver driver(new btrieve::SqliteDatabase());
     try {
-      driver.open(argv[i]);
+      driver.open(btrieve::toWideString(argv[i]).c_str());
       printf("Successfully opened %s\n", argv[i]);
     } catch (btrieve::BtrieveException &ex) {
       fprintf(stderr, "Error while parsing %s: %s\n", argv[i],

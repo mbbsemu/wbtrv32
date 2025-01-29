@@ -30,15 +30,15 @@ class SqlDatabase {
 
   virtual ~SqlDatabase() = default;
 
-  virtual const tchar *getFileExtension() = 0;
+  virtual const wchar_t *getFileExtension() = 0;
 
   // Opens a Btrieve database as a sql backed file.
-  virtual BtrieveError open(const tchar *fileName,
+  virtual BtrieveError open(const wchar_t *fileName,
                             OpenMode openMode = OpenMode::Normal) = 0;
 
   // Creates a new sql backed file using database as the source of records
   virtual std::unique_ptr<RecordLoader> create(
-      const tchar *fileName, const BtrieveDatabase &database) = 0;
+      const wchar_t *fileName, const BtrieveDatabase &database) = 0;
 
   // Closes an opened database.
   virtual void close() = 0;

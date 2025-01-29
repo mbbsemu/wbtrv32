@@ -1,5 +1,6 @@
 #include "btrieve/BtrieveDatabase.h"
 #include "btrieve/BtrieveException.h"
+#include "btrieve/Text.h"
 
 int main(int argc, const char **argv) {
   btrieve::BtrieveDatabase database;
@@ -10,7 +11,7 @@ int main(int argc, const char **argv) {
     try {
       uint recordCount = 0;
       database.parseDatabase(
-          argv[i], []() { return true; },
+          btrieve::toWideString(argv[i]).c_str(), []() { return true; },
           [&recordCount](const std::basic_string_view<uint8_t> record) {
             ++recordCount;
             return true;

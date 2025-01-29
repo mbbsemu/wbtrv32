@@ -97,7 +97,7 @@ std::string TempPath::getTempPath() {
 #endif
 }
 
-std::basic_string<tchar> TempPath::copyToTempPath(const char *filePath) {
+std::basic_string<wchar_t> TempPath::copyToTempPath(const char *filePath) {
   const size_t bufferSize = 32 * 1024;
 
   std::filesystem::path destPath(getTempPath());
@@ -136,7 +136,7 @@ std::basic_string<tchar> TempPath::copyToTempPath(const char *filePath) {
     }
   }
 
-  return destPath;
+  return btrieve::toWideString(destPath);
 }
 
 void TempPath::deleteAllFiles(const char *filePath) {

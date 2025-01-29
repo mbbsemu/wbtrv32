@@ -108,7 +108,7 @@ class BtrieveDatabase {
   // to discontinue enumeration. Throws BtrieveException when a critical error
   // is encountered.
   BtrieveError parseDatabase(
-      const tchar *fileName, std::function<bool()> onMetadataLoaded,
+      const wchar_t *fileName, std::function<bool()> onMetadataLoaded,
       std::function<bool(const std::basic_string_view<uint8_t>)> onRecordLoaded,
       std::function<void()> onRecordsComplete = []() {});
 
