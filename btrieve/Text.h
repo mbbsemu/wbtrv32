@@ -11,6 +11,8 @@ namespace btrieve {
 
   std::string toStdString(const wchar_t *str);
 
+  std::string toStdString(const std::filesystem::path &dbPath);
+
   std::basic_string<wchar_t> toWideString(const char *str);
 
   std::basic_string<wchar_t> toWideString(const std::filesystem::path &dbPath);

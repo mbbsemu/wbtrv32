@@ -28,6 +28,10 @@ std::string toStdString(const wchar_t *str) {
   return std::string(destBuffer);
 }
 
+std::string toStdString(const std::filesystem::path &dbPath) {
+  return dbPath.c_str();
+}
+
 std::basic_string<wchar_t> toWideString(const std::filesystem::path &dbPath) {
   return toWideString(dbPath.c_str());
 }

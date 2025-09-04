@@ -1,7 +1,9 @@
 #ifndef __FRAMEWORK_H_
 #define __FRAMEWORK_H_
 
+namespace btrieve {
 bool FileExists(const wchar_t *file);
+}
 
 #ifdef WIN32
 
@@ -14,6 +16,7 @@ bool FileExists(const wchar_t *file);
 
 #include "btrieve/Text.h"
 #include <errno.h>
+#include <dlfcn.h>
 
 typedef void *LPVOID;
 typedef const void *LPCVOID;
@@ -26,6 +29,9 @@ typedef uint8_t BYTE;
 
 typedef DWORD *LPDWORD;
 
+typedef void *HANDLE;
+typedef void *HMODULE;
+
 typedef struct _tagGUID {
   uint32_t a;
   uint32_t b;
@@ -34,7 +40,7 @@ typedef struct _tagGUID {
 } GUID, *LPGUID;
 
 #define ARRAYSIZE(a) (sizeof(a) / sizeof(a[0]))
-#define MAX_PATH 512
+#define MAX_PATH 255
 
 static void StringFromGUID2(const GUID &guid, wchar_t *guidStr, size_t guidNumberOfCharacters) {
   char *tmp = reinterpret_cast<char*>(alloca(guidNumberOfCharacters));
@@ -49,6 +55,18 @@ static void CoCreateGuid(GUID *guid) {
   for (size_t i = 0; i < sizeof(GUID); ++i) {
     reinterpret_cast<unsigned char*>(guid)[i] = rand() & 0xFF;
   }
+}
+
+static HMODULE LoadLibrary(const wchar_t *path) {
+  return dlopen(btrieve::toStdString(path).c_str(), 0);
+}
+
+static void FreeLibrary(HMODULE hModule) {
+  dlclose(hModule);
+}
+
+static void *GetProcAddress(HMODULE hModule, const char *symbol) {
+  return dlsym(hModule, symbol);
 }
 
 #define _TRUNCATE -1
