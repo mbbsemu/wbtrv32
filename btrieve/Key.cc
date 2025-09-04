@@ -21,8 +21,8 @@ std::string Key::getSqliteColumnSql() const {
                 type == KeyDataType::OldBinary) &&
                getPrimarySegment().getLength() <= 8) {
       sql << "INTEGER";
-    } else if (type == KeyDataType::String || type == KeyDataType::Lstring ||
-               type == KeyDataType::Zstring || type == KeyDataType::OldAscii) {
+    } else if (type == KeyDataType::Lstring || type == KeyDataType::Zstring ||
+               type == KeyDataType::OldAscii) {
       sql << "TEXT";
     } else if (type == KeyDataType::Float) {
       sql << "REAL";
@@ -166,6 +166,7 @@ BindableValue Key::keyDataToSqliteObject(
     case KeyDataType::Unsigned:
     case KeyDataType::UnsignedBinary:
     case KeyDataType::OldBinary:
+    case KeyDataType::String:
       if (getPrimarySegment().getLength() > 0 &&
           getPrimarySegment().getLength() <= 8) {
         for (int i = 0; i < getPrimarySegment().getLength(); ++i) {
@@ -185,8 +186,7 @@ BindableValue Key::keyDataToSqliteObject(
         return BindableValue(copy);
       }
       break;
-    case KeyDataType::String:
-    case KeyDataType::Lstring:
+    case KeyDataType::Lstring: // TODO handle Lstring properly
     case KeyDataType::Zstring:
     case KeyDataType::OldAscii:
       return BindableValue(extractNullTerminatedString(modifiedKeyData));

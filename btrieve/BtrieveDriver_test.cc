@@ -1845,7 +1845,7 @@ static BtrieveDatabase createACSBtrieveDatabase() {
 
   std::vector<char> acs = upperACS();
 
-  KeyDefinition keyDefinition(0, 30, 2, KeyDataType::String,
+  KeyDefinition keyDefinition(0, 30, 2, KeyDataType::Zstring,
                               UseExtendedDataType | NumberedACS, false, 0, 0, 0,
                               "acsName", acs);
 
