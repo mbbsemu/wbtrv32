@@ -1934,6 +1934,8 @@ TEST_F(BtrieveDriverTest, ACSSeekByKey_String) {
   ASSERT_EQ(driver.getPosition(), 2);
   ASSERT_EQ(data.second.getData().size(), ACS_RECORD_LENGTH);
   ASSERT_EQ(memcmp(data.second.getData().data() + 2, "Paladine", 8), 0);
+  ASSERT_EQ(data.second.getData().data()[10], 0);
+  ASSERT_EQ(memcmp(data.second.getData().data() + 11, searchKey + 9, 21), 0);
 }
 
 TEST_F(BtrieveDriverTest, ACSInsertDuplicateFails) {
