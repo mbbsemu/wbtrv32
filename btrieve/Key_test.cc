@@ -132,9 +132,6 @@ TEST_P(ParameterizedStringFixture, StringTypeConversions) {
 
 static std::vector<ParameterizedStringFixtureType> createStringData() {
   return std::vector<ParameterizedStringFixtureType>{
-      {32, KeyDataType::String, "Test"},   {5, KeyDataType::String, "Test"},
-      {4, KeyDataType::String, "Test"},    {3, KeyDataType::String, "Tes"},
-      {2, KeyDataType::String, "Te"},      {1, KeyDataType::String, "T"},
       {32, KeyDataType::Lstring, "Test"},  {5, KeyDataType::Lstring, "Test"},
       {4, KeyDataType::Lstring, "Test"},   {3, KeyDataType::Lstring, "Tes"},
       {2, KeyDataType::Lstring, "Te"},     {1, KeyDataType::Lstring, "T"},
@@ -244,10 +241,10 @@ static std::vector<char> upperACS() {
   return ret;
 }
 
-TEST(Key, ACSReplacementSingleKey) {
+TEST(Key, ACSReplacementSingleKey_Zstring) {
   std::vector<char> acs = upperACS();
 
-  KeyDefinition keyDefinition(0, 8, 2, KeyDataType::String,
+  KeyDefinition keyDefinition(0, 8, 2, KeyDataType::Zstring,
                               UseExtendedDataType | NumberedACS, true, 0, 0, 0,
                               "acsName", acs);
 
@@ -268,6 +265,37 @@ TEST(Key, ACSReplacementSingleKey) {
                     .getStringValue();
 
   EXPECT_EQ(actual, "ABTZ%");
+}
+
+TEST(Key, ACSReplacementSingleKey_String) {
+  std::vector<char> acs = upperACS();
+
+  KeyDefinition keyDefinition(0, 16, 2, KeyDataType::String,
+                              UseExtendedDataType | NumberedACS, true, 0, 0, 0,
+                              "acsName", acs);
+
+  Key key(&keyDefinition, 1);
+
+  uint8_t record[128];
+  memset(record, 0xFF, sizeof(record));
+  // first segment is all spaces i.e. null
+  record[2] = (uint8_t)'a';
+  record[3] = (uint8_t)'B';
+  record[4] = (uint8_t)'t';
+  record[5] = (uint8_t)'Z';
+  record[6] = (uint8_t)'%';
+  record[7] = 0;
+  record[8] = 0;
+  record[9] = (uint8_t)'a';
+  record[10] = (uint8_t)'B';
+  record[11] = (uint8_t)'t';
+  record[12] = 0;
+
+  auto actual = key.extractKeyInRecordToSqliteObject(
+                       std::basic_string_view<uint8_t>(record, sizeof(record)))
+                    .getBlobValue();
+
+  EXPECT_TRUE(memcmp(actual.data(), "ABTZ%\0\0ABT", 10) == 0);
 }
 
 struct ACSReplacementMultipleKey {

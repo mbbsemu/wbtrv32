@@ -166,7 +166,6 @@ BindableValue Key::keyDataToSqliteObject(
     case KeyDataType::Unsigned:
     case KeyDataType::UnsignedBinary:
     case KeyDataType::OldBinary:
-    case KeyDataType::String:
       if (getPrimarySegment().getLength() > 0 &&
           getPrimarySegment().getLength() <= 8) {
         for (int i = 0; i < getPrimarySegment().getLength(); ++i) {
@@ -205,6 +204,7 @@ BindableValue Key::keyDataToSqliteObject(
           break;
       }
       break;
+    case KeyDataType::String:
     default:
       return BindableValue(modifiedKeyData);
   }
