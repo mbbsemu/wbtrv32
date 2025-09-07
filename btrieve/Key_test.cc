@@ -11,7 +11,7 @@ static const unsigned char DATA_NEGATIVE[] = {0xF1, 0xF2, 0xF3, 0xF4,
                                               0xF5, 0xF6, 0xF7, 0xF8};
 static const unsigned char DATA_POSITIVE[] = {0x1, 0x2, 0x3, 0x4,
                                               0x5, 0x6, 0x7, 0x8};
-static const char STRING_DATA[32] = "Test";
+static const char STRING_DATA[32] = "\x04Test";
 
 TEST(Key, SingleKeySegment) {
   KeyDefinition keyDefinition(0, 10, 0, KeyDataType::String, 0, false, 0, 0, 0,
@@ -121,23 +121,21 @@ TEST_P(ParameterizedStringFixture, StringTypeConversions) {
 
   Key key(&keyDefinition, 1);
 
-  auto actual =
-      key
-          .keyDataToSqliteObject(std::basic_string_view<uint8_t>(
-              reinterpret_cast<const uint8_t *>(STRING_DATA), view.length))
-          .getStringValue();
+  auto actual = key
+                    .keyDataToSqliteObject(std::basic_string_view<uint8_t>(
+                        reinterpret_cast<const uint8_t *>(STRING_DATA) +
+                            (view.type == KeyDataType::Lstring ? 0 : 1),
+                        view.length))
+                    .getStringValue();
 
   EXPECT_EQ(actual, view.expected);
 }
 
 static std::vector<ParameterizedStringFixtureType> createStringData() {
   return std::vector<ParameterizedStringFixtureType>{
-      {32, KeyDataType::String, "Test"},   {5, KeyDataType::String, "Test"},
-      {4, KeyDataType::String, "Test"},    {3, KeyDataType::String, "Tes"},
-      {2, KeyDataType::String, "Te"},      {1, KeyDataType::String, "T"},
       {32, KeyDataType::Lstring, "Test"},  {5, KeyDataType::Lstring, "Test"},
-      {4, KeyDataType::Lstring, "Test"},   {3, KeyDataType::Lstring, "Tes"},
-      {2, KeyDataType::Lstring, "Te"},     {1, KeyDataType::Lstring, "T"},
+      {4, KeyDataType::Lstring, "Tes"},    {3, KeyDataType::Lstring, "Te"},
+      {2, KeyDataType::Lstring, "T"},      {1, KeyDataType::Lstring, ""},
       {32, KeyDataType::Zstring, "Test"},  {5, KeyDataType::Zstring, "Test"},
       {4, KeyDataType::Zstring, "Test"},   {3, KeyDataType::Zstring, "Tes"},
       {2, KeyDataType::Zstring, "Te"},     {1, KeyDataType::Zstring, "T"},
@@ -244,10 +242,10 @@ static std::vector<char> upperACS() {
   return ret;
 }
 
-TEST(Key, ACSReplacementSingleKey) {
+TEST(Key, ACSReplacementSingleKey_Zstring) {
   std::vector<char> acs = upperACS();
 
-  KeyDefinition keyDefinition(0, 8, 2, KeyDataType::String,
+  KeyDefinition keyDefinition(0, 8, 2, KeyDataType::Zstring,
                               UseExtendedDataType | NumberedACS, true, 0, 0, 0,
                               "acsName", acs);
 
@@ -268,6 +266,37 @@ TEST(Key, ACSReplacementSingleKey) {
                     .getStringValue();
 
   EXPECT_EQ(actual, "ABTZ%");
+}
+
+TEST(Key, ACSReplacementSingleKey_String) {
+  std::vector<char> acs = upperACS();
+
+  KeyDefinition keyDefinition(0, 16, 2, KeyDataType::String,
+                              UseExtendedDataType | NumberedACS, true, 0, 0, 0,
+                              "acsName", acs);
+
+  Key key(&keyDefinition, 1);
+
+  uint8_t record[128];
+  memset(record, 0xFF, sizeof(record));
+  // first segment is all spaces i.e. null
+  record[2] = (uint8_t)'a';
+  record[3] = (uint8_t)'B';
+  record[4] = (uint8_t)'t';
+  record[5] = (uint8_t)'Z';
+  record[6] = (uint8_t)'%';
+  record[7] = 0;
+  record[8] = 0;
+  record[9] = (uint8_t)'a';
+  record[10] = (uint8_t)'B';
+  record[11] = (uint8_t)'t';
+  record[12] = 0;
+
+  auto actual = key.extractKeyInRecordToSqliteObject(
+                       std::basic_string_view<uint8_t>(record, sizeof(record)))
+                    .getBlobValue();
+
+  EXPECT_TRUE(memcmp(actual.data(), "ABTZ%\0\0ABT", 10) == 0);
 }
 
 struct ACSReplacementMultipleKey {
