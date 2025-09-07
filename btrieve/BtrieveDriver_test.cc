@@ -1872,8 +1872,8 @@ TEST_F(BtrieveDriverTest, ACSSeekByKey_Zstring) {
   SqliteDatabase *database = new SqliteDatabase(SQLITE_OPEN_MEMORY);
   BtrieveDriver driver(database);
 
-  auto recordLoader =
-      database->create(_TEXT("unused.db"), createACSBtrieveDatabase(KeyDataType::Zstring));
+  auto recordLoader = database->create(
+      _TEXT("unused.db"), createACSBtrieveDatabase(KeyDataType::Zstring));
   recordLoader->onRecordsComplete();
 
   ASSERT_EQ(database->insertRecord(std::basic_string_view<uint8_t>(
@@ -1904,8 +1904,8 @@ TEST_F(BtrieveDriverTest, ACSSeekByKey_String) {
   SqliteDatabase *database = new SqliteDatabase(SQLITE_OPEN_MEMORY);
   BtrieveDriver driver(database);
 
-  auto recordLoader =
-      database->create(_TEXT("unused.db"), createACSBtrieveDatabase(KeyDataType::String));
+  auto recordLoader = database->create(
+      _TEXT("unused.db"), createACSBtrieveDatabase(KeyDataType::String));
   recordLoader->onRecordsComplete();
 
   ASSERT_EQ(database->insertRecord(std::basic_string_view<uint8_t>(
@@ -1938,12 +1938,56 @@ TEST_F(BtrieveDriverTest, ACSSeekByKey_String) {
   ASSERT_EQ(memcmp(data.second.getData().data() + 11, searchKey + 9, 21), 0);
 }
 
+TEST_F(BtrieveDriverTest, ACSSeekByKey_Lstring) {
+  SqliteDatabase *database = new SqliteDatabase(SQLITE_OPEN_MEMORY);
+  BtrieveDriver driver(database);
+
+  auto recordLoader = database->create(
+      _TEXT("unused.db"), createACSBtrieveDatabase(KeyDataType::Lstring));
+  recordLoader->onRecordsComplete();
+
+  ASSERT_EQ(database->insertRecord(std::basic_string_view<uint8_t>(
+                createRecord("Sysop").data(), ACS_RECORD_LENGTH)),
+            std::make_pair(BtrieveError::Success, 1u));
+
+  auto record = createRecord("Paladine");
+  // make this an Lstring
+  record.data()[2] = 8;
+  memcpy(record.data() + 3, "Paladine", 8);
+
+  ASSERT_EQ(database->insertRecord(std::basic_string_view<uint8_t>(
+                record.data(), ACS_RECORD_LENGTH)),
+            std::make_pair(BtrieveError::Success, 2u));
+
+  ASSERT_EQ(database->insertRecord(std::basic_string_view<uint8_t>(
+                createRecord("Testing").data(), ACS_RECORD_LENGTH)),
+            std::make_pair(BtrieveError::Success, 3u));
+
+  char searchKey[30];
+  memset(searchKey, 0xFF, sizeof(searchKey));
+  searchKey[0] = 8;
+  memcpy(searchKey + 1, "paladine", 8);
+
+  std::basic_string_view<uint8_t> key(
+      reinterpret_cast<const uint8_t *>(searchKey), 30);
+
+  ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryEqual),
+            BtrieveError::Success);
+  auto data = driver.getRecord();
+  ASSERT_TRUE(data.first);
+  ASSERT_EQ(driver.getPosition(), 2);
+  ASSERT_EQ(data.second.getData().size(), ACS_RECORD_LENGTH);
+  ASSERT_EQ(data.second.getData()[2], 8);  // Lstring length
+  ASSERT_EQ(memcmp(data.second.getData().data() + 3, "Paladine", 8), 0);
+  ASSERT_EQ(data.second.getData().data()[11], 0xFF);  // no null terminator
+}
+
 TEST_F(BtrieveDriverTest, ACSInsertDuplicateFails) {
   SqliteDatabase *database = new SqliteDatabase(SQLITE_OPEN_MEMORY);
   BtrieveDriver driver(database);
 
-  auto recordLoader =
-      database->create(_TEXT("unused.db"), createACSBtrieveDatabase(KeyDataType::Zstring));
+  auto recordLoader = database->create(
+      _TEXT("unused.db"), createACSBtrieveDatabase(KeyDataType::Zstring));
   recordLoader->onRecordsComplete();
 
   ASSERT_EQ(database->insertRecord(std::basic_string_view<uint8_t>(
@@ -1967,8 +2011,8 @@ TEST_F(BtrieveDriverTest, FloatSeekByKey) {
   SqliteDatabase *database = new SqliteDatabase(SQLITE_OPEN_MEMORY);
   BtrieveDriver driver(database);
 
-  auto recordLoader =
-      database->create(_TEXT("unused.db"), createACSBtrieveDatabase(KeyDataType::Zstring));
+  auto recordLoader = database->create(
+      _TEXT("unused.db"), createACSBtrieveDatabase(KeyDataType::Zstring));
   recordLoader->onRecordsComplete();
 
   ASSERT_EQ(database->insertRecord(std::basic_string_view<uint8_t>(

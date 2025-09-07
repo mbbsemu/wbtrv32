@@ -91,7 +91,17 @@ std::vector<uint8_t> Key::applyACS(
 
   for (auto &segment : segments) {
     const auto *acs = segment.requiresACS() ? segment.getACS() : DEFAULT_ACS;
-    for (int i = 0; i < segment.getLength(); ++i) {
+    int i;
+
+    if (segment.getDataType() == KeyDataType::Lstring) {
+      // skip the first length byte in the Lstring, so just copy verbatim
+      *(dst++) = *(src++);
+      i = 1;
+    } else {
+      i = 0;
+    }
+
+    for (; i < segment.getLength(); ++i) {
       *(dst++) = acs[*(src++)];
       if (src >= end) {
         return ret;
@@ -100,6 +110,17 @@ std::vector<uint8_t> Key::applyACS(
   }
 
   return ret;
+}
+
+static std::string extractPrefixedLengthString(
+    const std::vector<uint8_t> &keyData) {
+  size_t strlen = keyData.at(0);
+  if (strlen >= keyData.size()) {
+    strlen = keyData.size() - 1;
+  }
+
+  return std::string(reinterpret_cast<const char *>(keyData.data() + 1),
+                     strlen);
 }
 
 static std::string extractNullTerminatedString(
@@ -185,7 +206,8 @@ BindableValue Key::keyDataToSqliteObject(
         return BindableValue(copy);
       }
       break;
-    case KeyDataType::Lstring: // TODO handle Lstring properly
+    case KeyDataType::Lstring:
+      return BindableValue(extractPrefixedLengthString(modifiedKeyData));
     case KeyDataType::Zstring:
     case KeyDataType::OldAscii:
       return BindableValue(extractNullTerminatedString(modifiedKeyData));

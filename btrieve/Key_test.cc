@@ -11,7 +11,7 @@ static const unsigned char DATA_NEGATIVE[] = {0xF1, 0xF2, 0xF3, 0xF4,
                                               0xF5, 0xF6, 0xF7, 0xF8};
 static const unsigned char DATA_POSITIVE[] = {0x1, 0x2, 0x3, 0x4,
                                               0x5, 0x6, 0x7, 0x8};
-static const char STRING_DATA[32] = "Test";
+static const char STRING_DATA[32] = "\x04Test";
 
 TEST(Key, SingleKeySegment) {
   KeyDefinition keyDefinition(0, 10, 0, KeyDataType::String, 0, false, 0, 0, 0,
@@ -121,11 +121,12 @@ TEST_P(ParameterizedStringFixture, StringTypeConversions) {
 
   Key key(&keyDefinition, 1);
 
-  auto actual =
-      key
-          .keyDataToSqliteObject(std::basic_string_view<uint8_t>(
-              reinterpret_cast<const uint8_t *>(STRING_DATA), view.length))
-          .getStringValue();
+  auto actual = key
+                    .keyDataToSqliteObject(std::basic_string_view<uint8_t>(
+                        reinterpret_cast<const uint8_t *>(STRING_DATA) +
+                            (view.type == KeyDataType::Lstring ? 0 : 1),
+                        view.length))
+                    .getStringValue();
 
   EXPECT_EQ(actual, view.expected);
 }
@@ -133,8 +134,8 @@ TEST_P(ParameterizedStringFixture, StringTypeConversions) {
 static std::vector<ParameterizedStringFixtureType> createStringData() {
   return std::vector<ParameterizedStringFixtureType>{
       {32, KeyDataType::Lstring, "Test"},  {5, KeyDataType::Lstring, "Test"},
-      {4, KeyDataType::Lstring, "Test"},   {3, KeyDataType::Lstring, "Tes"},
-      {2, KeyDataType::Lstring, "Te"},     {1, KeyDataType::Lstring, "T"},
+      {4, KeyDataType::Lstring, "Tes"},    {3, KeyDataType::Lstring, "Te"},
+      {2, KeyDataType::Lstring, "T"},      {1, KeyDataType::Lstring, ""},
       {32, KeyDataType::Zstring, "Test"},  {5, KeyDataType::Zstring, "Test"},
       {4, KeyDataType::Zstring, "Test"},   {3, KeyDataType::Zstring, "Tes"},
       {2, KeyDataType::Zstring, "Te"},     {1, KeyDataType::Zstring, "T"},
