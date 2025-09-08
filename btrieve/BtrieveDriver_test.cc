@@ -851,7 +851,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyStringDuplicates) {
   driver.open(mbbsEmuDb.c_str());
 
   auto key = std::basic_string_view<uint8_t>(
-      reinterpret_cast<const uint8_t *>("Sysop"), 5);
+      reinterpret_cast<const uint8_t *>("Sysop"), 255);  // tests key truncation
 
   ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryEqual),
             BtrieveError::Success);
