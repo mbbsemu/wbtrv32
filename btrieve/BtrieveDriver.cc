@@ -194,6 +194,13 @@ BtrieveError BtrieveDriver::performOperation(
 
     const Key *key = &(sqlDatabase->getKeys()[keyNumber]);
 
+    // possibly truncate the length of keyData, since some clients just specify
+    // the max of 255 when the key is much smaller
+    int exceededSize = keyData.size() - key->getLength();
+    if (exceededSize > 0) {
+      keyData.remove_suffix(exceededSize);
+    }
+
     previousQuery = std::move(
         sqlDatabase->newQuery(sqlDatabase->getPosition(), key, keyData));
   }
