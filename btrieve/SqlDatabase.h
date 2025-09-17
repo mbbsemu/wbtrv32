@@ -17,7 +17,7 @@ class RecordLoader {
  public:
   virtual ~RecordLoader() = default;
 
-  virtual bool onRecordLoaded(std::basic_string_view<uint8_t> record) = 0;
+  virtual BtrieveDatabase::LoadRecordResult onRecordLoaded(std::basic_string_view<uint8_t> record) = 0;
 
   virtual void onRecordsComplete() = 0;
 };

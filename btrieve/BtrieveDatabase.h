@@ -101,6 +101,12 @@ class BtrieveDatabase {
            recordType == RecordType::VariableTruncated;
   }
 
+  enum LoadRecordResult {
+    CANCEL_ENUMERATION,
+    COUNT,
+    SKIP_COUNT,
+  };
+
   // Reads and parses the entire Btrieve DAT database.
   // Calls onMetadataLoaded when the header is read and getter methods on this
   // instance can be safely accessed. Return false to prevent reading any
@@ -109,7 +115,8 @@ class BtrieveDatabase {
   // is encountered.
   BtrieveError parseDatabase(
       const tchar *fileName, std::function<bool()> onMetadataLoaded,
-      std::function<bool(const std::basic_string_view<uint8_t>)> onRecordLoaded,
+      std::function<LoadRecordResult(const std::basic_string_view<uint8_t>)>
+          onRecordLoaded,
       std::function<void()> onRecordsComplete = []() {});
 
  private:
@@ -146,9 +153,10 @@ class BtrieveDatabase {
                           const std::vector<char> &acs);
 
   // Enumerates all records and calls onRecordLoaded for each one.
-  void loadRecords(FILE *f,
-                   std::function<bool(const std::basic_string_view<uint8_t>)>
-                       onRecordLoaded);
+  void loadRecords(
+      FILE *f,
+      std::function<LoadRecordResult(const std::basic_string_view<uint8_t>)>
+          onRecordLoaded);
 
   // Determines whether the data contained in fixedRecordData is unused.
   // Unused records have a 4-byte record pointer pointing to the next available

@@ -225,15 +225,16 @@ bool BtrieveDatabase::isUnusedRecord(std::basic_string_view<uint8_t> data) {
 
 void BtrieveDatabase::loadRecords(
     FILE* f,
-    std::function<bool(const std::basic_string_view<uint8_t>)> onRecordLoaded) {
+    std::function<LoadRecordResult(const std::basic_string_view<uint8_t>)>
+        onRecordLoaded) {
   unsigned int recordsLoaded = 0;
   uint8_t* const data = reinterpret_cast<uint8_t*>(alloca(pageLength));
   const unsigned int recordsInPage = ((pageLength - 6) / physicalRecordLength);
-  unsigned int pageOffset = pageLength;
+  unsigned int pageOffset = v6 ? pageLength : 0;
 
   fseek_s(f, pageLength, SEEK_SET);
   // Starting at 1, since the first page is the header
-  for (unsigned int i = v6 ? 1 : 0; i <= pageCount;
+  for (unsigned int i = v6 ? 1 : 0; i < pageCount;
        i++, pageOffset += pageLength) {
     int32_t physicalOffset = logicalPageToPhysicalOffset(f, i);
     if (physicalOffset < 0) {
@@ -268,6 +269,8 @@ void BtrieveDatabase::loadRecords(
                                                  recordLength);
       }
 
+      LoadRecordResult loadRecordResult;
+
       if (isVariableLengthRecords()) {
         std::basic_string_view<uint8_t> physicalRecord =
             std::basic_string_view<uint8_t>(
@@ -279,32 +282,37 @@ void BtrieveDatabase::loadRecords(
 
         getVariableLengthData(f, physicalRecord, stream);
 
-        if (!onRecordLoaded(std::basic_string_view<uint8_t>(stream.data(),
-                                                            stream.size()))) {
-          return;
-        }
+        loadRecordResult = onRecordLoaded(
+            std::basic_string_view<uint8_t>(stream.data(), stream.size()));
       } else {
-        if (!onRecordLoaded(record)) {
-          return;
-        }
+        loadRecordResult = onRecordLoaded(record);
       }
 
-      if (++recordsLoaded == recordCount) {
-        goto finished_loaded;
+      switch (loadRecordResult) {
+        case LoadRecordResult::CANCEL_ENUMERATION:
+          return;
+        case LoadRecordResult::COUNT:
+          ++recordsLoaded;
+          break;
       }
+    }
+
+    if (recordsLoaded == recordCount) {
+      goto finished_loaded;
     }
   }
 
 finished_loaded:
   if (recordsLoaded != recordCount) {
-    fprintf(stderr, "Database contains %d records but only read %d!\n",
-            recordCount, recordsLoaded);
+    fprintf(stderr, "Database contains %d records but read %d!\n", recordCount,
+            recordsLoaded);
   }
 }
 
 BtrieveError BtrieveDatabase::parseDatabase(
     const tchar* fileName, std::function<bool()> onMetadataLoaded,
-    std::function<bool(const std::basic_string_view<uint8_t>)> onRecordLoaded,
+    std::function<LoadRecordResult(const std::basic_string_view<uint8_t>)>
+        onRecordLoaded,
     std::function<void()> onRecordsComplete) {
 #ifdef WIN32
   FILE* f = _wfopen(fileName, _TEXT("rb"));
@@ -417,6 +425,15 @@ bool BtrieveDatabase::loadACSAtPhysicalOffset(FILE* f, std::string& acsName,
   char acsNameBuf[10];
   memcpy(acsNameBuf, acsPage + 7, 9);
   acsNameBuf[sizeof(acsNameBuf) - 1] = 0;
+  // remove trailing spaces
+  for (int i = strlen(acsNameBuf) - 1; i >= 0; --i) {
+    if (acsNameBuf[i] != ' ') {
+      break;
+    }
+
+    acsNameBuf[i] = 0;
+  }
+
   acsName = acsNameBuf;
 
   acs.resize(ACS_LENGTH);
