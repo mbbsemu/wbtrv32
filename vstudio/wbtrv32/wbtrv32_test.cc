@@ -154,6 +154,32 @@ TEST_F(wbtrv32Test, CannotStatUnopenedDatabase) {
             btrieve::BtrieveError::FileNotOpen);
 }
 
+TEST_F(wbtrv32Test, GetPosition) {
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  ASSERT_FALSE(mbbsEmuDb.empty());
+
+  uint32_t dwPosition;
+  DWORD dwDataBufferLength = sizeof(dwPosition);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr,
+                    &dwDataBufferLength,
+                    const_cast<LPVOID>(reinterpret_cast<LPCVOID>(
+                        toStdString(mbbsEmuDb.c_str()).c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::GetPosition, posBlock, &dwPosition,
+                    &dwDataBufferLength, nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(dwDataBufferLength, 4);
+  ASSERT_EQ(dwPosition, 1);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Close, posBlock, nullptr,
+                    &dwDataBufferLength, nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
+}
+
 TEST_F(wbtrv32Test, StatsDatabase) {
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   ASSERT_FALSE(mbbsEmuDb.empty());
@@ -408,7 +434,7 @@ TEST_F(wbtrv32Test, StepFirst) {
   ASSERT_FALSE(mbbsEmuDb.empty());
 
   RECORD record;
-  uint32_t position = 0;
+  uint32_t position;
   DWORD dwDataBufferLength = sizeof(record);
 
   ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr,
@@ -426,12 +452,12 @@ TEST_F(wbtrv32Test, StepFirst) {
   ASSERT_STREQ(record.string2, "3444");
   ASSERT_EQ(record.int2, 1);
 
-  dwDataBufferLength = sizeof(uint32_t);
+  dwDataBufferLength = sizeof(position);
   ASSERT_EQ(btrcall(btrieve::OperationCode::GetPosition, posBlock, &position,
                     &dwDataBufferLength, nullptr, 0, 0),
             btrieve::BtrieveError::Success);
 
-  ASSERT_EQ(position, 1);
+  ASSERT_EQ(position, 0x1);
 
   ASSERT_EQ(btrcall(btrieve::OperationCode::StepPrevious, posBlock, &record,
                     &dwDataBufferLength, nullptr, 0, 0),
@@ -446,7 +472,7 @@ TEST_F(wbtrv32Test, StepFirst) {
   ASSERT_STREQ(record.string2, "7776");
   ASSERT_EQ(record.int2, 2);
 
-  dwDataBufferLength = sizeof(uint32_t);
+  dwDataBufferLength = sizeof(position);
   ASSERT_EQ(btrcall(btrieve::OperationCode::GetPosition, posBlock, &position,
                     &dwDataBufferLength, nullptr, 0, 0),
             btrieve::BtrieveError::Success);
@@ -503,7 +529,7 @@ TEST_F(wbtrv32Test, StepLast) {
   ASSERT_FALSE(mbbsEmuDb.empty());
 
   RECORD record;
-  uint32_t position = 0;
+  uint32_t position;
   DWORD dwDataBufferLength = sizeof(record);
 
   ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr,
@@ -521,7 +547,7 @@ TEST_F(wbtrv32Test, StepLast) {
   ASSERT_STREQ(record.string2, "stringValue");
   ASSERT_EQ(record.int2, 4);
 
-  dwDataBufferLength = sizeof(uint32_t);
+  dwDataBufferLength = sizeof(position);
   ASSERT_EQ(btrcall(btrieve::OperationCode::GetPosition, posBlock, &position,
                     &dwDataBufferLength, nullptr, 0, 0),
             btrieve::BtrieveError::Success);
@@ -541,7 +567,7 @@ TEST_F(wbtrv32Test, StepLast) {
   ASSERT_STREQ(record.string2, "StringValue");
   ASSERT_EQ(record.int2, 3);
 
-  dwDataBufferLength = sizeof(uint32_t);
+  dwDataBufferLength = sizeof(position);
   ASSERT_EQ(btrcall(btrieve::OperationCode::GetPosition, posBlock, &position,
                     &dwDataBufferLength, nullptr, 0, 0),
             btrieve::BtrieveError::Success);

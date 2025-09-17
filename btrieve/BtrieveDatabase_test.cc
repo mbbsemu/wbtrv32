@@ -15,7 +15,7 @@ TEST(BtrieveDatabase, LoadsMBBSEmuDat) {
       [&database, &recordCount](std::basic_string_view<uint8_t> record) {
         EXPECT_EQ(record.size(), database.getRecordLength());
         ++recordCount;
-        return true;
+        return BtrieveDatabase::LoadRecordResult::COUNT;
       });
 
   ASSERT_EQ(database.getKeys().size(), 4);
@@ -82,7 +82,7 @@ TEST(BtrieveDatabase, LoadsVariableDat) {
         }
 
         ++recordCount;
-        return true;
+        return BtrieveDatabase::LoadRecordResult::COUNT;
       });
 
   ASSERT_EQ(database.getKeys().size(), 2);
@@ -156,7 +156,7 @@ TEST(BtrieveDatabase, LoadsVariableDatV6) {
 
         expectedData.erase(iter);
 
-        return true;
+        return BtrieveDatabase::LoadRecordResult::COUNT;
       });
 
   ASSERT_EQ(expectedData.size(), 0);
@@ -186,7 +186,7 @@ TEST(BtrieveDatabase, LoadsFixedDatV6) {
 
         EXPECT_EQ(record.size(), 950);
 
-        return true;
+        return BtrieveDatabase::LoadRecordResult::COUNT;
       });
 
   ASSERT_EQ(recordCount, 73);
@@ -216,7 +216,9 @@ TEST(BtrieveDatabase, LoadsMultiAcsDatV6) {
 
         return database.getRecordLength() == 128;
       },
-      [](std::basic_string_view<uint8_t> record) { return true; });
+      [](std::basic_string_view<uint8_t> record) {
+        return BtrieveDatabase::LoadRecordResult::COUNT;
+      });
 
   ASSERT_EQ(database.getRecordCount(), 0);
 
