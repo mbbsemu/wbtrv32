@@ -294,6 +294,9 @@ void BtrieveDatabase::loadRecords(
         case LoadRecordResult::COUNT:
           ++recordsLoaded;
           break;
+        case LoadRecordResult::SKIP_COUNT:
+        default:
+          break;
       }
     }
 

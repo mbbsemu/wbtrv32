@@ -13,7 +13,7 @@ int main(int argc, const char **argv) {
           argv[i], []() { return true; },
           [&recordCount](const std::basic_string_view<uint8_t> record) {
             ++recordCount;
-            return true;
+            return btrieve::BtrieveDatabase::LoadRecordResult::COUNT;
           });
 
       printf("Successfully read all %d records from %s\n", recordCount,
