@@ -58,7 +58,7 @@ static void CoCreateGuid(GUID *guid) {
 }
 
 static HMODULE LoadLibrary(const wchar_t *path) {
-  return dlopen(btrieve::toStdString(path).c_str(), 0);
+  return dlopen(btrieve::toStdString(path).c_str(), RTLD_LAZY);
 }
 
 static void FreeLibrary(HMODULE hModule) {
@@ -95,7 +95,9 @@ static DWORD GetFullPathName(
   realpath(btrieve::toStdString(lpFileName).c_str(), tmp);
 
   // TODO
-  *lpFilePart = lpBuffer;
+  if (lpFilePart != nullptr) {
+    *lpFilePart = lpBuffer;
+  }
 
   // TODO, use wcscpy_n or whatever
   wcscpy(lpBuffer, btrieve::toWideString(tmp).c_str());

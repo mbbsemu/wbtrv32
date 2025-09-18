@@ -43,8 +43,12 @@ void wbtrv32::processAttach() {
 #endif
 
 #ifdef LOG_TO_FILE
+#ifdef WIN32
   _logFile.reset(_wfsopen(L"wbtrv32.log", L"ab", _SH_DENYWR));
-#endif
+#else
+  _logFile.reset(fopen("/tmp/wbtrv32.log", "ab"));
+#endif // WIN32
+#endif // LOG_TO_FILE
 }
 
 void wbtrv32::processDetach() {
@@ -183,7 +187,7 @@ static BtrieveError Close(BtrieveCommand &command) {
   StringFromGUID2(*reinterpret_cast<GUID *>(command.lpPositionBlock), guidStr,
                   ARRAYSIZE(guidStr));
 
-  if (_openFiles.find(guidStr) != _openFiles.end()) {
+  if (_openFiles.find(guidStr) == _openFiles.end()) {
     return BtrieveError::FileNotOpen;
   }
 

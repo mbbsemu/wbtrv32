@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <memory>
+#include <cstdint>
 
 #include "../../btrieve/AttributeMask.h"
 #include "../../btrieve/BtrieveDriver.h"
@@ -13,6 +14,7 @@
 #include "btrieve/OperationCode.h"
 #include "gtest/gtest.h"
 #include "framework.h"
+#include "bad_data.h"
 
 using namespace btrieve;
 
@@ -32,9 +34,9 @@ class wbtrv32Test : public TestBase {
     TestBase::SetUp();
 
 #ifdef WIN32
-    dll.reset(LoadLibrary(_TEXT("wbtrv32.dll")));
+  dll.reset(LoadLibrary(_TEXT("wbtrv32.dll")));
 #else
-  dll.reset(LoadLibrary(_TEXT("wbtrv32.so")));
+  dll.reset(LoadLibrary(_TEXT("vstudio/wbtrv32/wbtrv32.so")));
 #endif
 
     btrcall = reinterpret_cast<BTRCALL>(GetProcAddress(dll.get(), "BTRCALL"));
@@ -1344,8 +1346,6 @@ uint32_t xcrc32(const void* buf, int len, uint32_t init) {
   return crc;
 }
 
-#include "bad_data.cc"
-
 TEST_F(wbtrv32Test, BadDataTest) {
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/WCCACMS2.DAT");
   ASSERT_FALSE(mbbsEmuDb.empty());
@@ -1371,8 +1371,8 @@ TEST_F(wbtrv32Test, BadDataTest) {
 
     uint32_t crc = xcrc32(record, dwDataBufferLength, 0xFFFFFFFF);
 
-    ASSERT_EQ(badData[i].key, i);
-    ASSERT_EQ(badData[i].crc, crc);
+    ASSERT_EQ(wbtrv32_test::badData[i].key, i);
+    ASSERT_EQ(wbtrv32_test::badData[i].crc, crc);
 
     ++i;
   } while (btrcall(btrieve::OperationCode::AcquireNext, posBlock, &record,

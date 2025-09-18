@@ -2,8 +2,8 @@ TEST_SRCS = glob(["*_test.cc"])
 
 cc_library(
   name = "libwbtrv32",
-  srcs = ["framework.cc", "wbtrv32.cpp"],
-  hdrs = ["framework.h", "wbtrv32.h", "bad_data.cc"],
+  srcs = ["bad_data.cc", "framework.cc", "wbtrv32.cpp"],
+  hdrs = ["bad_data.h", "framework.h", "wbtrv32.h"],
   deps = [
     "//btrieve",
     "//btrieve:sqlite_database",
@@ -18,10 +18,10 @@ cc_shared_library(
 
 cc_test(
   name = "tests",
-  srcs = TEST_SRCS + ["bad_data.cc","framework.h","wbtrv32.h"],
+  srcs = TEST_SRCS + ["framework.h","wbtrv32.h"],
   data = ["//assets:test_dats", ":wbtrv32"],
   deps = [
-    #":wbtrv32",
+    ":libwbtrv32",
     "//btrieve",
     "//btrieve:sqlite_database",
     "//btrieve:testbase",
