@@ -1,4 +1,5 @@
 #include "framework.h"
+
 #include "btrieve/Text.h"
 
 namespace btrieve {
@@ -15,4 +16,4 @@ bool FileExists(const wchar_t *filepath) {
 }
 
 #endif
-}
+}  // namespace btrieve

@@ -25,7 +25,8 @@
 
 using namespace btrieve;
 
-static std::unordered_map<std::basic_string<wchar_t>, std::shared_ptr<BtrieveDriver>>
+static std::unordered_map<std::basic_string<wchar_t>,
+                          std::shared_ptr<BtrieveDriver>>
     _openFiles;
 
 #ifdef LOG_TO_FILE
@@ -47,8 +48,8 @@ void wbtrv32::processAttach() {
   _logFile.reset(_wfsopen(L"wbtrv32.log", L"ab", _SH_DENYWR));
 #else
   _logFile.reset(fopen("/tmp/wbtrv32.log", "ab"));
-#endif // WIN32
-#endif // LOG_TO_FILE
+#endif  // WIN32
+#endif  // LOG_TO_FILE
 }
 
 void wbtrv32::processDetach() {
@@ -94,8 +95,9 @@ static void debug(const BtrieveCommand &command, const char *format, ...) {
   int len;
 
   if (driver != nullptr) {
-    len = snprintf(buf, sizeof(buf),
-                   "[%s]: ", btrieve::toStdString(driver->getOpenedFilename().c_str()).c_str());
+    len = snprintf(
+        buf, sizeof(buf), "[%s]: ",
+        btrieve::toStdString(driver->getOpenedFilename().c_str()).c_str());
 
 #ifdef WIN32
     OutputDebugStringA(buf);
@@ -138,7 +140,8 @@ static void AddToOpenFiles(BtrieveCommand &command,
   wchar_t guidStr[64];
   StringFromGUID2(guid, guidStr, ARRAYSIZE(guidStr));
 
-  _openFiles.emplace(std::make_pair(std::basic_string<wchar_t>(guidStr), driver));
+  _openFiles.emplace(
+      std::make_pair(std::basic_string<wchar_t>(guidStr), driver));
 
   // write the GUID in the pos block for other calls
   memset(command.lpPositionBlock, 0, POSBLOCK_LENGTH);
@@ -155,14 +158,14 @@ static BtrieveError Open(BtrieveCommand &command) {
   debug(command, "Attempting to open %s with openMode %d", lpszFilename,
         openMode);
 
-  GetFullPathName(btrieve::toWideString(lpszFilename).c_str(), ARRAYSIZE(fullPathFileName), fullPathFileName,
-                  nullptr);
+  GetFullPathName(btrieve::toWideString(lpszFilename).c_str(),
+                  ARRAYSIZE(fullPathFileName), fullPathFileName, nullptr);
 
   // see if we've already opened this file
   for (auto iterator = _openFiles.begin(); iterator != _openFiles.end();
        ++iterator) {
     if (!wcsicmp(iterator->second->getOpenedFilename().c_str(),
-                  fullPathFileName)) {
+                 fullPathFileName)) {
       // already got one? let's reuse it
       AddToOpenFiles(command, iterator->second);
       return BtrieveError::Success;
@@ -500,14 +503,15 @@ static BtrieveError Create(BtrieveCommand &command) {
   wbtrv32::LPKEYSPEC lpKeySpec =
       reinterpret_cast<wbtrv32::LPKEYSPEC>(lpFileSpec + 1);
 
-  GetFullPathName(toWideString(lpszFileName).c_str(), ARRAYSIZE(fullPathFileName), fullPathFileName,
-                  nullptr);
+  GetFullPathName(toWideString(lpszFileName).c_str(),
+                  ARRAYSIZE(fullPathFileName), fullPathFileName, nullptr);
 
   std::filesystem::path dbPath = std::filesystem::path(fullPathFileName)
                                      .replace_extension(sql.getFileExtension());
 
   if (command.keyNumber == -1) {
-    if (FileExists(fullPathFileName) || FileExists(toWideString(dbPath).c_str())) {
+    if (FileExists(fullPathFileName) ||
+        FileExists(toWideString(dbPath).c_str())) {
       return BtrieveError::FileAlreadyExists;
     }
   }
@@ -518,7 +522,8 @@ static BtrieveError Create(BtrieveCommand &command) {
   for (uint16_t i = 0; i < lpFileSpec->numberOfKeys; ++i, ++lpKeySpec) {
   check_acs:
     if (lpKeySpec->attributes & NumberedACS) {
-      numberOfAcs = std::max(numberOfAcs, static_cast<uint8_t>(lpKeySpec->acsNumber + 1));
+      numberOfAcs =
+          std::max(numberOfAcs, static_cast<uint8_t>(lpKeySpec->acsNumber + 1));
     }
 
     if (lpKeySpec->attributes & SegmentedKey) {

@@ -1,5 +1,6 @@
-#include <cstdint>
 #include "bad_data.h"
+
+#include <cstdint>
 
 namespace wbtrv32_test {
 

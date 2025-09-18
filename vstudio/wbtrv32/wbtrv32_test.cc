@@ -1,8 +1,8 @@
 #include "wbtrv32.h"
 
+#include <cstdint>
 #include <filesystem>
 #include <memory>
-#include <cstdint>
 
 #include "../../btrieve/AttributeMask.h"
 #include "../../btrieve/BtrieveDriver.h"
@@ -11,10 +11,10 @@
 #include "../../btrieve/OpenMode.h"
 #include "../../btrieve/SqliteDatabase.h"
 #include "../../btrieve/TestBase.h"
-#include "btrieve/OperationCode.h"
-#include "gtest/gtest.h"
-#include "framework.h"
 #include "bad_data.h"
+#include "btrieve/OperationCode.h"
+#include "framework.h"
+#include "gtest/gtest.h"
 
 using namespace btrieve;
 
@@ -34,9 +34,9 @@ class wbtrv32Test : public TestBase {
     TestBase::SetUp();
 
 #ifdef WIN32
-  dll.reset(LoadLibrary(_TEXT("wbtrv32.dll")));
+    dll.reset(LoadLibrary(_TEXT("wbtrv32.dll")));
 #else
-  dll.reset(LoadLibrary(_TEXT("vstudio/wbtrv32/wbtrv32.so")));
+    dll.reset(LoadLibrary(_TEXT("vstudio/wbtrv32/wbtrv32.so")));
 #endif
 
     btrcall = reinterpret_cast<BTRCALL>(GetProcAddress(dll.get(), "BTRCALL"));
@@ -1431,8 +1431,8 @@ TEST_F(wbtrv32Test, CreateSingleKey) {
       reinterpret_cast<unsigned char*>(lpKeySpec + 1) - buffer;
   ASSERT_EQ(btrcall(btrieve::OperationCode::Create, nullptr, buffer,
                     &dwDataBufferLength,
-                    const_cast<LPVOID>(reinterpret_cast<LPCVOID>(
-                        toStdString(path).c_str())),
+                    const_cast<LPVOID>(
+                        reinterpret_cast<LPCVOID>(toStdString(path).c_str())),
                     -1, 0),
             btrieve::BtrieveError::Success);
 
@@ -1441,7 +1441,8 @@ TEST_F(wbtrv32Test, CreateSingleKey) {
   ASSERT_FALSE(FileExists(toWideString(path).c_str()));
 
   btrieve::BtrieveDriver driver(new btrieve::SqliteDatabase());
-  ASSERT_EQ(driver.open(toWideString(path).c_str()), btrieve::BtrieveError::Success);
+  ASSERT_EQ(driver.open(toWideString(path).c_str()),
+            btrieve::BtrieveError::Success);
 
   ASSERT_EQ(driver.getRecordCount(), 0);
   ASSERT_EQ(driver.isVariableLengthRecords(), false);
@@ -1500,7 +1501,8 @@ TEST_F(wbtrv32Test, CreateSingleKeyWithAcs) {
   ASSERT_FALSE(FileExists(toWideString(path).c_str()));
 
   btrieve::BtrieveDriver driver(new btrieve::SqliteDatabase());
-  ASSERT_EQ(driver.open(toWideString(path).c_str()), btrieve::BtrieveError::Success);
+  ASSERT_EQ(driver.open(toWideString(path).c_str()),
+            btrieve::BtrieveError::Success);
 
   ASSERT_EQ(driver.getRecordCount(), 0);
   ASSERT_EQ(driver.isVariableLengthRecords(), true);
@@ -1598,7 +1600,8 @@ TEST_F(wbtrv32Test, CreateMultipleKeysWithAcs) {
   ASSERT_FALSE(FileExists(toWideString(path).c_str()));
 
   btrieve::BtrieveDriver driver(new btrieve::SqliteDatabase());
-  ASSERT_EQ(driver.open(toWideString(path).c_str()), btrieve::BtrieveError::Success);
+  ASSERT_EQ(driver.open(toWideString(path).c_str()),
+            btrieve::BtrieveError::Success);
 
   ASSERT_EQ(driver.getRecordCount(), 0);
   ASSERT_EQ(driver.isVariableLengthRecords(), true);
