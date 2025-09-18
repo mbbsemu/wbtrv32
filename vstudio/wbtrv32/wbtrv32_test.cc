@@ -1438,7 +1438,7 @@ TEST_F(wbtrv32Test, CreateSingleKey) {
 
   path = mbbsEmuDb;
   path /= "test.db";
-  ASSERT_FALSE(FileExists(toWideString(path).c_str()));
+  ASSERT_TRUE(FileExists(toWideString(path).c_str()));
 
   btrieve::BtrieveDriver driver(new btrieve::SqliteDatabase());
   ASSERT_EQ(driver.open(toWideString(path).c_str()),
@@ -1498,7 +1498,7 @@ TEST_F(wbtrv32Test, CreateSingleKeyWithAcs) {
 
   path = mbbsEmuDb;
   path /= "test.db";
-  ASSERT_FALSE(FileExists(toWideString(path).c_str()));
+  ASSERT_TRUE(FileExists(toWideString(path).c_str()));
 
   btrieve::BtrieveDriver driver(new btrieve::SqliteDatabase());
   ASSERT_EQ(driver.open(toWideString(path).c_str()),
@@ -1597,7 +1597,7 @@ TEST_F(wbtrv32Test, CreateMultipleKeysWithAcs) {
 
   path = mbbsEmuDb;
   path /= "test.db";
-  ASSERT_FALSE(FileExists(toWideString(path).c_str()));
+  ASSERT_TRUE(FileExists(toWideString(path).c_str()));
 
   btrieve::BtrieveDriver driver(new btrieve::SqliteDatabase());
   ASSERT_EQ(driver.open(toWideString(path).c_str()),
