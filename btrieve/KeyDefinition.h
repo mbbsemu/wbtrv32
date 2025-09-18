@@ -75,9 +75,8 @@ class KeyDefinition {
   }
 
   bool isString() const {
-    return dataType == KeyDataType::String ||
+    return dataType == KeyDataType::Zstring ||
            dataType == KeyDataType::Lstring ||
-           dataType == KeyDataType::Zstring ||
            dataType == KeyDataType::OldAscii;
   }
 

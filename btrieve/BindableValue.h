@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <string>
 #include <vector>
+#include <stdint.h>
 
 namespace btrieve {
 class BindableValue {

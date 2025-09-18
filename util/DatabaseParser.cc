@@ -14,7 +14,7 @@ int main(int argc, const char **argv) {
           btrieve::toWideString(argv[i]).c_str(), []() { return true; },
           [&recordCount](const std::basic_string_view<uint8_t> record) {
             ++recordCount;
-            return true;
+            return btrieve::BtrieveDatabase::LoadRecordResult::COUNT;
           });
 
       printf("Successfully read all %d records from %s\n", recordCount,

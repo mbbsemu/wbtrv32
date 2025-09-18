@@ -65,7 +65,8 @@ class SqliteCreationRecordLoader : public RecordLoader {
   }
 
  private:
-  virtual bool onRecordLoaded(std::basic_string_view<uint8_t> record) {
+  virtual BtrieveDatabase::LoadRecordResult onRecordLoaded(
+      std::basic_string_view<uint8_t> record) {
     insertionCommand->reset();
     insertionCommand->bindParameter(1, record);
 
@@ -81,9 +82,9 @@ class SqliteCreationRecordLoader : public RecordLoader {
       insertionCommand->execute();
     } catch (BtrieveException &ex) {
       // silently ignore, some databases have bad data
-      return true;
+      return BtrieveDatabase::LoadRecordResult::SKIP_COUNT;
     }
-    return true;
+    return BtrieveDatabase::LoadRecordResult::COUNT;
   };
 
   virtual void onRecordsComplete() {
@@ -935,6 +936,12 @@ BtrieveError SqliteDatabase::getByKeyLast(Query *query) {
   return nextReader(query, CursorDirection::Reverse);
 }
 
+static bool shouldConvertSqliteObjectToEmptyStringForComparison(
+    const BindableValue &value, const btrieve::Key *key) {
+  return value.isNull() && !key->isComposite() &&
+         key->getPrimarySegment().isString();
+}
+
 BtrieveError SqliteDatabase::getByKeyGreater(Query *query,
                                              const char *opurator) {
   std::stringstream sql;
@@ -946,6 +953,11 @@ BtrieveError SqliteDatabase::getByKeyGreater(Query *query,
 
   auto sqliteObject =
       query->getKey()->keyDataToSqliteObject(query->getKeyData());
+
+  if (shouldConvertSqliteObjectToEmptyStringForComparison(sqliteObject,
+                                                          query->getKey())) {
+    sqliteObject = BindableValue("");
+  }
 
   SqlitePreparedStatement &command = getPreparedStatement(sql.str().c_str());
   command.bindParameter(1, sqliteObject);
@@ -965,6 +977,11 @@ BtrieveError SqliteDatabase::getByKeyLess(Query *query, const char *opurator) {
 
   auto sqliteObject =
       query->getKey()->keyDataToSqliteObject(query->getKeyData());
+
+  if (shouldConvertSqliteObjectToEmptyStringForComparison(sqliteObject,
+                                                          query->getKey())) {
+    sqliteObject = BindableValue("");
+  }
 
   SqlitePreparedStatement &command = getPreparedStatement(sql.str().c_str());
   command.bindParameter(1, sqliteObject);

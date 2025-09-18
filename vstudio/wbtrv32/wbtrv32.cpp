@@ -17,7 +17,7 @@
 // #define DEBUG_ATTACH
 
 // Define this to log errors to wbtrv32.log
-// #define LOG_TO_FILE
+#define LOG_TO_FILE
 
 #ifdef DEBUG_ATTACH
 #include "Psapi.h"
