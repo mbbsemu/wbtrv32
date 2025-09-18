@@ -305,6 +305,10 @@ void SqliteDatabase::loadSqliteKeys() {
   }
 }
 
+#ifdef WIN32
+#define unlink _unlink
+#endif
+
 std::unique_ptr<RecordLoader> SqliteDatabase::create(
     const wchar_t *fileName, const BtrieveDatabase &database) {
   sqlite3 *db;
