@@ -60,7 +60,7 @@ bool TempPath::create() {
 
   std::string tempPath = getTempPath();
 #ifdef WIN32
-  int result = mkdir(tempPath.c_str());
+  int result = _mkdir(tempPath.c_str());
 #else
   int result = mkdir(tempPath.c_str(), 0700);
 #endif
@@ -80,7 +80,7 @@ TempPath::~TempPath() {
 
   deleteAllFiles(tempPath.c_str());
 
-  rmdir(tempPath.c_str());
+  _rmdir(tempPath.c_str());
 }
 
 std::string TempPath::getTempPath() {

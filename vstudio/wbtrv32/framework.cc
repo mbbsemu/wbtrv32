@@ -4,6 +4,15 @@
 
 #ifdef WIN32
 
+namespace btrieve {
+bool FileExists(const wchar_t* filepath) {
+  WIN32_FILE_ATTRIBUTE_DATA fileAttributeData;
+
+  return GetFileAttributesExW(filepath, GetFileExInfoStandard,
+                              &fileAttributeData) != 0;
+}
+}  // namespace btrieve
+
 #else
 
 #include <fcntl.h>

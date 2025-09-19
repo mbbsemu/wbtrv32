@@ -194,6 +194,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="dllmain.cpp" />
+    <ClCompile Include="framework.cc" />
     <ClCompile Include="wbtrv32.cpp" />
   </ItemGroup>
   <ItemGroup>

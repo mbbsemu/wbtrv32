@@ -107,5 +107,8 @@
     <ClCompile Include="..\..\btrieve\ErrorCode.cc">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\btrieve\Text.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
 </Project>

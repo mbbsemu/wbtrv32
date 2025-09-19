@@ -51,6 +51,7 @@
     <ClCompile Include="..\..\btrieve\OperationCode.cc" />
     <ClCompile Include="..\..\btrieve\SqliteDatabase.cc" />
     <ClCompile Include="..\..\btrieve\SqliteUtil.cc" />
+    <ClCompile Include="..\..\btrieve\Text.cc" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>

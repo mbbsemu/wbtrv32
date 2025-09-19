@@ -2,6 +2,7 @@
 //
 #include "wbtrv32.h"
 
+#include <algorithm>
 #include <filesystem>
 
 #include "btrieve/BtrieveDriver.h"
@@ -164,8 +165,8 @@ static BtrieveError Open(BtrieveCommand &command) {
   // see if we've already opened this file
   for (auto iterator = _openFiles.begin(); iterator != _openFiles.end();
        ++iterator) {
-    if (!wcsicmp(iterator->second->getOpenedFilename().c_str(),
-                 fullPathFileName)) {
+    if (!_wcsicmp(iterator->second->getOpenedFilename().c_str(),
+                  fullPathFileName)) {
       // already got one? let's reuse it
       AddToOpenFiles(command, iterator->second);
       return BtrieveError::Success;

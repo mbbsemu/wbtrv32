@@ -59,6 +59,9 @@
     <ClCompile Include="..\wbtrv32\bad_data.cc">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\wbtrv32\framework.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
