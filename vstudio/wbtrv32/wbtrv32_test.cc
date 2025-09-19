@@ -187,6 +187,68 @@ TEST_F(wbtrv32Test, GetPosition) {
             btrieve::BtrieveError::Success);
 }
 
+TEST_F(wbtrv32Test, QueryGreaterThanOrEqual) {
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBMGEPLT.DAT");
+  ASSERT_FALSE(mbbsEmuDb.empty());
+
+  char record[512];
+  uint16_t keyBuffer;
+  DWORD dwDataBufferLength = sizeof(record);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr,
+                    &dwDataBufferLength,
+                    const_cast<LPVOID>(reinterpret_cast<LPCVOID>(
+                        toStdString(mbbsEmuDb.c_str()).c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
+
+  keyBuffer = 2;
+  ASSERT_EQ(
+      btrcall(btrieve::OperationCode::AcquireGreaterOrEqual, posBlock, record,
+              &dwDataBufferLength, &keyBuffer, sizeof(keyBuffer), 2),
+      btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(dwDataBufferLength, 512);
+  ASSERT_EQ(keyBuffer, 2);
+
+  uint32_t position = 0;
+  dwDataBufferLength = sizeof(position);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::GetPosition, posBlock, &position,
+                    &dwDataBufferLength, nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
+
+  memcpy(record, &position, sizeof(uint32_t));
+  dwDataBufferLength = sizeof(record);
+  ASSERT_EQ(
+      btrcall(btrieve::OperationCode::GetDirectChunkOrRecord, posBlock, record,
+              &dwDataBufferLength, &keyBuffer, sizeof(keyBuffer), 2),
+      btrieve::BtrieveError::Success);
+
+  uint32_t expected = 2;
+  uint32_t records = 0;
+  // the query nexts should grab the next things started by
+  // AcquireGreaterOrEqual earlier
+  while (true) {
+    dwDataBufferLength = sizeof(record);
+    if (btrcall(btrieve::OperationCode::AcquireNext, posBlock, record,
+                &dwDataBufferLength, &keyBuffer, sizeof(keyBuffer),
+                2) != btrieve::BtrieveError::Success) {
+      break;
+    }
+
+    ASSERT_GE(keyBuffer, expected);
+
+    expected = keyBuffer;
+    ++records;
+  }
+
+  ASSERT_EQ(records, 13);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Close, posBlock, nullptr,
+                    &dwDataBufferLength, nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
+}
+
 TEST_F(wbtrv32Test, StatsDatabase) {
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   ASSERT_FALSE(mbbsEmuDb.empty());
