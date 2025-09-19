@@ -32,6 +32,11 @@ jobs:
 
     - name: Add MSBuild to PATH
       uses: microsoft/setup-msbuild@v2
+      
+    - name: Retarget solution
+      run: |
+        msbuild ${{env.SOLUTION_FILE_PATH}} /t:Restore /p:RestorePackagesConfig=true
+        devenv ${{env.SOLUTION_FILE_PATH}} /upgrade
 
     - name: Restore NuGet packages
       working-directory: ${{env.GITHUB_WORKSPACE}}
