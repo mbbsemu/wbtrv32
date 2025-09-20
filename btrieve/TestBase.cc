@@ -12,6 +12,7 @@
 #include <combaseapi.h>
 #else
 #include <dirent.h>
+#define _rmdir rmdir
 #endif
 
 #pragma pack(push, 1)

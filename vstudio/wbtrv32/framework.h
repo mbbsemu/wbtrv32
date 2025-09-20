@@ -65,7 +65,10 @@ error_t mbstowcs_s(size_t *pReturnValue, wchar_t (&wcstr)[size],
 DWORD GetFullPathName(const wchar_t *lpFileName, DWORD nBufferLength,
                       wchar_t *lpBuffer, wchar_t **lpFilePart);
 
-#define wcsicmp wcscasecmp
+#define _wcsicmp wcscasecmp
+#define _rmdir rmdir
+#define _unlink unlink
+
 #define __stdcall
 
 #endif  // #ifdef WIN32
