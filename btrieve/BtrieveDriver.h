@@ -22,7 +22,7 @@ class BtrieveDriver {
 
   ~BtrieveDriver();
 
-  BtrieveError open(const tchar *fileName,
+  BtrieveError open(const wchar_t *fileName,
                     OpenMode openMode = OpenMode::Normal);
 
   // Closes an opened database.
@@ -76,12 +76,12 @@ class BtrieveDriver {
     return ret;
   }
 
-  std::basic_string<tchar> getOpenedFilename() { return openedFilename; }
+  std::basic_string<wchar_t> getOpenedFilename() { return openedFilename; }
 
  private:
   std::unique_ptr<SqlDatabase> sqlDatabase;
   std::unique_ptr<Query> previousQuery;
-  std::basic_string<tchar> openedFilename;
+  std::basic_string<wchar_t> openedFilename;
 };
 }  // namespace btrieve
 #endif

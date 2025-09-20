@@ -19,7 +19,7 @@
 namespace btrieve {
 BtrieveDriver::~BtrieveDriver() { close(); }
 
-static inline bool fileExists(const tchar *filename,
+static inline bool fileExists(const wchar_t *filename,
                               int64_t &fileModificationNanos) {
 #ifdef WIN32
   WIN32_FILE_ATTRIBUTE_DATA fileAttributeData;
@@ -34,7 +34,7 @@ static inline bool fileExists(const tchar *filename,
   return true;
 #else
   struct stat stbuf;
-  if (stat(filename, &stbuf)) {
+  if (stat(toStdString(filename).c_str(), &stbuf)) {
     return false;
   }
 
@@ -44,8 +44,9 @@ static inline bool fileExists(const tchar *filename,
 #endif
 }
 
-static std::basic_string<tchar> toUpper(const std::basic_string<tchar> &value) {
-  std::basic_string<tchar> ret(value);
+static std::basic_string<wchar_t> toUpper(
+    const std::basic_string<wchar_t> &value) {
+  std::basic_string<wchar_t> ret(value);
   for (size_t i = 0; i < ret.size(); ++i) {
     ret[i] = toupper(ret[i]);
   }
@@ -56,7 +57,7 @@ static std::basic_string<tchar> toUpper(const std::basic_string<tchar> &value) {
 #define unlink _wunlink
 #endif
 
-BtrieveError BtrieveDriver::open(const tchar *fileName, OpenMode openMode) {
+BtrieveError BtrieveDriver::open(const wchar_t *fileName, OpenMode openMode) {
   int64_t fileModificationTimeDat;
   int64_t fileModificationTimeDb;
 
@@ -67,12 +68,14 @@ BtrieveError BtrieveDriver::open(const tchar *fileName, OpenMode openMode) {
   openedFilename = fileName;
 
   bool datExists = fileExists(fileName, fileModificationTimeDat);
-  bool dbExists = fileExists(dbPath.c_str(), fileModificationTimeDb);
+  bool dbExists =
+      fileExists(toWideString(dbPath).c_str(), fileModificationTimeDb);
   if (!dbExists) {
     // failed to find db, let's uppercase and try again
     std::filesystem::path dbPathUpper = dbPath;
     dbPathUpper.replace_extension(toUpper(sqlDatabase->getFileExtension()));
-    dbExists = fileExists(dbPathUpper.c_str(), fileModificationTimeDb);
+    dbExists =
+        fileExists(toWideString(dbPathUpper).c_str(), fileModificationTimeDb);
     if (dbExists) {
       dbPath = dbPathUpper;
     }
@@ -91,14 +94,15 @@ BtrieveError BtrieveDriver::open(const tchar *fileName, OpenMode openMode) {
   BtrieveError error;
 
   if (dbExists) {
-    error = sqlDatabase->open(dbPath.c_str(), openMode);
+    error = sqlDatabase->open(toWideString(dbPath).c_str(), openMode);
   } else {
     BtrieveDatabase btrieveDatabase;
     std::unique_ptr<RecordLoader> recordLoader;
     error = btrieveDatabase.parseDatabase(
         fileName,
         [this, &dbPath, &btrieveDatabase, &recordLoader, openMode]() {
-          recordLoader = sqlDatabase->create(dbPath.c_str(), btrieveDatabase);
+          recordLoader = sqlDatabase->create(toWideString(dbPath).c_str(),
+                                             btrieveDatabase);
           return true;
         },
         [&recordLoader](const std::basic_string_view<uint8_t> record) {
@@ -109,7 +113,7 @@ BtrieveError BtrieveDriver::open(const tchar *fileName, OpenMode openMode) {
     // if newly created and they want read-only, close and reopen
     if (openMode == OpenMode::ReadOnly) {
       sqlDatabase->close();
-      error = sqlDatabase->open(dbPath.c_str(), openMode);
+      error = sqlDatabase->open(toWideString(dbPath).c_str(), openMode);
     }
   }
 

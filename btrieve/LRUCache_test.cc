@@ -1,6 +1,8 @@
 #include "LRUCache.h"
-#include "gtest/gtest.h"
+
 #include <memory>
+
+#include "gtest/gtest.h"
 
 using namespace btrieve;
 

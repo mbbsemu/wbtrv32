@@ -1,6 +1,7 @@
 #include "BtrieveDatabase.h"
 
 #include "BtrieveException.h"
+#include "Text.h"
 
 namespace btrieve {
 
@@ -313,21 +314,14 @@ finished_loaded:
 }
 
 BtrieveError BtrieveDatabase::parseDatabase(
-    const tchar* fileName, std::function<bool()> onMetadataLoaded,
+    const wchar_t* fileName, std::function<bool()> onMetadataLoaded,
     std::function<LoadRecordResult(const std::basic_string_view<uint8_t>)>
         onRecordLoaded,
     std::function<void()> onRecordsComplete) {
-#ifdef WIN32
-  FILE* f = _wfopen(fileName, _TEXT("rb"));
-#else
-  FILE* f = fopen(fileName, _TEXT("rb"));
-#endif
+  FILE* f = fopen(toStdString(fileName).c_str(), "rb");
   if (f == nullptr) {
-#ifdef WIN32
-    fwprintf(stderr, _TEXT("Couldn't open %s: %d\n"), fileName, errno);
-#else
-    fprintf(stderr, "Couldn't open %s: %d\n", fileName, errno);
-#endif
+    fprintf(stderr, "Couldn't open %s: %d\n", toStdString(fileName).c_str(),
+            errno);
     return BtrieveError::FileNotFound;
   }
 

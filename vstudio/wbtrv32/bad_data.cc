@@ -1,9 +1,10 @@
-typedef struct _tagBADDATA {
-  uint16_t key;
-  uint32_t crc;
-} BADDATA;
+#include "bad_data.h"
 
-static const BADDATA badData[] = {
+#include <cstdint>
+
+namespace wbtrv32_test {
+
+const BADDATA badData[] = {
     {0, 0x00000000},    {1, 0x9F80DCEF},    {2, 0x3554AA7E},
     {3, 0x8B43878A},    {4, 0x2829DA9A},    {5, 0x65F16A2F},
     {6, 0xA23C6BD9},    {7, 0x3C871927},    {8, 0x8751AD01},
@@ -2552,3 +2553,4 @@ static const BADDATA badData[] = {
     {7635, 0xBDEC6FF1}, {7636, 0x4A8363E7}, {7637, 0xFF699A7F},
     {7638, 0xB4EBD3E5}, {7639, 0x5988FEF5},
 };
+}

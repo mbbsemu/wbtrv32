@@ -104,7 +104,7 @@ class SqliteCreationRecordLoader : public RecordLoader {
 
 // Opens a Btrieve database as a sql backed file. Will convert a legacy file
 // in place if required. Throws a BtrieveException if something fails.
-BtrieveError SqliteDatabase::open(const tchar *filename, OpenMode openMode) {
+BtrieveError SqliteDatabase::open(const wchar_t *filename, OpenMode openMode) {
   sqlite3 *db;
   unsigned int openFlags = this->openFlags | (openMode == OpenMode::ReadOnly)
                                ? SQLITE_OPEN_READONLY
@@ -124,7 +124,7 @@ BtrieveError SqliteDatabase::open(const tchar *filename, OpenMode openMode) {
   return BtrieveError::Success;
 }
 
-void SqliteDatabase::loadSqliteMetadata(const tchar *filename,
+void SqliteDatabase::loadSqliteMetadata(const wchar_t *filename,
                                         unsigned int openFlags) {
   uint32_t version = 0;
   {  // start a block since command needs to go out of scope before
@@ -150,7 +150,7 @@ void SqliteDatabase::loadSqliteMetadata(const tchar *filename,
 }
 
 void SqliteDatabase::upgradeDatabaseFromVersion(uint32_t currentVersion,
-                                                const tchar *filename,
+                                                const wchar_t *filename,
                                                 unsigned int openFlags) {
   int errorCode;
   sqlite3 *db;
@@ -305,16 +305,16 @@ void SqliteDatabase::loadSqliteKeys() {
   }
 }
 
+#ifdef WIN32
+#define unlink _unlink
+#endif
+
 std::unique_ptr<RecordLoader> SqliteDatabase::create(
-    const tchar *fileName, const BtrieveDatabase &database) {
+    const wchar_t *fileName, const BtrieveDatabase &database) {
   sqlite3 *db;
 
   // remove the file if is exists since we're creating it anew
-#ifdef WIN32
-  _wunlink(fileName);
-#else
-  unlink(fileName);
-#endif
+  unlink(toStdString(fileName).c_str());
 
   int errorCode = sqlite3_open_v2(
       toStdString(fileName).c_str(), &db,
@@ -502,7 +502,7 @@ BtrieveError SqliteDatabase::stepFirst() {
       getPreparedStatement("SELECT id, data FROM data_t ORDER BY id LIMIT 1");
   auto reader = command.executeReader();
   if (!reader->read()) {
-    return BtrieveError::InvalidPositioning;
+    return BtrieveError::EndOfFile;
   }
 
   position = reader->getInt32(0);
@@ -515,7 +515,7 @@ BtrieveError SqliteDatabase::stepLast() {
       "SELECT id, data FROM data_t ORDER BY id DESC LIMIT 1");
   auto reader = command.executeReader();
   if (!reader->read()) {
-    return BtrieveError::InvalidPositioning;
+    return BtrieveError::EndOfFile;
   }
 
   position = reader->getInt32(0);
@@ -531,7 +531,7 @@ BtrieveError SqliteDatabase::stepNext() {
 
   auto reader = command.executeReader();
   if (!reader->read()) {
-    return BtrieveError::InvalidPositioning;
+    return BtrieveError::EndOfFile;
   }
 
   position = reader->getInt32(0);
@@ -548,7 +548,7 @@ BtrieveError SqliteDatabase::stepPrevious() {
 
   auto reader = command.executeReader();
   if (!reader->read()) {
-    return BtrieveError::InvalidPositioning;
+    return BtrieveError::EndOfFile;
   }
 
   position = reader->getInt32(0);

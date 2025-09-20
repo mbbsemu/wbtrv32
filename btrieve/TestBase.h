@@ -16,7 +16,7 @@ class TempPath {
 
   std::string getTempPath();
 
-  std::basic_string<tchar> copyToTempPath(const char *filePath);
+  std::basic_string<wchar_t> copyToTempPath(const char *filePath);
 
  private:
   void deleteAllFiles(const char *filePath);
