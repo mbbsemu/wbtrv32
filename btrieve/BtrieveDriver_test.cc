@@ -320,7 +320,7 @@ TEST_F(BtrieveDriverTest, StepNext) {
 
   ASSERT_EQ(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
                                     OperationCode::StepNext),
-            BtrieveError::InvalidPositioning);
+            BtrieveError::EndOfFile);
 
   ASSERT_EQ(driver.getPosition(), 4);
 }
@@ -385,7 +385,7 @@ TEST_F(BtrieveDriverTest, StepPrevious) {
 
   ASSERT_EQ(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
                                     OperationCode::StepPrevious),
-            BtrieveError::InvalidPositioning);
+            BtrieveError::EndOfFile);
 
   ASSERT_EQ(driver.getPosition(), 1);
 }
@@ -565,7 +565,7 @@ TEST_F(BtrieveDriverTest, RecordDeleteOneIteration) {
 
   ASSERT_EQ(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
                                     OperationCode::StepNext),
-            BtrieveError::InvalidPositioning);
+            BtrieveError::EndOfFile);
 
   ASSERT_EQ(driver.getPosition(), 4);
 }
@@ -2102,7 +2102,7 @@ TEST_F(BtrieveDriverTest, KeylessDatabaseEnumeration) {
 
   ASSERT_EQ(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
                                     OperationCode::StepPrevious),
-            BtrieveError::InvalidPositioning);
+            BtrieveError::EndOfFile);
 
   ASSERT_EQ(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
                                     OperationCode::StepNext),
@@ -2133,7 +2133,7 @@ TEST_F(BtrieveDriverTest, KeylessDatabaseEnumeration) {
 
   ASSERT_EQ(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
                                     OperationCode::StepNext),
-            BtrieveError::InvalidPositioning);
+            BtrieveError::EndOfFile);
 }
 
 TEST_F(BtrieveDriverTest, KeylessDataQueryFails) {

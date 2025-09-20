@@ -529,7 +529,7 @@ TEST_F(wbtrv32Test, StepFirst) {
 
   ASSERT_EQ(btrcall(btrieve::OperationCode::StepPrevious, posBlock, &record,
                     &dwDataBufferLength, nullptr, 0, 0),
-            btrieve::BtrieveError::InvalidPositioning);
+            btrieve::BtrieveError::EndOfFile);
 
   dwDataBufferLength = sizeof(record);
   ASSERT_EQ(btrcall(btrieve::OperationCode::StepNext, posBlock, &record,
@@ -623,7 +623,7 @@ TEST_F(wbtrv32Test, StepLast) {
 
   ASSERT_EQ(btrcall(btrieve::OperationCode::StepNext, posBlock, &record,
                     &dwDataBufferLength, nullptr, 0, 0),
-            btrieve::BtrieveError::InvalidPositioning);
+            btrieve::BtrieveError::EndOfFile);
 
   dwDataBufferLength = sizeof(record);
   ASSERT_EQ(btrcall(btrieve::OperationCode::StepPrevious, posBlock, &record,

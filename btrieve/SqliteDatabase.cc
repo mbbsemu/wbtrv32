@@ -502,7 +502,7 @@ BtrieveError SqliteDatabase::stepFirst() {
       getPreparedStatement("SELECT id, data FROM data_t ORDER BY id LIMIT 1");
   auto reader = command.executeReader();
   if (!reader->read()) {
-    return BtrieveError::InvalidPositioning;
+    return BtrieveError::EndOfFile;
   }
 
   position = reader->getInt32(0);
@@ -515,7 +515,7 @@ BtrieveError SqliteDatabase::stepLast() {
       "SELECT id, data FROM data_t ORDER BY id DESC LIMIT 1");
   auto reader = command.executeReader();
   if (!reader->read()) {
-    return BtrieveError::InvalidPositioning;
+    return BtrieveError::EndOfFile;
   }
 
   position = reader->getInt32(0);
@@ -531,7 +531,7 @@ BtrieveError SqliteDatabase::stepNext() {
 
   auto reader = command.executeReader();
   if (!reader->read()) {
-    return BtrieveError::InvalidPositioning;
+    return BtrieveError::EndOfFile;
   }
 
   position = reader->getInt32(0);
@@ -548,7 +548,7 @@ BtrieveError SqliteDatabase::stepPrevious() {
 
   auto reader = command.executeReader();
   if (!reader->read()) {
-    return BtrieveError::InvalidPositioning;
+    return BtrieveError::EndOfFile;
   }
 
   position = reader->getInt32(0);
