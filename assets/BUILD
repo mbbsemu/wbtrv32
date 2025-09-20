@@ -7,6 +7,7 @@ filegroup(
         "MBBSEMU.DAT",
         "MBBSEMU.DB",
         "MBBSEMU.DB.V2",
+        "MBMGEPLT.DAT",
         "MULTIACS.DAT",
         "VARIABLE.DAT",
         "WCCACMS2.DAT",
