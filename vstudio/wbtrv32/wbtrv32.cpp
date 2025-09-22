@@ -380,6 +380,8 @@ static BtrieveError GetDirectRecord(BtrieveCommand &command) {
 
   memcpy(command.lpDataBuffer, record.second.getData().data(),
          record.second.getData().size());
+  *command.lpdwDataBufferLength = record.second.getData().size();
+
   return BtrieveError::Success;
 }
 
@@ -434,6 +436,8 @@ static BtrieveError Query(BtrieveCommand &command) {
 
     memcpy(command.lpDataBuffer, record.second.getData().data(),
            record.second.getData().size());
+
+    *command.lpdwDataBufferLength = record.second.getData().size();
   }
 
   return BtrieveError::Success;
