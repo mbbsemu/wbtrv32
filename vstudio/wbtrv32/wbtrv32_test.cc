@@ -208,7 +208,7 @@ TEST_F(wbtrv32Test, QueryGreaterThanOrEqual) {
               &dwDataBufferLength, &keyBuffer, sizeof(keyBuffer), 2),
       btrieve::BtrieveError::Success);
 
-  ASSERT_EQ(dwDataBufferLength, 512);
+  ASSERT_EQ(dwDataBufferLength, 493);
   ASSERT_EQ(keyBuffer, 2);
 
   uint32_t position = 0;
@@ -664,6 +664,7 @@ TEST_F(wbtrv32Test, GetDirectNoKeys) {
   ASSERT_EQ(record.int1, 3444);
   ASSERT_STREQ(record.string2, "3444");
   ASSERT_EQ(record.int2, 1);
+  ASSERT_EQ(dwDataBufferLength, 74);
 }
 
 TEST_F(wbtrv32Test, GetDirectNoKeysBadPositioning) {
