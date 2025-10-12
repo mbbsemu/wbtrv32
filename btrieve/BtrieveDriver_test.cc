@@ -62,6 +62,10 @@ static std::string fromPath(const std::filesystem::path &path) {
 
 class BtrieveDriverTest : public TestBase {};
 
+TEST_F(BtrieveDriverTest, MultithreadMutexingEnabled) {
+  ASSERT_NE(sqlite3_threadsafe(), 0);
+}
+
 TEST_F(BtrieveDriverTest, LoadsAndConverts) {
   std::string convertedDbPath;
 
