@@ -36,8 +36,8 @@ cc_library(
   testonly = True,
   deps = [
     ":btrieve",
-    "@gtest",
-    "@gtest//:gtest_main"
+    "@googletest//:gtest",
+    "@googletest//:gtest_main"
   ],
 )
 
@@ -49,7 +49,7 @@ cc_test(
     ":btrieve",
     ":testbase",
     ":sqlite_database",
-    "@gtest",
-    "@gtest//:gtest_main",
+    "@googletest//:gtest",
+    "@googletest//:gtest_main",
  ],
 )

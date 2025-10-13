@@ -25,8 +25,8 @@ cc_test(
     "//btrieve",
     "//btrieve:sqlite_database",
     "//btrieve:testbase",
-    "@gtest",
-    "@gtest//:gtest_main",
+    "@googletest//:gtest",
+    "@googletest//:gtest_main",
  ],
 )
 
