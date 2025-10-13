@@ -106,9 +106,8 @@ class SqliteCreationRecordLoader : public RecordLoader {
 // in place if required. Throws a BtrieveException if something fails.
 BtrieveError SqliteDatabase::open(const wchar_t *filename, OpenMode openMode) {
   sqlite3 *db;
-  unsigned int openFlags = this->openFlags | (openMode == OpenMode::ReadOnly)
-                               ? SQLITE_OPEN_READONLY
-                               : SQLITE_OPEN_READWRITE;
+  unsigned int openFlags =
+      SQLITE_OPEN_FULLMUTEX | SQLITE_OPEN_READWRITE | this->openFlags;
 
   int errorCode =
       sqlite3_open_v2(toStdString(filename).c_str(), &db, openFlags, nullptr);
@@ -121,6 +120,16 @@ BtrieveError SqliteDatabase::open(const wchar_t *filename, OpenMode openMode) {
 
   loadSqliteMetadata(filename, openFlags);
   loadSqliteKeys();
+
+  if (openMode == OpenMode::ReadOnly) {
+    errorCode = sqlite3_exec(database.get(), "PRAGMA query_only = 1;", nullptr,
+                             nullptr, nullptr);
+    if (errorCode != SQLITE_OK) {
+      throwException(errorCode);
+      return BtrieveError::IOError;
+    }
+  }
+
   return BtrieveError::Success;
 }
 
@@ -152,39 +161,8 @@ void SqliteDatabase::loadSqliteMetadata(const wchar_t *filename,
 void SqliteDatabase::upgradeDatabaseFromVersion(uint32_t currentVersion,
                                                 const wchar_t *filename,
                                                 unsigned int openFlags) {
-  int errorCode;
-  sqlite3 *db;
-  // if we opened read only, we need to reopen as readwrite to update the db
-  if (openFlags & SQLITE_OPEN_READONLY) {
-    close();
-
-    errorCode = sqlite3_open_v2(
-        toStdString(filename).c_str(), &db,
-        (openFlags & ~SQLITE_OPEN_READONLY) | SQLITE_OPEN_READWRITE, nullptr);
-    if (errorCode != SQLITE_OK) {
-      throwException(errorCode);
-    }
-
-    this->database = std::shared_ptr<sqlite3>(db, &sqlite3_close);
-  }
-
-  // actually do the upgrading
   if (currentVersion == 2) {
     upgradeDatabaseFrom2To3();
-  }
-
-  // we're done upgrading, so we may have to reopen as readonly again
-  if (openFlags & SQLITE_OPEN_READONLY) {
-    preparedStatements.clear();
-    database.reset();
-
-    errorCode =
-        sqlite3_open_v2(toStdString(filename).c_str(), &db, openFlags, nullptr);
-    if (errorCode != SQLITE_OK) {
-      throwException(errorCode);
-    }
-
-    this->database = std::shared_ptr<sqlite3>(db, &sqlite3_close);
   }
 }
 
@@ -606,9 +584,10 @@ BtrieveError SqliteDatabase::deleteRecord() {
   SqlitePreparedStatement &command =
       getPreparedStatement("DELETE FROM data_t WHERE id=@position");
   command.bindParameter(1, BindableValue(position));
-  bool ret = command.executeNoThrow();
-  if (!ret) {
-    return BtrieveError::IOError;
+  try {
+    command.execute();
+  } catch (const BtrieveException &ex) {
+    return ex.getError();
   }
 
   return sqlite3_changes(database.get()) == 1

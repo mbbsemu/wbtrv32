@@ -17,6 +17,9 @@ EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "shim", "shim\shim.vcxproj", "{9C4CFF5A-03A9-488C-BA4E-0E0AFC5A75A1}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NetApp", "..\NetApp\NetApp.csproj", "{E7635623-AB70-4BC3-9C4D-5B7D10EF67E6}"
+	ProjectSection(ProjectDependencies) = postProject
+		{32C45125-12FF-42A5-A516-75520AEACB15} = {32C45125-12FF-42A5-A516-75520AEACB15}
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
