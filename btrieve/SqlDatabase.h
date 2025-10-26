@@ -17,7 +17,8 @@ class RecordLoader {
  public:
   virtual ~RecordLoader() = default;
 
-  virtual BtrieveDatabase::LoadRecordResult onRecordLoaded(std::basic_string_view<uint8_t> record) = 0;
+  virtual BtrieveDatabase::LoadRecordResult onRecordLoaded(
+      std::basic_string_view<uint8_t> record) = 0;
 
   virtual void onRecordsComplete() = 0;
 };
@@ -36,7 +37,8 @@ class SqlDatabase {
   virtual BtrieveError open(const wchar_t *fileName,
                             OpenMode openMode = OpenMode::Normal) = 0;
 
-  // Creates a new sql backed file using database as the source of records
+  // Creates a new sql backed file using database as the source of records. If
+  // fileName is nullptr, then it will be created in-memory.
   virtual std::unique_ptr<RecordLoader> create(
       const wchar_t *fileName, const BtrieveDatabase &database) = 0;
 

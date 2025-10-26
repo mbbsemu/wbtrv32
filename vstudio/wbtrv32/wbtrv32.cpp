@@ -508,8 +508,15 @@ static BtrieveError Create(BtrieveCommand &command) {
   wbtrv32::LPKEYSPEC lpKeySpec =
       reinterpret_cast<wbtrv32::LPKEYSPEC>(lpFileSpec + 1);
 
-  GetFullPathName(toWideString(lpszFileName).c_str(),
-                  ARRAYSIZE(fullPathFileName), fullPathFileName, nullptr);
+  // special flag if we are to open in-memory
+  const bool inMemory = (lpFileSpec->physicalPageSize == 0xFF);
+
+  if (inMemory) {
+    fullPathFileName[0] = 0;
+  } else {
+    GetFullPathName(toWideString(lpszFileName).c_str(),
+                    ARRAYSIZE(fullPathFileName), fullPathFileName, nullptr);
+  }
 
   std::filesystem::path dbPath = std::filesystem::path(fullPathFileName)
                                      .replace_extension(sql.getFileExtension());
@@ -598,7 +605,17 @@ static BtrieveError Create(BtrieveCommand &command) {
                            lpFileSpec->logicalFixedRecordLength, 0, 0,
                            recordType, true, 0);
 
-  sql.create(toWideString(dbPath).c_str(), database);
+  if (!inMemory) {
+    sql.create(toWideString(dbPath).c_str(), database);
+    return BtrieveError::Success;
+  }
+
+  // this is the in-memory create path
+  SqliteDatabase *sqliteDatabase = new SqliteDatabase();
+  sqliteDatabase->create(nullptr, database);
+
+  AddToOpenFiles(command, std::make_shared<BtrieveDriver>(sqliteDatabase));
+
   return BtrieveError::Success;
 }
 

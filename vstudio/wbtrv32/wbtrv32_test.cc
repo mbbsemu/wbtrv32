@@ -1517,6 +1517,50 @@ TEST_F(wbtrv32Test, CreateSingleKey) {
                                    0, 0, "", std::vector<char>()));
 }
 
+TEST_F(wbtrv32Test, CreateInMemory) {
+  unsigned char buffer[1024];
+  uint8_t posBlock[128];
+  auto mbbsEmuDb = tempPath->getTempPath();
+  std::filesystem::path path(mbbsEmuDb);
+  path /= L"test.dat";
+
+  memset(buffer, 0, sizeof(buffer));
+
+  wbtrv32::LPFILESPEC lpFileSpec =
+      reinterpret_cast<wbtrv32::LPFILESPEC>(buffer);
+
+  lpFileSpec->pageSize = 4096;
+  lpFileSpec->numberOfKeys = 1;
+  lpFileSpec->logicalFixedRecordLength = 128;
+  lpFileSpec->fileVersion = 0x60;
+  lpFileSpec->fileFlags = 0;            // not variable
+  lpFileSpec->physicalPageSize = 0xFF;  // indicator for in memory db
+
+  wbtrv32::LPKEYSPEC lpKeySpec =
+      reinterpret_cast<wbtrv32::LPKEYSPEC>(lpFileSpec + 1);
+  lpKeySpec->position = 3;
+  lpKeySpec->length = 4;
+  lpKeySpec->attributes = UseExtendedDataType | Duplicates;
+  lpKeySpec->extendedDataType = btrieve::KeyDataType::Integer;
+
+  DWORD dwDataBufferLength =
+      reinterpret_cast<unsigned char*>(lpKeySpec + 1) - buffer;
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Create, posBlock, buffer,
+                    &dwDataBufferLength,
+                    const_cast<LPVOID>(
+                        reinterpret_cast<LPCVOID>(toStdString(path).c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
+
+  path = mbbsEmuDb;
+  path /= "test.db";
+  ASSERT_FALSE(FileExists(toWideString(path).c_str()));
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Close, posBlock, nullptr, nullptr,
+                    nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
+}
+
 TEST_F(wbtrv32Test, CreateSingleKeyWithAcs) {
   unsigned char buffer[1024];
   auto mbbsEmuDb = tempPath->getTempPath();

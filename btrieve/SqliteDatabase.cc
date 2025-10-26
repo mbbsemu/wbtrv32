@@ -290,13 +290,19 @@ void SqliteDatabase::loadSqliteKeys() {
 std::unique_ptr<RecordLoader> SqliteDatabase::create(
     const wchar_t *fileName, const BtrieveDatabase &database) {
   sqlite3 *db;
+  int flags = SQLITE_OPEN_FULLMUTEX | SQLITE_OPEN_READWRITE | openFlags;
 
   // remove the file if is exists since we're creating it anew
-  unlink(toStdString(fileName).c_str());
+  if (fileName != nullptr) {
+    unlink(toStdString(fileName).c_str());
+    flags |= SQLITE_OPEN_CREATE;
+  } else {
+    flags |= SQLITE_OPEN_MEMORY;
+  }
 
   int errorCode = sqlite3_open_v2(
-      toStdString(fileName).c_str(), &db,
-      SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | openFlags, nullptr);
+      fileName != nullptr ? toStdString(fileName).c_str() : nullptr, &db, flags,
+      nullptr);
   if (errorCode != SQLITE_OK) {
     throwException(errorCode);
   }
