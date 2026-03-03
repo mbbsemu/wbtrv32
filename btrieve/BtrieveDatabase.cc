@@ -237,6 +237,16 @@ void BtrieveDatabase::loadRecords(
   // Starting at 1, since the first page is the header
   for (unsigned int i = v6 ? 1 : 0; i < pageCount;
        i++, pageOffset += pageLength) {
+    // For v6, skip pages that are not active data pages ('D') or variable
+    // data pages ('V') according to the PAT. Shadow copies and index/alloc
+    // pages have type 0x00, 0x80, 'A', etc. and must not be imported.
+    if (v6) {
+      uint8_t patType = logicalPagePATType(f, i);
+      if (patType != 'D' && patType != 'V') {
+        continue;
+      }
+    }
+
     int32_t physicalOffset = logicalPageToPhysicalOffset(f, i);
     if (physicalOffset < 0) {
       continue;
@@ -681,4 +691,51 @@ int32_t BtrieveDatabase::logicalPageToPhysicalOffset(FILE* f,
 
   return static_cast<int32_t>(physicalPage * pageLength);
 }
+
+// Returns the PAT type byte for a given logical page in a v6 database.
+// Returns 'D' (0x44) for active data pages, 'V' for variable-length data,
+// 0x00 for shadow/inactive pages, 'A' for ACS, 0x80 for index pages, etc.
+// Returns 0xFF if the logical page is out of range or PAT can't be read.
+uint8_t BtrieveDatabase::logicalPagePATType(FILE* f, int32_t logicalPage) {
+  if (!v6) {
+    return 'D';  // v5 has no PAT type concept; treat all as data
+  }
+
+  uint32_t ret = 2;
+  const int32_t pagesPerPAT = (pageLength / 4u) - 2u;
+
+  if (static_cast<uint32_t>(logicalPage) >= pageCount) {
+    return 0xFF;
+  }
+
+  while (logicalPage > pagesPerPAT) {
+    logicalPage -= pagesPerPAT;
+    ret += (pageLength / 4u);
+  }
+
+  uint8_t* pat1 = reinterpret_cast<uint8_t*>(alloca(pageLength * 2));
+  uint8_t* pat2 = pat1 + pageLength;
+
+  const uint32_t physicalOffset = ret * pageLength;
+  if (physicalOffset >= (fileLength - pageLength * 2)) {
+    return 0xFF;
+  }
+
+  fseek_s(f, physicalOffset, SEEK_SET);
+  fread_s(pat1, pageLength * 2, f);
+
+  if (pat1[0] != 'P' && pat1[1] != 'P' && pat2[0] != 'P' && pat2[1] != 'P') {
+    return 0xFF;
+  }
+
+  uint32_t usageCount1 = toUint32(pat1 + 4);
+  uint32_t usageCount2 = toUint32(pat2 + 4);
+  uint8_t* activePat = (usageCount1 > usageCount2) ? pat1 : pat2;
+
+  // PAT entry: activePat + (logicalPage * 4) + 4
+  // byte layout: [pageNumHigh][typeCode][pageNumLow][pageNumMid]
+  uint8_t* entry = activePat + (logicalPage * 4) + 4;
+  return entry[1];  // type byte is at position 1 in the 4-byte entry
+}
+
 }  // namespace btrieve

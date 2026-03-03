@@ -170,6 +170,7 @@ class BtrieveDatabase {
                              std::vector<uint8_t> &stream);
 
   int32_t logicalPageToPhysicalOffset(FILE *f, int32_t logicalPage);
+  uint8_t logicalPagePATType(FILE *f, int32_t logicalPage);
 
   // The list of keys defined in the Btrieve database.
   std::vector<Key> keys;
