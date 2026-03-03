@@ -272,6 +272,12 @@ void BtrieveDatabase::loadRecords(
       std::basic_string_view<uint8_t> record =
           std::basic_string_view<uint8_t>(data + recordOffset, recordLength);
       if (isUnusedRecord(record)) {
+        // v5: unused records only appear at end-of-page (packed sequential),
+        // so break is correct. v6: deleted records leave holes anywhere on
+        // the page; live records can follow a deleted slot, so use continue.
+        if (v6) {
+          continue;
+        }
         break;
       }
 
