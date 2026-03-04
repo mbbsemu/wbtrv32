@@ -618,13 +618,16 @@ void BtrieveDatabase::getVariableLengthData(
 
     fragmentIndex = ((pageLength - 1) >> 1) - fragmentNumber;
     fragmentOffset = fragpp[fragmentIndex] & 0x7FFF;
-    for (lofs = 1; fragpp[fragmentIndex - lofs] == (uint16_t)-1; lofs++) {
-      if ((fragmentIndex - lofs) <= 0) {
+    for (lofs = 1;; lofs++) {
+      int prevIndex = fragmentIndex - lofs;
+      if (prevIndex < 0) {
         throw BtrieveException(
             BtrieveError::NotBtrieveFile,
             "Variable-length fragment chain has invalid previous fragment marker");
       }
-      /* all done in test! */
+      if (fragpp[prevIndex] != (uint16_t)-1) {
+        break;
+      }
     }
     fragmentLength = (fragpp[fragmentIndex - lofs] & 0x7FFF) - fragmentOffset;
 
