@@ -1,3 +1,5 @@
+load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
+
 TESTBASE_SRCS = ["TestBase.cc"]
 
 TEST_SRCS = glob(["*_test.cc"])
