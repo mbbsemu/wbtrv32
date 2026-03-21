@@ -170,6 +170,11 @@ class BtrieveDatabase {
                              std::vector<uint8_t> &stream);
 
   int32_t logicalPageToPhysicalOffset(FILE *f, int32_t logicalPage);
+  // Reads the PAT once for the given logical page and returns both the physical
+  // byte offset and the PAT type byte via outType, avoiding the double PAT read
+  // that would occur if logicalPageToPhysicalOffset() and a separate type
+  // lookup were called for the same page.
+  int32_t lookupPATEntry(FILE *f, int32_t logicalPage, uint8_t &outType);
 
   // The list of keys defined in the Btrieve database.
   std::vector<Key> keys;
