@@ -622,9 +622,9 @@ void BtrieveDatabase::getVariableLengthData(
     for (lofs = 1;; lofs++) {
       int prevIndex = fragmentIndex - lofs;
       if (prevIndex < 0) {
-        throw BtrieveException(
-            BtrieveError::NotBtrieveFile,
-            "Variable-length fragment chain has invalid previous fragment marker");
+        throw BtrieveException(BtrieveError::NotBtrieveFile,
+                               "Variable-length fragment chain has invalid "
+                               "previous fragment marker");
       }
       if (fragpp[prevIndex] != (uint16_t)-1) {
         break;

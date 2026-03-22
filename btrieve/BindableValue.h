@@ -2,9 +2,9 @@
 #define __BINDABLE_VALUE_H_
 
 #include <stdint.h>
+
 #include <string>
 #include <vector>
-#include <stdint.h>
 
 namespace btrieve {
 class BindableValue {

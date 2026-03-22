@@ -1,21 +1,24 @@
 #ifndef __QUERY_H_
 #define __QUERY_H_
 
-#include "Key.h"
-#include "Reader.h"
 #include <cstdint>
 #include <memory>
 #include <vector>
+
+#include "Key.h"
+#include "Reader.h"
 
 namespace btrieve {
 
 enum CursorDirection { Seek, Forward, Reverse };
 
 class Query {
-public:
+ public:
   Query(unsigned int position_, const Key *key_,
         std::basic_string_view<uint8_t> keyData_)
-      : position(position_), cursorDirection(CursorDirection::Seek), key(key_),
+      : position(position_),
+        cursorDirection(CursorDirection::Seek),
+        key(key_),
         keyData(keyData_.data(), keyData_.data() + keyData_.size()) {}
 
   virtual ~Query() = default;
@@ -36,11 +39,11 @@ public:
 
   virtual std::pair<bool, Record> next(CursorDirection cursorDirection) = 0;
 
-protected:
+ protected:
   unsigned int position;
   CursorDirection cursorDirection;
   const Key *key;
   std::vector<uint8_t> keyData;
 };
-} // namespace btrieve
+}  // namespace btrieve
 #endif
