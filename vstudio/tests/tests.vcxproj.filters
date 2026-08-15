@@ -67,9 +67,6 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <None Include="packages.config" />
-  </ItemGroup>
-  <ItemGroup>
     <Filter Include="Assets">
       <UniqueIdentifier>{c9d09ae0-277c-4ea7-89e8-f481f4aac48e}</UniqueIdentifier>
     </Filter>
@@ -79,5 +76,8 @@
     <Filter Include="Header Files">
       <UniqueIdentifier>{46530b55-db79-446e-8fa8-2112b3753220}</UniqueIdentifier>
     </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="packages.config" />
   </ItemGroup>
 </Project>

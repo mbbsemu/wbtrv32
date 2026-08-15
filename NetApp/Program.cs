@@ -1,7 +1,7 @@
 ﻿using System.Runtime.InteropServices;
 
 public partial class Program {
-  [LibraryImport("wbtrv32.dll")]
+  [LibraryImport("wbtrv32.dll", EntryPoint = "BTRCALL")]
   private static partial int BTRCALL(ushort wOperation, nint lpPositionBlock, nint lpDataBuffer,
                                      nint lpdwDataBufferLength, nint lpKeyBuffer, byte bKeyLength,
                                      byte sbKeyNumber);
