@@ -19,7 +19,7 @@ enum KeyDataType {
   UnsignedBinary = 0xE,
   AutoInc = 0xF,
   OldAscii = 0x20,
-  OldBinary = 0x21, // essentially an unsigned int, like Unsigned
+  OldBinary = 0x21,  // essentially an unsigned int, like Unsigned
 };
 }
 

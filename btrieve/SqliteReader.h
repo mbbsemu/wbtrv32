@@ -92,7 +92,7 @@ class SqliteReader : public Reader {
  private:
   friend class SqlitePreparedStatement;
 
-  SqliteReader(sqlite3_stmt *statement_) : statement(statement_) {};
+  SqliteReader(sqlite3_stmt *statement_) : statement(statement_){};
 
   // can't use a shared_ptr here since sqlite3_stmt is an incomplete type
   sqlite3_stmt *statement;

@@ -8,7 +8,7 @@
 
 namespace btrieve {
 class Record {
-public:
+ public:
   Record() : position(-1) {}
 
   Record(unsigned int position_, std::basic_string_view<uint8_t> data_)
@@ -32,9 +32,9 @@ public:
     return *this;
   }
 
-private:
+ private:
   unsigned int position;
   std::vector<uint8_t> data;
 };
-} // namespace btrieve
+}  // namespace btrieve
 #endif

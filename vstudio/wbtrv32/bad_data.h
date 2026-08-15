@@ -12,6 +12,6 @@ typedef struct _tagBADDATA {
 
 extern const BADDATA badData[];
 
-} // namespace wbtrv32_test
+}  // namespace wbtrv32_test
 
 #endif

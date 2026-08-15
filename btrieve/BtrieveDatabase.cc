@@ -237,7 +237,18 @@ void BtrieveDatabase::loadRecords(
   // Starting at 1, since the first page is the header
   for (unsigned int i = v6 ? 1 : 0; i < pageCount;
        i++, pageOffset += pageLength) {
-    int32_t physicalOffset = logicalPageToPhysicalOffset(f, i);
+    // For v6, skip pages that are not active data pages ('D') or variable
+    // data pages ('V') according to the PAT. Shadow copies and index/alloc
+    // pages have type 0x00, 0x80, 'A', etc. and must not be imported.
+    // lookupPATEntry() returns both the PAT type byte and the physical offset
+    // in a single PAT read, avoiding the double-read that would occur if
+    // logicalPagePATType() and logicalPageToPhysicalOffset() were called
+    // separately.
+    uint8_t patType = 'D';
+    int32_t physicalOffset = lookupPATEntry(f, i, patType);
+    if (v6 && patType != 'D' && patType != 'V') {
+      continue;
+    }
     if (physicalOffset < 0) {
       continue;
     }
@@ -262,6 +273,12 @@ void BtrieveDatabase::loadRecords(
       std::basic_string_view<uint8_t> record =
           std::basic_string_view<uint8_t>(data + recordOffset, recordLength);
       if (isUnusedRecord(record)) {
+        // v5: unused records only appear at end-of-page (packed sequential),
+        // so break is correct. v6: deleted records leave holes anywhere on
+        // the page; live records can follow a deleted slot, so use continue.
+        if (v6) {
+          continue;
+        }
         break;
       }
 
@@ -602,8 +619,16 @@ void BtrieveDatabase::getVariableLengthData(
 
     fragmentIndex = ((pageLength - 1) >> 1) - fragmentNumber;
     fragmentOffset = fragpp[fragmentIndex] & 0x7FFF;
-    for (lofs = 1; fragpp[fragmentIndex - lofs] == -1; lofs++) {
-      /* all done in test! */
+    for (lofs = 1;; lofs++) {
+      int prevIndex = fragmentIndex - lofs;
+      if (prevIndex < 0) {
+        throw BtrieveException(BtrieveError::NotBtrieveFile,
+                               "Variable-length fragment chain has invalid "
+                               "previous fragment marker");
+      }
+      if (fragpp[prevIndex] != (uint16_t)-1) {
+        break;
+      }
     }
     fragmentLength = (fragpp[fragmentIndex - lofs] & 0x7FFF) - fragmentOffset;
 
@@ -630,7 +655,29 @@ void BtrieveDatabase::getVariableLengthData(
 
 int32_t BtrieveDatabase::logicalPageToPhysicalOffset(FILE* f,
                                                      int32_t logicalPage) {
+  uint8_t unused;
+  return lookupPATEntry(f, logicalPage, unused);
+}
+
+// Reads the PAT once for the given logical page and returns both the physical
+// byte offset and the PAT type byte via outType.  Combining these avoids the
+// double PAT read that would occur if logicalPageToPhysicalOffset() and
+// logicalPagePATType() were called separately for the same page.
+//
+// outType receives:
+//   'D' (0x44) — active data page
+//   'V' (0x56) — variable-length data page
+//   0x00        — shadow/inactive page
+//   0x80        — index page
+//   'A' (0x41)  — ACS page
+//   'D'         — for v5 databases (no PAT type concept)
+//   0xFF        — logical page out of range or PAT unreadable
+//
+// Returns: physical byte offset into the file, or -1 on failure.
+int32_t BtrieveDatabase::lookupPATEntry(FILE* f, int32_t logicalPage,
+                                        uint8_t& outType) {
   if (!v6) {
+    outType = 'D';
     return logicalPage * pageLength;
   }
 
@@ -640,6 +687,7 @@ int32_t BtrieveDatabase::logicalPageToPhysicalOffset(FILE* f,
 
   // logical page can never be higher than max physical pages
   if (static_cast<uint32_t>(logicalPage) >= pageCount) {
+    outType = 0xFF;
     return -1;
   }
 
@@ -655,6 +703,7 @@ int32_t BtrieveDatabase::logicalPageToPhysicalOffset(FILE* f,
   const uint32_t physicalOffset = ret * pageLength;
   if (physicalOffset >= (fileLength - pageLength * 2)) {
     // we overflowed, this is junk
+    outType = 0xFF;
     return -1;
   }
 
@@ -662,18 +711,25 @@ int32_t BtrieveDatabase::logicalPageToPhysicalOffset(FILE* f,
   fseek_s(f, physicalOffset, SEEK_SET);
   fread_s(pat1, pageLength * 2, f);
 
-  // pick the one with best usage count
-  if (pat1[0] != 'P' && pat1[1] != 'P' && pat2[0] != 'P' && pat2[1] != 'P') {
-    throw BtrieveException(BtrieveError::NotBtrieveFile, "Not a valid PAT");
+  // A valid PAT page starts with the two-byte sequence 'P', 'P'.
+  // Reject only when neither copy has a valid header — i.e. both are corrupt.
+  // Use || within each page's check so a single bad byte doesn't mask the
+  // other page's validity (matches the logic in loadPAT()).
+  if ((pat1[0] != 'P' || pat1[1] != 'P') &&
+      (pat2[0] != 'P' || pat2[1] != 'P')) {
+    outType = 0xFF;
+    return -1;
   }
 
   uint32_t usageCount1 = toUint32(pat1 + 4);
   uint32_t usageCount2 = toUint32(pat2 + 4);
   uint8_t* activePat = (usageCount1 > usageCount2) ? pat1 : pat2;
 
-  uint8_t* positionInPat = activePat + (logicalPage * 4) + 4;
-  int64_t physicalPage =
-      (positionInPat[0] << 16) | (positionInPat[3] << 8) | positionInPat[2];
+  // PAT entry layout (4 bytes): [pageNumHigh][typeCode][pageNumLow][pageNumMid]
+  uint8_t* entry = activePat + (logicalPage * 4) + 4;
+  outType = entry[1];  // type byte is at position 1 in the 4-byte entry
+
+  int64_t physicalPage = (entry[0] << 16) | (entry[3] << 8) | entry[2];
 
   if (physicalPage == 0xFFFFFFL || physicalPage < 0) {
     return -1;
@@ -681,4 +737,5 @@ int32_t BtrieveDatabase::logicalPageToPhysicalOffset(FILE* f,
 
   return static_cast<int32_t>(physicalPage * pageLength);
 }
+
 }  // namespace btrieve

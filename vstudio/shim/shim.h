@@ -1,9 +1,10 @@
-// The following ifdef block is the standard way of creating macros which make exporting
-// from a DLL simpler. All files within this DLL are compiled with the SHIM_EXPORTS
-// symbol defined on the command line. This symbol should not be defined on any project
-// that uses this DLL. This way any other project whose source files include this file see
-// SHIM_API functions as being imported from a DLL, whereas this DLL sees symbols
-// defined with this macro as being exported.
+// The following ifdef block is the standard way of creating macros which make
+// exporting from a DLL simpler. All files within this DLL are compiled with the
+// SHIM_EXPORTS symbol defined on the command line. This symbol should not be
+// defined on any project that uses this DLL. This way any other project whose
+// source files include this file see SHIM_API functions as being imported from
+// a DLL, whereas this DLL sees symbols defined with this macro as being
+// exported.
 #ifdef SHIM_EXPORTS
 #define SHIM_API __declspec(dllexport)
 #else
@@ -12,9 +13,9 @@
 
 // This class is exported from the dll
 class SHIM_API Cshim {
-public:
-	Cshim(void);
-	// TODO: add your methods here.
+ public:
+  Cshim(void);
+  // TODO: add your methods here.
 };
 
 extern SHIM_API int nshim;

@@ -1,18 +1,19 @@
 ﻿#ifndef __BTRIEVEKEY_H_
 #define __BTRIEVEKEY_H_
 
-#include "BindableValue.h"
-#include "KeyDefinition.h"
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <string>
 #include <string_view>
 
+#include "BindableValue.h"
+#include "KeyDefinition.h"
+
 namespace btrieve {
 
 class Key {
-public:
+ public:
   Key() {}
 
   Key(const Key &key) : segments(key.segments) {}
@@ -65,11 +66,11 @@ public:
 
   std::string getSqliteColumnSql() const;
 
-  std::vector<uint8_t>
-  extractKeyDataFromRecord(std::basic_string_view<uint8_t> record) const;
+  std::vector<uint8_t> extractKeyDataFromRecord(
+      std::basic_string_view<uint8_t> record) const;
 
-  BindableValue
-  keyDataToSqliteObject(std::basic_string_view<uint8_t> keyData) const;
+  BindableValue keyDataToSqliteObject(
+      std::basic_string_view<uint8_t> keyData) const;
 
   BindableValue extractKeyInRecordToSqliteObject(
       std::basic_string_view<uint8_t> record) const {
@@ -91,11 +92,11 @@ public:
     }
   }
 
-private:
+ private:
   std::vector<uint8_t> applyACS(std::basic_string_view<uint8_t> keyData) const;
 
   std::vector<KeyDefinition> segments;
 };
-} // namespace btrieve
+}  // namespace btrieve
 
 #endif
