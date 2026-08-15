@@ -612,7 +612,13 @@ static BtrieveError Create(BtrieveCommand &command) {
 
   // this is the in-memory create path
   SqliteDatabase *sqliteDatabase = new SqliteDatabase();
-  sqliteDatabase->create(nullptr, database);
+  std::unique_ptr<RecordLoader> recordLoader =
+      sqliteDatabase->create(nullptr, database);
+  // create() leaves a transaction open (via createSqliteInsertionCommand)
+  // for callers that are about to bulk load records; since we have none to
+  // load, commit it now so later Insert/Update/etc. calls on this in-memory
+  // database aren't stuck behind an unclosed transaction.
+  recordLoader->onRecordsComplete();
 
   AddToOpenFiles(command, std::make_shared<BtrieveDriver>(sqliteDatabase));
 
