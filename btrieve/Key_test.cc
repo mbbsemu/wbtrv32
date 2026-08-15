@@ -1,7 +1,12 @@
-﻿#include "Key.h"
+#include "Key.h"
 
 #include "AttributeMask.h"
 #include "gtest/gtest.h"
+
+#ifdef __linux__
+#undef INSTANTIATE_TEST_CASE_P
+#define INSTANTIATE_TEST_CASE_P INSTANTIATE_TEST_SUITE_P
+#endif
 
 using namespace btrieve;
 
