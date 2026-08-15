@@ -15,7 +15,7 @@ TEST(LRUCache, SingleInsertionAndGet) {
   ASSERT_TRUE(static_cast<bool>(value));
   ASSERT_STREQ(value->c_str(), "my guy");
 
-  ASSERT_EQ(test.size(), 1);
+  ASSERT_EQ(test.size(), 1u);
 
   ASSERT_EQ(test.get("not a key"), nullptr);
 }
@@ -36,7 +36,7 @@ TEST(LRUCache, MultiInsertionWithSameKey) {
   ASSERT_TRUE(static_cast<bool>(value));
   ASSERT_STREQ(value->c_str(), "my guy8");
 
-  ASSERT_EQ(test.size(), 1);
+  ASSERT_EQ(test.size(), 1u);
 }
 
 TEST(LRUCache, MultiInsertion) {
@@ -56,7 +56,7 @@ TEST(LRUCache, MultiInsertion) {
   ASSERT_EQ(test.get("hello2"), nullptr);
   ASSERT_EQ(test.get("hello3"), nullptr);
 
-  ASSERT_EQ(test.size(), 5);
+  ASSERT_EQ(test.size(), 5u);
 
   for (int i = 0; i < 5; ++i) {
     char helloStr[32];
@@ -69,6 +69,6 @@ TEST(LRUCache, MultiInsertion) {
     ASSERT_NE(value, nullptr);
     ASSERT_STREQ(value->c_str(), myGuyStr);
 
-    ASSERT_EQ(test.size(), 5);
+    ASSERT_EQ(test.size(), 5u);
   }
 }

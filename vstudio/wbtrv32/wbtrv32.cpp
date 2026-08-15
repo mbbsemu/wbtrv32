@@ -31,7 +31,17 @@ static std::unordered_map<std::basic_string<wchar_t>,
     _openFiles;
 
 #ifdef LOG_TO_FILE
-static std::unique_ptr<FILE, decltype(&fclose)> _logFile(nullptr, &fclose);
+namespace {
+struct FileCloser {
+  void operator()(FILE *f) const {
+    if (f) {
+      fclose(f);
+    }
+  }
+};
+}  // namespace
+
+static std::unique_ptr<FILE, FileCloser> _logFile(nullptr);
 #endif
 
 void wbtrv32::processAttach() {

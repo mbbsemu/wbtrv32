@@ -90,9 +90,9 @@ TEST_F(BtrieveDriverTest, LoadsAndConverts) {
     ASSERT_EQ(stat(dbPath.c_str(), &statbuf), 0);
 #endif
 
-    EXPECT_EQ(driver.getRecordLength(), 74);
+    EXPECT_EQ(driver.getRecordLength(), 74u);
     EXPECT_FALSE(driver.isVariableLengthRecords());
-    EXPECT_EQ(driver.getKeys().size(), 4);
+    EXPECT_EQ(driver.getKeys().size(), 4u);
 
     EXPECT_FALSE(driver.getKeys()[0].isComposite());
     EXPECT_FALSE(driver.getKeys()[1].isComposite());
@@ -223,9 +223,9 @@ TEST_F(BtrieveDriverTest, LoadsPreexistingSqliteDatabase) {
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
 
-  EXPECT_EQ(driver.getRecordLength(), 74);
+  EXPECT_EQ(driver.getRecordLength(), 74u);
   EXPECT_FALSE(driver.isVariableLengthRecords());
-  EXPECT_EQ(driver.getKeys().size(), 4);
+  EXPECT_EQ(driver.getKeys().size(), 4u);
 
   EXPECT_FALSE(driver.getKeys()[0].isComposite());
   EXPECT_FALSE(driver.getKeys()[1].isComposite());
@@ -274,10 +274,10 @@ TEST_F(BtrieveDriverTest, StepNext) {
                                     OperationCode::StepFirst),
             BtrieveError::Success);
 
-  ASSERT_EQ(driver.getPosition(), 1);
+  ASSERT_EQ(driver.getPosition(), 1u);
   std::pair<bool, Record> data(driver.getRecord());
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   EXPECT_EQ(reinterpret_cast<const MBBSEmuRecordStruct *>(
                 data.second.getData().data())
                 ->key1,
@@ -287,10 +287,10 @@ TEST_F(BtrieveDriverTest, StepNext) {
                                     OperationCode::StepNext),
             BtrieveError::Success);
 
-  ASSERT_EQ(driver.getPosition(), 2);
+  ASSERT_EQ(driver.getPosition(), 2u);
   data = std::move(driver.getRecord());
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   EXPECT_EQ(reinterpret_cast<const MBBSEmuRecordStruct *>(
                 data.second.getData().data())
                 ->key1,
@@ -300,10 +300,10 @@ TEST_F(BtrieveDriverTest, StepNext) {
                                     OperationCode::StepNext),
             BtrieveError::Success);
 
-  ASSERT_EQ(driver.getPosition(), 3);
+  ASSERT_EQ(driver.getPosition(), 3u);
   data = std::move(driver.getRecord());
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   EXPECT_EQ(reinterpret_cast<const MBBSEmuRecordStruct *>(
                 data.second.getData().data())
                 ->key1,
@@ -313,10 +313,10 @@ TEST_F(BtrieveDriverTest, StepNext) {
                                     OperationCode::StepNext),
             BtrieveError::Success);
 
-  ASSERT_EQ(driver.getPosition(), 4);
+  ASSERT_EQ(driver.getPosition(), 4u);
   data = std::move(driver.getRecord());
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   EXPECT_EQ(reinterpret_cast<const MBBSEmuRecordStruct *>(
                 data.second.getData().data())
                 ->key1,
@@ -326,7 +326,7 @@ TEST_F(BtrieveDriverTest, StepNext) {
                                     OperationCode::StepNext),
             BtrieveError::EndOfFile);
 
-  ASSERT_EQ(driver.getPosition(), 4);
+  ASSERT_EQ(driver.getPosition(), 4u);
 }
 
 TEST_F(BtrieveDriverTest, StepPrevious) {
@@ -339,10 +339,10 @@ TEST_F(BtrieveDriverTest, StepPrevious) {
                                     OperationCode::StepLast),
             BtrieveError::Success);
 
-  ASSERT_EQ(driver.getPosition(), 4);
+  ASSERT_EQ(driver.getPosition(), 4u);
   std::pair<bool, Record> data(driver.getRecord());
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   EXPECT_EQ(reinterpret_cast<const MBBSEmuRecordStruct *>(
                 data.second.getData().data())
                 ->key1,
@@ -352,10 +352,10 @@ TEST_F(BtrieveDriverTest, StepPrevious) {
                                     OperationCode::StepPrevious),
             BtrieveError::Success);
 
-  ASSERT_EQ(driver.getPosition(), 3);
+  ASSERT_EQ(driver.getPosition(), 3u);
   data = std::move(driver.getRecord());
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   EXPECT_EQ(reinterpret_cast<const MBBSEmuRecordStruct *>(
                 data.second.getData().data())
                 ->key1,
@@ -365,10 +365,10 @@ TEST_F(BtrieveDriverTest, StepPrevious) {
                                     OperationCode::StepPrevious),
             BtrieveError::Success);
 
-  ASSERT_EQ(driver.getPosition(), 2);
+  ASSERT_EQ(driver.getPosition(), 2u);
   data = std::move(driver.getRecord());
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   EXPECT_EQ(reinterpret_cast<const MBBSEmuRecordStruct *>(
                 data.second.getData().data())
                 ->key1,
@@ -378,10 +378,10 @@ TEST_F(BtrieveDriverTest, StepPrevious) {
                                     OperationCode::StepPrevious),
             BtrieveError::Success);
 
-  ASSERT_EQ(driver.getPosition(), 1);
+  ASSERT_EQ(driver.getPosition(), 1u);
   data = std::move(driver.getRecord());
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   EXPECT_EQ(reinterpret_cast<const MBBSEmuRecordStruct *>(
                 data.second.getData().data())
                 ->key1,
@@ -391,7 +391,7 @@ TEST_F(BtrieveDriverTest, StepPrevious) {
                                     OperationCode::StepPrevious),
             BtrieveError::EndOfFile);
 
-  ASSERT_EQ(driver.getPosition(), 1);
+  ASSERT_EQ(driver.getPosition(), 1u);
 }
 
 TEST_F(BtrieveDriverTest, RandomAccess) {
@@ -402,18 +402,18 @@ TEST_F(BtrieveDriverTest, RandomAccess) {
 
   std::pair<bool, Record> data(driver.getRecord(4));
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   auto dbValue = reinterpret_cast<const MBBSEmuRecordStruct *>(
       data.second.getData().data());
 
   EXPECT_STREQ(dbValue->key0, "Sysop");
   EXPECT_EQ(dbValue->key1, -615634567);
   EXPECT_STREQ(dbValue->key2, "stringValue");
-  EXPECT_EQ(dbValue->key3, 4);
+  EXPECT_EQ(dbValue->key3, 4u);
 
   data = driver.getRecord(3);
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   EXPECT_EQ(reinterpret_cast<const MBBSEmuRecordStruct *>(
                 data.second.getData().data())
                 ->key1,
@@ -421,7 +421,7 @@ TEST_F(BtrieveDriverTest, RandomAccess) {
 
   data = driver.getRecord(2);
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   EXPECT_EQ(reinterpret_cast<const MBBSEmuRecordStruct *>(
                 data.second.getData().data())
                 ->key1,
@@ -429,7 +429,7 @@ TEST_F(BtrieveDriverTest, RandomAccess) {
 
   data = driver.getRecord(1);
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   EXPECT_EQ(reinterpret_cast<const MBBSEmuRecordStruct *>(
                 data.second.getData().data())
                 ->key1,
@@ -444,21 +444,21 @@ TEST_F(BtrieveDriverTest, RandomInvalidAccess) {
 
   std::pair<bool, Record> data(driver.getRecord(5));
   ASSERT_FALSE(data.first);
-  ASSERT_EQ(data.second.getData().size(), 0);
+  ASSERT_EQ(data.second.getData().size(), 0u);
 
   data = driver.getRecord(0);
   ASSERT_FALSE(data.first);
-  ASSERT_EQ(data.second.getData().size(), 0);
+  ASSERT_EQ(data.second.getData().size(), 0u);
 
   driver.setPosition(5);
   data = driver.getRecord();
   ASSERT_FALSE(data.first);
-  ASSERT_EQ(data.second.getData().size(), 0);
+  ASSERT_EQ(data.second.getData().size(), 0u);
 
   driver.setPosition(0);
   data = driver.getRecord();
   ASSERT_FALSE(data.first);
-  ASSERT_EQ(data.second.getData().size(), 0);
+  ASSERT_EQ(data.second.getData().size(), 0u);
 }
 
 TEST_F(BtrieveDriverTest, GetRecordCount) {
@@ -467,7 +467,7 @@ TEST_F(BtrieveDriverTest, GetRecordCount) {
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
 
-  ASSERT_EQ(driver.getRecordCount(), 4);
+  ASSERT_EQ(driver.getRecordCount(), 4u);
 }
 
 TEST_F(BtrieveDriverTest, DeleteAll) {
@@ -476,12 +476,12 @@ TEST_F(BtrieveDriverTest, DeleteAll) {
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
 
-  ASSERT_EQ(driver.getRecordCount(), 4);
+  ASSERT_EQ(driver.getRecordCount(), 4u);
 
   ASSERT_EQ(driver.deleteAll(), BtrieveError::Success);
 
-  ASSERT_EQ(driver.getRecordCount(), 0);
-  ASSERT_EQ(driver.getPosition(), 0);
+  ASSERT_EQ(driver.getRecordCount(), 0u);
+  ASSERT_EQ(driver.getPosition(), 0u);
 }
 
 #ifdef WIN32
@@ -499,19 +499,19 @@ TEST_F(BtrieveDriverTest, Delete) {
 
   driver.setPosition(2);
 
-  ASSERT_EQ(driver.getRecordCount(), 4);
+  ASSERT_EQ(driver.getRecordCount(), 4u);
 
   ASSERT_EQ(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
                                     OperationCode::Delete),
             BtrieveError::Success);
-  ASSERT_EQ(driver.getPosition(), 2);
-  ASSERT_EQ(driver.getRecordCount(), 3);
+  ASSERT_EQ(driver.getPosition(), 2u);
+  ASSERT_EQ(driver.getRecordCount(), 3u);
 
   ASSERT_EQ(driver.performOperation(-1, std::basic_string_view<uint8_t>(),
                                     OperationCode::Delete),
             BtrieveError::InvalidPositioning);
-  ASSERT_EQ(driver.getPosition(), 2);
-  ASSERT_EQ(driver.getRecordCount(), 3);
+  ASSERT_EQ(driver.getPosition(), 2u);
+  ASSERT_EQ(driver.getRecordCount(), 3u);
 
   ASSERT_FALSE(driver.getRecord().first);
 }
@@ -532,10 +532,10 @@ TEST_F(BtrieveDriverTest, RecordDeleteOneIteration) {
                                     OperationCode::StepFirst),
             BtrieveError::Success);
 
-  ASSERT_EQ(driver.getPosition(), 1);
+  ASSERT_EQ(driver.getPosition(), 1u);
   std::pair<bool, Record> data(driver.getRecord());
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   EXPECT_EQ(reinterpret_cast<const MBBSEmuRecordStruct *>(
                 data.second.getData().data())
                 ->key1,
@@ -545,10 +545,10 @@ TEST_F(BtrieveDriverTest, RecordDeleteOneIteration) {
                                     OperationCode::StepNext),
             BtrieveError::Success);
 
-  ASSERT_EQ(driver.getPosition(), 3);
+  ASSERT_EQ(driver.getPosition(), 3u);
   data = std::move(driver.getRecord());
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   EXPECT_EQ(reinterpret_cast<const MBBSEmuRecordStruct *>(
                 data.second.getData().data())
                 ->key1,
@@ -558,10 +558,10 @@ TEST_F(BtrieveDriverTest, RecordDeleteOneIteration) {
                                     OperationCode::StepNext),
             BtrieveError::Success);
 
-  ASSERT_EQ(driver.getPosition(), 4);
+  ASSERT_EQ(driver.getPosition(), 4u);
   data = std::move(driver.getRecord());
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   EXPECT_EQ(reinterpret_cast<const MBBSEmuRecordStruct *>(
                 data.second.getData().data())
                 ->key1,
@@ -571,7 +571,7 @@ TEST_F(BtrieveDriverTest, RecordDeleteOneIteration) {
                                     OperationCode::StepNext),
             BtrieveError::EndOfFile);
 
-  ASSERT_EQ(driver.getPosition(), 4);
+  ASSERT_EQ(driver.getPosition(), 4u);
 }
 
 TEST_F(BtrieveDriverTest, InsertionTest) {
@@ -592,7 +592,7 @@ TEST_F(BtrieveDriverTest, InsertionTest) {
 
   std::pair<bool, Record> data(driver.getRecord(5));
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   const MBBSEmuRecordStruct *dbRecord =
       reinterpret_cast<const MBBSEmuRecordStruct *>(
           data.second.getData().data());
@@ -600,9 +600,9 @@ TEST_F(BtrieveDriverTest, InsertionTest) {
   ASSERT_STREQ(dbRecord->key0, "Paladine");
   ASSERT_EQ(dbRecord->key1, 31337);
   ASSERT_STREQ(dbRecord->key2, "In orbe terrarum, optimus sum");
-  ASSERT_EQ(dbRecord->key3, 5);
+  ASSERT_EQ(dbRecord->key3, 5u);
 
-  ASSERT_EQ(driver.getRecordCount(), 5);
+  ASSERT_EQ(driver.getRecordCount(), 5u);
 }
 
 TEST_F(BtrieveDriverTest, InsertionTestManualAutoincrementedValue) {
@@ -624,7 +624,7 @@ TEST_F(BtrieveDriverTest, InsertionTestManualAutoincrementedValue) {
 
   std::pair<bool, Record> data(driver.getRecord(5));
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   const MBBSEmuRecordStruct *dbRecord =
       reinterpret_cast<const MBBSEmuRecordStruct *>(
           data.second.getData().data());
@@ -632,9 +632,9 @@ TEST_F(BtrieveDriverTest, InsertionTestManualAutoincrementedValue) {
   ASSERT_STREQ(dbRecord->key0, "Paladine");
   ASSERT_EQ(dbRecord->key1, 31337);
   ASSERT_STREQ(dbRecord->key2, "In orbe terrarum, optimus sum");
-  ASSERT_EQ(dbRecord->key3, 4444);
+  ASSERT_EQ(dbRecord->key3, 4444u);
 
-  ASSERT_EQ(driver.getRecordCount(), 5);
+  ASSERT_EQ(driver.getRecordCount(), 5u);
 }
 
 TEST_F(BtrieveDriverTest, InsertionTestSubSize) {
@@ -656,7 +656,7 @@ TEST_F(BtrieveDriverTest, InsertionTestSubSize) {
             std::make_pair(BtrieveError::Success, 5u));
   std::pair<bool, Record> data(driver.getRecord(5));
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   const MBBSEmuRecordStruct *dbRecord =
       reinterpret_cast<const MBBSEmuRecordStruct *>(
           data.second.getData().data());
@@ -664,9 +664,9 @@ TEST_F(BtrieveDriverTest, InsertionTestSubSize) {
   ASSERT_STREQ(dbRecord->key0, "Paladine");
   ASSERT_EQ(dbRecord->key1, 31337);
   ASSERT_STREQ(dbRecord->key2, "In orbe terrarum, opti");  // cut off
-  ASSERT_EQ(dbRecord->key3, 5);
+  ASSERT_EQ(dbRecord->key3, 5u);
 
-  ASSERT_EQ(driver.getRecordCount(), 5);
+  ASSERT_EQ(driver.getRecordCount(), 5u);
 }
 
 TEST_F(BtrieveDriverTest, InsertionConstraintFailure) {
@@ -686,7 +686,7 @@ TEST_F(BtrieveDriverTest, InsertionConstraintFailure) {
                 reinterpret_cast<uint8_t *>(&record), sizeof(record))),
             std::make_pair(BtrieveError::DuplicateKeyValue, 0u));
 
-  ASSERT_EQ(driver.getRecordCount(), 4);
+  ASSERT_EQ(driver.getRecordCount(), 4u);
 }
 
 TEST_F(BtrieveDriverTest, UpdateTest) {
@@ -709,7 +709,7 @@ TEST_F(BtrieveDriverTest, UpdateTest) {
 
   std::pair<bool, Record> data(driver.getRecord(1));
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   const MBBSEmuRecordStruct *dbRecord =
       reinterpret_cast<const MBBSEmuRecordStruct *>(
           data.second.getData().data());
@@ -717,9 +717,9 @@ TEST_F(BtrieveDriverTest, UpdateTest) {
   ASSERT_STREQ(dbRecord->key0, "Sysop");
   ASSERT_EQ(dbRecord->key1, 31337);
   ASSERT_STREQ(dbRecord->key2, "In orbe terrarum, optimus sum");
-  ASSERT_EQ(dbRecord->key3, 1);
+  ASSERT_EQ(dbRecord->key3, 1u);
 
-  ASSERT_EQ(driver.getRecordCount(), 4);
+  ASSERT_EQ(driver.getRecordCount(), 4u);
 }
 
 TEST_F(BtrieveDriverTest, UpdateTestSubSize) {
@@ -747,7 +747,7 @@ TEST_F(BtrieveDriverTest, UpdateTestSubSize) {
 
   std::pair<bool, Record> data(driver.getRecord(2));
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   const MBBSEmuRecordStruct *dbRecord =
       reinterpret_cast<const MBBSEmuRecordStruct *>(
           data.second.getData().data());
@@ -755,9 +755,9 @@ TEST_F(BtrieveDriverTest, UpdateTestSubSize) {
   ASSERT_STREQ(dbRecord->key0, "Sysop");
   ASSERT_EQ(dbRecord->key1, 31337);
   ASSERT_STREQ(dbRecord->key2, "In orbe terrarum, optimus sum");
-  ASSERT_EQ(dbRecord->key3, 2);  // truncated down to 2
+  ASSERT_EQ(dbRecord->key3, 2u);  // truncated down to 2
 
-  ASSERT_EQ(driver.getRecordCount(), 4);
+  ASSERT_EQ(driver.getRecordCount(), 4u);
 }
 
 TEST_F(BtrieveDriverTest, UpdateConstraintFailedTest) {
@@ -779,7 +779,7 @@ TEST_F(BtrieveDriverTest, UpdateConstraintFailedTest) {
 
   std::pair<bool, Record> data(driver.getRecord(1));
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   const MBBSEmuRecordStruct *dbRecord =
       reinterpret_cast<const MBBSEmuRecordStruct *>(
           data.second.getData().data());
@@ -787,9 +787,9 @@ TEST_F(BtrieveDriverTest, UpdateConstraintFailedTest) {
   ASSERT_STREQ(dbRecord->key0, "Sysop");
   ASSERT_EQ(dbRecord->key1, 3444);
   ASSERT_STREQ(dbRecord->key2, "3444");
-  ASSERT_EQ(dbRecord->key3, 1);
+  ASSERT_EQ(dbRecord->key3, 1u);
 
-  ASSERT_EQ(driver.getRecordCount(), 4);
+  ASSERT_EQ(driver.getRecordCount(), 4u);
 }
 
 TEST_F(BtrieveDriverTest, UpdateTestNonModifiableKeyModifiedFailed) {
@@ -813,7 +813,7 @@ TEST_F(BtrieveDriverTest, UpdateTestNonModifiableKeyModifiedFailed) {
 
   std::pair<bool, Record> data(driver.getRecord(1));
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   const MBBSEmuRecordStruct *dbRecord =
       reinterpret_cast<const MBBSEmuRecordStruct *>(
           data.second.getData().data());
@@ -821,9 +821,9 @@ TEST_F(BtrieveDriverTest, UpdateTestNonModifiableKeyModifiedFailed) {
   EXPECT_STREQ(dbRecord->key0, "Sysop");
   EXPECT_EQ(dbRecord->key1, 3444);
   EXPECT_STREQ(dbRecord->key2, "3444");
-  EXPECT_EQ(dbRecord->key3, 1);
+  EXPECT_EQ(dbRecord->key3, 1u);
 
-  ASSERT_EQ(driver.getRecordCount(), 4);
+  ASSERT_EQ(driver.getRecordCount(), 4u);
 }
 
 TEST_F(BtrieveDriverTest, UpdateInvalidKeyNumber) {
@@ -845,7 +845,7 @@ TEST_F(BtrieveDriverTest, UpdateInvalidKeyNumber) {
                        reinterpret_cast<uint8_t *>(&record), sizeof(record))),
             BtrieveError::InvalidPositioning);
 
-  ASSERT_EQ(driver.getRecordCount(), 4);
+  ASSERT_EQ(driver.getRecordCount(), 4u);
 }
 
 TEST_F(BtrieveDriverTest, SeekByKeyStringDuplicates) {
@@ -859,23 +859,23 @@ TEST_F(BtrieveDriverTest, SeekByKeyStringDuplicates) {
 
   ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryEqual),
             BtrieveError::Success);
-  ASSERT_EQ(driver.getRecord().second.getPosition(), 1);
+  ASSERT_EQ(driver.getRecord().second.getPosition(), 1u);
 
   ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryNext),
             BtrieveError::Success);
-  ASSERT_EQ(driver.getRecord().second.getPosition(), 2);
+  ASSERT_EQ(driver.getRecord().second.getPosition(), 2u);
 
   ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryNext),
             BtrieveError::Success);
-  ASSERT_EQ(driver.getRecord().second.getPosition(), 3);
+  ASSERT_EQ(driver.getRecord().second.getPosition(), 3u);
 
   ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryNext),
             BtrieveError::Success);
-  ASSERT_EQ(driver.getRecord().second.getPosition(), 4);
+  ASSERT_EQ(driver.getRecord().second.getPosition(), 4u);
 
   ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryNext),
             BtrieveError::EndOfFile);
-  ASSERT_EQ(driver.getRecord().second.getPosition(), 4);
+  ASSERT_EQ(driver.getRecord().second.getPosition(), 4u);
 }
 
 TEST_F(BtrieveDriverTest, SeekByKeyStringDuplicatesUpAndDown) {
@@ -889,49 +889,49 @@ TEST_F(BtrieveDriverTest, SeekByKeyStringDuplicatesUpAndDown) {
 
   ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryEqual),
             BtrieveError::Success);
-  ASSERT_EQ(driver.getRecord().second.getPosition(), 1);
+  ASSERT_EQ(driver.getRecord().second.getPosition(), 1u);
 
   ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryNext),
             BtrieveError::Success);
-  ASSERT_EQ(driver.getRecord().second.getPosition(), 2);
+  ASSERT_EQ(driver.getRecord().second.getPosition(), 2u);
 
   ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryNext),
             BtrieveError::Success);
-  ASSERT_EQ(driver.getRecord().second.getPosition(), 3);
+  ASSERT_EQ(driver.getRecord().second.getPosition(), 3u);
 
   ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryNext),
             BtrieveError::Success);
-  ASSERT_EQ(driver.getRecord().second.getPosition(), 4);
+  ASSERT_EQ(driver.getRecord().second.getPosition(), 4u);
 
   ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryNext),
             BtrieveError::EndOfFile);
-  ASSERT_EQ(driver.getRecord().second.getPosition(), 4);
+  ASSERT_EQ(driver.getRecord().second.getPosition(), 4u);
 
   // let's go backwards now
   ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryPrevious),
             BtrieveError::Success);
-  ASSERT_EQ(driver.getRecord().second.getPosition(), 3);
+  ASSERT_EQ(driver.getRecord().second.getPosition(), 3u);
 
   ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryPrevious),
             BtrieveError::Success);
-  ASSERT_EQ(driver.getRecord().second.getPosition(), 2);
+  ASSERT_EQ(driver.getRecord().second.getPosition(), 2u);
 
   ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryPrevious),
             BtrieveError::Success);
-  ASSERT_EQ(driver.getRecord().second.getPosition(), 1);
+  ASSERT_EQ(driver.getRecord().second.getPosition(), 1u);
 
   ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryPrevious),
             BtrieveError::EndOfFile);
-  ASSERT_EQ(driver.getRecord().second.getPosition(), 1);
+  ASSERT_EQ(driver.getRecord().second.getPosition(), 1u);
 
   // forward for one last test
   ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryNext),
             BtrieveError::Success);
-  ASSERT_EQ(driver.getRecord().second.getPosition(), 2);
+  ASSERT_EQ(driver.getRecord().second.getPosition(), 2u);
   // back one last time to test in-middle previous
   ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryPrevious),
             BtrieveError::Success);
-  ASSERT_EQ(driver.getRecord().second.getPosition(), 1);
+  ASSERT_EQ(driver.getRecord().second.getPosition(), 1u);
 }
 
 TEST_F(BtrieveDriverTest, SeekByKeyString) {
@@ -945,15 +945,15 @@ TEST_F(BtrieveDriverTest, SeekByKeyString) {
 
   ASSERT_EQ(driver.performOperation(2, key, OperationCode::QueryEqual),
             BtrieveError::Success);
-  ASSERT_EQ(driver.getRecord().second.getPosition(), 3);
+  ASSERT_EQ(driver.getRecord().second.getPosition(), 3u);
 
   ASSERT_EQ(driver.performOperation(2, key, OperationCode::QueryNext),
             BtrieveError::Success);
-  ASSERT_EQ(driver.getRecord().second.getPosition(), 4);
+  ASSERT_EQ(driver.getRecord().second.getPosition(), 4u);
 
   std::pair<bool, Record> data(driver.getRecord());
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   const MBBSEmuRecordStruct *dbRecord =
       reinterpret_cast<const MBBSEmuRecordStruct *>(
           data.second.getData().data());
@@ -962,23 +962,23 @@ TEST_F(BtrieveDriverTest, SeekByKeyString) {
 
   ASSERT_EQ(driver.performOperation(2, key, OperationCode::QueryNext),
             BtrieveError::EndOfFile);
-  ASSERT_EQ(driver.getRecord().second.getPosition(), 4);
+  ASSERT_EQ(driver.getRecord().second.getPosition(), 4u);
 
   ASSERT_EQ(driver.performOperation(2, key, OperationCode::QueryPrevious),
             BtrieveError::Success);
-  ASSERT_EQ(driver.getRecord().second.getPosition(), 3);
+  ASSERT_EQ(driver.getRecord().second.getPosition(), 3u);
 
   ASSERT_EQ(driver.performOperation(2, key, OperationCode::QueryPrevious),
             BtrieveError::Success);
-  ASSERT_EQ(driver.getRecord().second.getPosition(), 2);
+  ASSERT_EQ(driver.getRecord().second.getPosition(), 2u);
 
   ASSERT_EQ(driver.performOperation(2, key, OperationCode::QueryPrevious),
             BtrieveError::Success);
-  ASSERT_EQ(driver.getRecord().second.getPosition(), 1);
+  ASSERT_EQ(driver.getRecord().second.getPosition(), 1u);
 
   ASSERT_EQ(driver.performOperation(2, key, OperationCode::QueryPrevious),
             BtrieveError::EndOfFile);
-  ASSERT_EQ(driver.getRecord().second.getPosition(), 1);
+  ASSERT_EQ(driver.getRecord().second.getPosition(), 1u);
 }
 
 TEST_F(BtrieveDriverTest, SeekByKeyInteger) {
@@ -994,11 +994,11 @@ TEST_F(BtrieveDriverTest, SeekByKeyInteger) {
 
   ASSERT_EQ(driver.performOperation(1, key, OperationCode::QueryEqual),
             BtrieveError::Success);
-  ASSERT_EQ(driver.getRecord().second.getPosition(), 3);
+  ASSERT_EQ(driver.getRecord().second.getPosition(), 3u);
 
   std::pair<bool, Record> data(driver.getRecord());
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   const MBBSEmuRecordStruct *dbRecord =
       reinterpret_cast<const MBBSEmuRecordStruct *>(
           data.second.getData().data());
@@ -1010,19 +1010,19 @@ TEST_F(BtrieveDriverTest, SeekByKeyInteger) {
 
   ASSERT_EQ(driver.performOperation(1, key, OperationCode::QueryPrevious),
             BtrieveError::Success);
-  ASSERT_EQ(driver.getRecord().second.getPosition(), 2);
+  ASSERT_EQ(driver.getRecord().second.getPosition(), 2u);
 
   ASSERT_EQ(driver.performOperation(1, key, OperationCode::QueryPrevious),
             BtrieveError::Success);
-  ASSERT_EQ(driver.getRecord().second.getPosition(), 1);
+  ASSERT_EQ(driver.getRecord().second.getPosition(), 1u);
 
   ASSERT_EQ(driver.performOperation(1, key, OperationCode::QueryPrevious),
             BtrieveError::Success);
-  ASSERT_EQ(driver.getRecord().second.getPosition(), 4);
+  ASSERT_EQ(driver.getRecord().second.getPosition(), 4u);
 
   ASSERT_EQ(driver.performOperation(1, key, OperationCode::QueryPrevious),
             BtrieveError::EndOfFile);
-  ASSERT_EQ(driver.getRecord().second.getPosition(), 4);
+  ASSERT_EQ(driver.getRecord().second.getPosition(), 4u);
 }
 
 TEST_F(BtrieveDriverTest, SeekByKeyNotFound) {
@@ -1054,7 +1054,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyFirstString) {
             BtrieveError::Success);
   std::pair<bool, Record> data(driver.getRecord());
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   const MBBSEmuRecordStruct *dbRecord =
       reinterpret_cast<const MBBSEmuRecordStruct *>(
           data.second.getData().data());
@@ -1066,7 +1066,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyFirstString) {
             BtrieveError::Success);
   data = driver.getRecord();
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   dbRecord = reinterpret_cast<const MBBSEmuRecordStruct *>(
       data.second.getData().data());
 
@@ -1075,11 +1075,11 @@ TEST_F(BtrieveDriverTest, SeekByKeyFirstString) {
   ASSERT_EQ(driver.performOperation(2, std::basic_string_view<uint8_t>(),
                                     OperationCode::QueryNext),
             BtrieveError::Success);
-  ASSERT_EQ(driver.getPosition(), 3);
+  ASSERT_EQ(driver.getPosition(), 3u);
 
   data = driver.getRecord();
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   dbRecord = reinterpret_cast<const MBBSEmuRecordStruct *>(
       data.second.getData().data());
 
@@ -1088,11 +1088,11 @@ TEST_F(BtrieveDriverTest, SeekByKeyFirstString) {
   ASSERT_EQ(driver.performOperation(2, std::basic_string_view<uint8_t>(),
                                     OperationCode::QueryNext),
             BtrieveError::Success);
-  ASSERT_EQ(driver.getPosition(), 4);
+  ASSERT_EQ(driver.getPosition(), 4u);
 
   data = driver.getRecord();
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   dbRecord = reinterpret_cast<const MBBSEmuRecordStruct *>(
       data.second.getData().data());
 
@@ -1101,7 +1101,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyFirstString) {
   ASSERT_EQ(driver.performOperation(2, std::basic_string_view<uint8_t>(),
                                     OperationCode::QueryNext),
             BtrieveError::EndOfFile);
-  ASSERT_EQ(driver.getPosition(), 4);
+  ASSERT_EQ(driver.getPosition(), 4u);
 }
 
 TEST_F(BtrieveDriverTest, SeekByKeyFirstInteger) {
@@ -1115,8 +1115,8 @@ TEST_F(BtrieveDriverTest, SeekByKeyFirstInteger) {
             BtrieveError::Success);
   std::pair<bool, Record> data(driver.getRecord());
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(driver.getPosition(), 4);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(driver.getPosition(), 4u);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   const MBBSEmuRecordStruct *dbRecord =
       reinterpret_cast<const MBBSEmuRecordStruct *>(
           data.second.getData().data());
@@ -1128,8 +1128,8 @@ TEST_F(BtrieveDriverTest, SeekByKeyFirstInteger) {
             BtrieveError::Success);
   data = driver.getRecord();
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(driver.getPosition(), 1);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(driver.getPosition(), 1u);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   dbRecord = reinterpret_cast<const MBBSEmuRecordStruct *>(
       data.second.getData().data());
 
@@ -1141,8 +1141,8 @@ TEST_F(BtrieveDriverTest, SeekByKeyFirstInteger) {
 
   data = driver.getRecord();
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(driver.getPosition(), 2);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(driver.getPosition(), 2u);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   dbRecord = reinterpret_cast<const MBBSEmuRecordStruct *>(
       data.second.getData().data());
 
@@ -1154,8 +1154,8 @@ TEST_F(BtrieveDriverTest, SeekByKeyFirstInteger) {
 
   data = driver.getRecord();
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(driver.getPosition(), 3);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(driver.getPosition(), 3u);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   dbRecord = reinterpret_cast<const MBBSEmuRecordStruct *>(
       data.second.getData().data());
 
@@ -1164,7 +1164,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyFirstInteger) {
   ASSERT_EQ(driver.performOperation(1, std::basic_string_view<uint8_t>(),
                                     OperationCode::QueryNext),
             BtrieveError::EndOfFile);
-  ASSERT_EQ(driver.getPosition(), 3);
+  ASSERT_EQ(driver.getPosition(), 3u);
 }
 
 TEST_F(BtrieveDriverTest, SeekByKeyFirstNotFound) {
@@ -1199,8 +1199,8 @@ TEST_F(BtrieveDriverTest, SeekByKeyLastString) {
             BtrieveError::Success);
   std::pair<bool, Record> data(driver.getRecord());
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(driver.getPosition(), 4);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(driver.getPosition(), 4u);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   const MBBSEmuRecordStruct *dbRecord =
       reinterpret_cast<const MBBSEmuRecordStruct *>(
           data.second.getData().data());
@@ -1216,8 +1216,8 @@ TEST_F(BtrieveDriverTest, SeekByKeyLastString) {
             BtrieveError::Success);
   data = driver.getRecord();
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(driver.getPosition(), 3);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(driver.getPosition(), 3u);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   dbRecord = reinterpret_cast<const MBBSEmuRecordStruct *>(
       data.second.getData().data());
 
@@ -1229,8 +1229,8 @@ TEST_F(BtrieveDriverTest, SeekByKeyLastString) {
 
   data = driver.getRecord();
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(driver.getPosition(), 2);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(driver.getPosition(), 2u);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   dbRecord = reinterpret_cast<const MBBSEmuRecordStruct *>(
       data.second.getData().data());
 
@@ -1242,8 +1242,8 @@ TEST_F(BtrieveDriverTest, SeekByKeyLastString) {
 
   data = driver.getRecord();
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(driver.getPosition(), 1);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(driver.getPosition(), 1u);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   dbRecord = reinterpret_cast<const MBBSEmuRecordStruct *>(
       data.second.getData().data());
 
@@ -1252,7 +1252,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyLastString) {
   ASSERT_EQ(driver.performOperation(2, std::basic_string_view<uint8_t>(),
                                     OperationCode::QueryPrevious),
             BtrieveError::EndOfFile);
-  ASSERT_EQ(driver.getPosition(), 1);
+  ASSERT_EQ(driver.getPosition(), 1u);
 }
 
 TEST_F(BtrieveDriverTest, SeekByKeyLastInteger) {
@@ -1266,8 +1266,8 @@ TEST_F(BtrieveDriverTest, SeekByKeyLastInteger) {
             BtrieveError::Success);
   std::pair<bool, Record> data(driver.getRecord());
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(driver.getPosition(), 3);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(driver.getPosition(), 3u);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   const MBBSEmuRecordStruct *dbRecord =
       reinterpret_cast<const MBBSEmuRecordStruct *>(
           data.second.getData().data());
@@ -1279,8 +1279,8 @@ TEST_F(BtrieveDriverTest, SeekByKeyLastInteger) {
             BtrieveError::Success);
   data = driver.getRecord();
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(driver.getPosition(), 2);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(driver.getPosition(), 2u);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   dbRecord = reinterpret_cast<const MBBSEmuRecordStruct *>(
       data.second.getData().data());
 
@@ -1292,8 +1292,8 @@ TEST_F(BtrieveDriverTest, SeekByKeyLastInteger) {
 
   data = driver.getRecord();
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(driver.getPosition(), 1);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(driver.getPosition(), 1u);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   dbRecord = reinterpret_cast<const MBBSEmuRecordStruct *>(
       data.second.getData().data());
 
@@ -1305,8 +1305,8 @@ TEST_F(BtrieveDriverTest, SeekByKeyLastInteger) {
 
   data = driver.getRecord();
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(driver.getPosition(), 4);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(driver.getPosition(), 4u);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   dbRecord = reinterpret_cast<const MBBSEmuRecordStruct *>(
       data.second.getData().data());
 
@@ -1315,7 +1315,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyLastInteger) {
   ASSERT_EQ(driver.performOperation(1, std::basic_string_view<uint8_t>(),
                                     OperationCode::QueryPrevious),
             BtrieveError::EndOfFile);
-  ASSERT_EQ(driver.getPosition(), 4);
+  ASSERT_EQ(driver.getPosition(), 4u);
 }
 
 TEST_F(BtrieveDriverTest, SeekByKeyLastNotFound) {
@@ -1353,8 +1353,8 @@ TEST_F(BtrieveDriverTest, SeekByKeyGreaterString) {
 
   auto data = driver.getRecord();
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(driver.getPosition(), 3);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(driver.getPosition(), 3u);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   const auto *dbRecord = reinterpret_cast<const MBBSEmuRecordStruct *>(
       data.second.getData().data());
 
@@ -1364,8 +1364,8 @@ TEST_F(BtrieveDriverTest, SeekByKeyGreaterString) {
             BtrieveError::Success);
   data = driver.getRecord();
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(driver.getPosition(), 4);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(driver.getPosition(), 4u);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   dbRecord = reinterpret_cast<const MBBSEmuRecordStruct *>(
       data.second.getData().data());
 
@@ -1373,7 +1373,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyGreaterString) {
 
   ASSERT_EQ(driver.performOperation(2, key, OperationCode::QueryNext),
             BtrieveError::EndOfFile);
-  ASSERT_EQ(driver.getPosition(), 4);
+  ASSERT_EQ(driver.getPosition(), 4u);
 }
 
 TEST_F(BtrieveDriverTest, SeekByKeyGreaterInteger) {
@@ -1391,8 +1391,8 @@ TEST_F(BtrieveDriverTest, SeekByKeyGreaterInteger) {
 
   auto data = driver.getRecord();
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(driver.getPosition(), 2);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(driver.getPosition(), 2u);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   const auto *dbRecord = reinterpret_cast<const MBBSEmuRecordStruct *>(
       data.second.getData().data());
 
@@ -1402,8 +1402,8 @@ TEST_F(BtrieveDriverTest, SeekByKeyGreaterInteger) {
             BtrieveError::Success);
   data = driver.getRecord();
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(driver.getPosition(), 3);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(driver.getPosition(), 3u);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   dbRecord = reinterpret_cast<const MBBSEmuRecordStruct *>(
       data.second.getData().data());
 
@@ -1411,7 +1411,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyGreaterInteger) {
 
   ASSERT_EQ(driver.performOperation(1, key, OperationCode::QueryNext),
             BtrieveError::EndOfFile);
-  ASSERT_EQ(driver.getPosition(), 3);
+  ASSERT_EQ(driver.getPosition(), 3u);
 }
 
 TEST_F(BtrieveDriverTest, SeekByKeyGreaterNotFound) {
@@ -1442,8 +1442,8 @@ TEST_F(BtrieveDriverTest, SeekByKeyGreaterOrEqualString) {
 
   auto data = driver.getRecord();
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(driver.getPosition(), 2);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(driver.getPosition(), 2u);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   const auto *dbRecord = reinterpret_cast<const MBBSEmuRecordStruct *>(
       data.second.getData().data());
 
@@ -1454,8 +1454,8 @@ TEST_F(BtrieveDriverTest, SeekByKeyGreaterOrEqualString) {
 
   data = driver.getRecord();
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(driver.getPosition(), 3);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(driver.getPosition(), 3u);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   dbRecord = reinterpret_cast<const MBBSEmuRecordStruct *>(
       data.second.getData().data());
 
@@ -1465,8 +1465,8 @@ TEST_F(BtrieveDriverTest, SeekByKeyGreaterOrEqualString) {
             BtrieveError::Success);
   data = driver.getRecord();
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(driver.getPosition(), 4);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(driver.getPosition(), 4u);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   dbRecord = reinterpret_cast<const MBBSEmuRecordStruct *>(
       data.second.getData().data());
 
@@ -1474,7 +1474,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyGreaterOrEqualString) {
 
   ASSERT_EQ(driver.performOperation(2, key, OperationCode::QueryNext),
             BtrieveError::EndOfFile);
-  ASSERT_EQ(driver.getPosition(), 4);
+  ASSERT_EQ(driver.getPosition(), 4u);
 }
 
 TEST_F(BtrieveDriverTest, SeekByKeyGreaterOrEqualInteger) {
@@ -1492,8 +1492,8 @@ TEST_F(BtrieveDriverTest, SeekByKeyGreaterOrEqualInteger) {
 
   auto data = driver.getRecord();
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(driver.getPosition(), 1);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(driver.getPosition(), 1u);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   const auto *dbRecord = reinterpret_cast<const MBBSEmuRecordStruct *>(
       data.second.getData().data());
 
@@ -1504,8 +1504,8 @@ TEST_F(BtrieveDriverTest, SeekByKeyGreaterOrEqualInteger) {
 
   data = driver.getRecord();
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(driver.getPosition(), 2);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(driver.getPosition(), 2u);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   dbRecord = reinterpret_cast<const MBBSEmuRecordStruct *>(
       data.second.getData().data());
 
@@ -1515,8 +1515,8 @@ TEST_F(BtrieveDriverTest, SeekByKeyGreaterOrEqualInteger) {
             BtrieveError::Success);
   data = driver.getRecord();
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(driver.getPosition(), 3);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(driver.getPosition(), 3u);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   dbRecord = reinterpret_cast<const MBBSEmuRecordStruct *>(
       data.second.getData().data());
 
@@ -1524,7 +1524,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyGreaterOrEqualInteger) {
 
   ASSERT_EQ(driver.performOperation(1, key, OperationCode::QueryNext),
             BtrieveError::EndOfFile);
-  ASSERT_EQ(driver.getPosition(), 3);
+  ASSERT_EQ(driver.getPosition(), 3u);
 }
 
 TEST_F(BtrieveDriverTest, SeekByKeyGreaterOrEqualNotFound) {
@@ -1555,8 +1555,8 @@ TEST_F(BtrieveDriverTest, SeekByKeyLessString) {
 
   auto data = driver.getRecord();
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(driver.getPosition(), 1);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(driver.getPosition(), 1u);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   const auto *dbRecord = reinterpret_cast<const MBBSEmuRecordStruct *>(
       data.second.getData().data());
 
@@ -1564,7 +1564,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyLessString) {
 
   ASSERT_EQ(driver.performOperation(2, key, OperationCode::QueryPrevious),
             BtrieveError::EndOfFile);
-  ASSERT_EQ(driver.getPosition(), 1);
+  ASSERT_EQ(driver.getPosition(), 1u);
 }
 
 TEST_F(BtrieveDriverTest, SeekByKeyLessInteger) {
@@ -1582,8 +1582,8 @@ TEST_F(BtrieveDriverTest, SeekByKeyLessInteger) {
 
   auto data = driver.getRecord();
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(driver.getPosition(), 1);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(driver.getPosition(), 1u);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   const auto *dbRecord = reinterpret_cast<const MBBSEmuRecordStruct *>(
       data.second.getData().data());
 
@@ -1593,8 +1593,8 @@ TEST_F(BtrieveDriverTest, SeekByKeyLessInteger) {
             BtrieveError::Success);
   data = driver.getRecord();
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(driver.getPosition(), 4);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(driver.getPosition(), 4u);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   dbRecord = reinterpret_cast<const MBBSEmuRecordStruct *>(
       data.second.getData().data());
 
@@ -1602,7 +1602,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyLessInteger) {
 
   ASSERT_EQ(driver.performOperation(1, key, OperationCode::QueryPrevious),
             BtrieveError::EndOfFile);
-  ASSERT_EQ(driver.getPosition(), 4);
+  ASSERT_EQ(driver.getPosition(), 4u);
 }
 
 TEST_F(BtrieveDriverTest, SeekByKeyLessNotFound) {
@@ -1633,8 +1633,8 @@ TEST_F(BtrieveDriverTest, SeekByKeyLessOrEqualString) {
 
   auto data = driver.getRecord();
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(driver.getPosition(), 2);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(driver.getPosition(), 2u);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   const auto *dbRecord = reinterpret_cast<const MBBSEmuRecordStruct *>(
       data.second.getData().data());
 
@@ -1645,8 +1645,8 @@ TEST_F(BtrieveDriverTest, SeekByKeyLessOrEqualString) {
 
   data = driver.getRecord();
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(driver.getPosition(), 1);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(driver.getPosition(), 1u);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   dbRecord = reinterpret_cast<const MBBSEmuRecordStruct *>(
       data.second.getData().data());
 
@@ -1654,7 +1654,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyLessOrEqualString) {
 
   ASSERT_EQ(driver.performOperation(2, key, OperationCode::QueryPrevious),
             BtrieveError::EndOfFile);
-  ASSERT_EQ(driver.getPosition(), 1);
+  ASSERT_EQ(driver.getPosition(), 1u);
 }
 
 TEST_F(BtrieveDriverTest, SeekByKeyLessOrEqualInteger) {
@@ -1672,8 +1672,8 @@ TEST_F(BtrieveDriverTest, SeekByKeyLessOrEqualInteger) {
 
   auto data = driver.getRecord();
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(driver.getPosition(), 2);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(driver.getPosition(), 2u);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   const auto *dbRecord = reinterpret_cast<const MBBSEmuRecordStruct *>(
       data.second.getData().data());
 
@@ -1684,8 +1684,8 @@ TEST_F(BtrieveDriverTest, SeekByKeyLessOrEqualInteger) {
 
   data = driver.getRecord();
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(driver.getPosition(), 1);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(driver.getPosition(), 1u);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   dbRecord = reinterpret_cast<const MBBSEmuRecordStruct *>(
       data.second.getData().data());
 
@@ -1695,8 +1695,8 @@ TEST_F(BtrieveDriverTest, SeekByKeyLessOrEqualInteger) {
             BtrieveError::Success);
   data = driver.getRecord();
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(driver.getPosition(), 4);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(driver.getPosition(), 4u);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   dbRecord = reinterpret_cast<const MBBSEmuRecordStruct *>(
       data.second.getData().data());
 
@@ -1704,7 +1704,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyLessOrEqualInteger) {
 
   ASSERT_EQ(driver.performOperation(1, key, OperationCode::QueryPrevious),
             BtrieveError::EndOfFile);
-  ASSERT_EQ(driver.getPosition(), 4);
+  ASSERT_EQ(driver.getPosition(), 4u);
 }
 
 TEST_F(BtrieveDriverTest, SeekByKeyLessOrEqualNotFound) {
@@ -1733,23 +1733,23 @@ TEST_F(BtrieveDriverTest, SeekByKeyEqualWithDuplicates) {
 
   ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryEqual),
             BtrieveError::Success);
-  ASSERT_EQ(driver.getPosition(), 1);
+  ASSERT_EQ(driver.getPosition(), 1u);
 
   ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryNext),
             BtrieveError::Success);
-  ASSERT_EQ(driver.getPosition(), 2);
+  ASSERT_EQ(driver.getPosition(), 2u);
 
   ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryNext),
             BtrieveError::Success);
-  ASSERT_EQ(driver.getPosition(), 3);
+  ASSERT_EQ(driver.getPosition(), 3u);
 
   ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryNext),
             BtrieveError::Success);
-  ASSERT_EQ(driver.getPosition(), 4);
+  ASSERT_EQ(driver.getPosition(), 4u);
 
   ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryNext),
             BtrieveError::EndOfFile);
-  ASSERT_EQ(driver.getPosition(), 4);
+  ASSERT_EQ(driver.getPosition(), 4u);
 }
 
 TEST_F(BtrieveDriverTest, SeekByKeyEqualWithDuplicatesUpAndDown) {
@@ -1764,36 +1764,36 @@ TEST_F(BtrieveDriverTest, SeekByKeyEqualWithDuplicatesUpAndDown) {
 
   ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryEqual),
             BtrieveError::Success);
-  ASSERT_EQ(driver.getPosition(), 1);
+  ASSERT_EQ(driver.getPosition(), 1u);
 
   ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryNext),
             BtrieveError::Success);
-  ASSERT_EQ(driver.getPosition(), 2);
+  ASSERT_EQ(driver.getPosition(), 2u);
 
   ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryNext),
             BtrieveError::Success);
-  ASSERT_EQ(driver.getPosition(), 3);
+  ASSERT_EQ(driver.getPosition(), 3u);
 
   ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryNext),
             BtrieveError::Success);
-  ASSERT_EQ(driver.getPosition(), 4);
+  ASSERT_EQ(driver.getPosition(), 4u);
 
   ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryNext),
             BtrieveError::EndOfFile);
-  ASSERT_EQ(driver.getPosition(), 4);
+  ASSERT_EQ(driver.getPosition(), 4u);
 
   // now go backwards
   ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryPrevious),
             BtrieveError::Success);
-  ASSERT_EQ(driver.getPosition(), 3);
+  ASSERT_EQ(driver.getPosition(), 3u);
 
   ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryPrevious),
             BtrieveError::Success);
-  ASSERT_EQ(driver.getPosition(), 2);
+  ASSERT_EQ(driver.getPosition(), 2u);
 
   ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryPrevious),
             BtrieveError::Success);
-  ASSERT_EQ(driver.getPosition(), 1);
+  ASSERT_EQ(driver.getPosition(), 1u);
 
   ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryPrevious),
             BtrieveError::EndOfFile);
@@ -1801,11 +1801,11 @@ TEST_F(BtrieveDriverTest, SeekByKeyEqualWithDuplicatesUpAndDown) {
   // and up one and back down again for good measure
   ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryNext),
             BtrieveError::Success);
-  ASSERT_EQ(driver.getPosition(), 2);
+  ASSERT_EQ(driver.getPosition(), 2u);
 
   ASSERT_EQ(driver.performOperation(0, key, OperationCode::QueryPrevious),
             BtrieveError::Success);
-  ASSERT_EQ(driver.getPosition(), 1);
+  ASSERT_EQ(driver.getPosition(), 1u);
 }
 
 const unsigned int ACS_RECORD_LENGTH = 128;
@@ -1899,7 +1899,7 @@ TEST_F(BtrieveDriverTest, ACSSeekByKey_Zstring) {
             BtrieveError::Success);
   auto data = driver.getRecord();
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(driver.getPosition(), 2);
+  ASSERT_EQ(driver.getPosition(), 2u);
   ASSERT_EQ(data.second.getData().size(), ACS_RECORD_LENGTH);
   ASSERT_EQ(memcmp(data.second.getData().data() + 2, "Paladine", 8), 0);
 }
@@ -1935,7 +1935,7 @@ TEST_F(BtrieveDriverTest, ACSSeekByKey_String) {
             BtrieveError::Success);
   auto data = driver.getRecord();
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(driver.getPosition(), 2);
+  ASSERT_EQ(driver.getPosition(), 2u);
   ASSERT_EQ(data.second.getData().size(), ACS_RECORD_LENGTH);
   ASSERT_EQ(memcmp(data.second.getData().data() + 2, "Paladine", 8), 0);
   ASSERT_EQ(data.second.getData().data()[10], 0);
@@ -1979,7 +1979,7 @@ TEST_F(BtrieveDriverTest, ACSSeekByKey_Lstring) {
             BtrieveError::Success);
   auto data = driver.getRecord();
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(driver.getPosition(), 2);
+  ASSERT_EQ(driver.getPosition(), 2u);
   ASSERT_EQ(data.second.getData().size(), ACS_RECORD_LENGTH);
   ASSERT_EQ(data.second.getData()[2], 8);  // Lstring length
   ASSERT_EQ(memcmp(data.second.getData().data() + 3, "Paladine", 8), 0);
@@ -2036,7 +2036,7 @@ TEST_F(BtrieveDriverTest, FloatSeekByKey) {
             BtrieveError::Success);
   auto data = driver.getRecord();
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(driver.getPosition(), 2);
+  ASSERT_EQ(driver.getPosition(), 2u);
   ASSERT_EQ(data.second.getData().size(), ACS_RECORD_LENGTH);
   ASSERT_EQ(memcmp(data.second.getData().data() + 2, "Paladine", 8), 0);
   ASSERT_EQ(*reinterpret_cast<const float *>(data.second.getData().data() + 64),
@@ -2053,7 +2053,7 @@ TEST_F(BtrieveDriverTest, FloatSeekByKey) {
             BtrieveError::Success);
   data = driver.getRecord();
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(driver.getPosition(), 1);
+  ASSERT_EQ(driver.getPosition(), 1u);
   ASSERT_EQ(data.second.getData().size(), ACS_RECORD_LENGTH);
   ASSERT_EQ(memcmp(data.second.getData().data() + 2, "Sysop", 6), 0);
   ASSERT_EQ(*reinterpret_cast<const float *>(data.second.getData().data() + 64),
@@ -2100,7 +2100,7 @@ TEST_F(BtrieveDriverTest, KeylessDatabaseEnumeration) {
             BtrieveError::Success);
   auto data = driver.getRecord();
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(driver.getPosition(), 1);
+  ASSERT_EQ(driver.getPosition(), 1u);
   ASSERT_EQ(data.second.getData().size(), ACS_RECORD_LENGTH);
   ASSERT_EQ(memcmp(data.second.getData().data() + 2, "Sysop", 5), 0);
 
@@ -2113,7 +2113,7 @@ TEST_F(BtrieveDriverTest, KeylessDatabaseEnumeration) {
             BtrieveError::Success);
   data = driver.getRecord();
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(driver.getPosition(), 2);
+  ASSERT_EQ(driver.getPosition(), 2u);
   ASSERT_EQ(data.second.getData().size(), ACS_RECORD_LENGTH);
   ASSERT_EQ(memcmp(data.second.getData().data() + 2, "Paladine", 8), 0);
 
@@ -2122,7 +2122,7 @@ TEST_F(BtrieveDriverTest, KeylessDatabaseEnumeration) {
             BtrieveError::Success);
   data = driver.getRecord();
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(driver.getPosition(), 3);
+  ASSERT_EQ(driver.getPosition(), 3u);
   ASSERT_EQ(data.second.getData().size(), ACS_RECORD_LENGTH);
   ASSERT_EQ(memcmp(data.second.getData().data() + 2, "Testing", 7), 0);
 
@@ -2131,7 +2131,7 @@ TEST_F(BtrieveDriverTest, KeylessDatabaseEnumeration) {
             BtrieveError::Success);
   data = driver.getRecord();
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(driver.getPosition(), 4);
+  ASSERT_EQ(driver.getPosition(), 4u);
   ASSERT_EQ(data.second.getData().size(), ACS_RECORD_LENGTH);
   ASSERT_EQ(memcmp(data.second.getData().data() + 2, "paladine", 5), 0);
 
@@ -2174,8 +2174,8 @@ TEST_F(BtrieveDriverTest, SeekByKeyChangeKeyNumbers) {
 
   auto data = driver.getRecord();
   ASSERT_TRUE(data.first);
-  ASSERT_EQ(driver.getPosition(), 2);
-  ASSERT_EQ(data.second.getData().size(), 74);
+  ASSERT_EQ(driver.getPosition(), 2u);
+  ASSERT_EQ(data.second.getData().size(), 74u);
   const auto *dbRecord = reinterpret_cast<const MBBSEmuRecordStruct *>(
       data.second.getData().data());
 

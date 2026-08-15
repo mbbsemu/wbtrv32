@@ -179,8 +179,8 @@ TEST_F(wbtrv32Test, GetPosition) {
                     &dwDataBufferLength, nullptr, 0, 0),
             btrieve::BtrieveError::Success);
 
-  ASSERT_EQ(dwDataBufferLength, 4);
-  ASSERT_EQ(dwPosition, 1);
+  ASSERT_EQ(dwDataBufferLength, 4u);
+  ASSERT_EQ(dwPosition, 1u);
 
   ASSERT_EQ(btrcall(btrieve::OperationCode::Close, posBlock, nullptr,
                     &dwDataBufferLength, nullptr, 0, 0),
@@ -208,7 +208,7 @@ TEST_F(wbtrv32Test, QueryGreaterThanOrEqual) {
               &dwDataBufferLength, &keyBuffer, sizeof(keyBuffer), 2),
       btrieve::BtrieveError::Success);
 
-  ASSERT_EQ(dwDataBufferLength, 493);
+  ASSERT_EQ(dwDataBufferLength, 493u);
   ASSERT_EQ(keyBuffer, 2);
 
   uint32_t position = 0;
@@ -242,7 +242,7 @@ TEST_F(wbtrv32Test, QueryGreaterThanOrEqual) {
     ++records;
   }
 
-  ASSERT_EQ(records, 13);
+  ASSERT_EQ(records, 13u);
 
   ASSERT_EQ(btrcall(btrieve::OperationCode::Close, posBlock, nullptr,
                     &dwDataBufferLength, nullptr, 0, 0),
@@ -268,7 +268,7 @@ TEST_F(wbtrv32Test, StatsDatabase) {
                     &dwDataBufferLength, fileName, sizeof(fileName), 0),
             btrieve::BtrieveError::Success);
 
-  ASSERT_EQ(dwDataBufferLength, 80);
+  ASSERT_EQ(dwDataBufferLength, 80u);
   // we don't support file name, so just 0 it out
   ASSERT_EQ(*fileName, 0);
 
@@ -278,7 +278,7 @@ TEST_F(wbtrv32Test, StatsDatabase) {
   EXPECT_EQ(lpFileSpec->pageSize, 4096);
   EXPECT_EQ(lpFileSpec->numberOfKeys, 4);
   EXPECT_EQ(lpFileSpec->fileVersion, 0);
-  EXPECT_EQ(lpFileSpec->recordCount, 4);
+  EXPECT_EQ(lpFileSpec->recordCount, 4u);
   EXPECT_EQ(lpFileSpec->fileFlags, 0);
   EXPECT_EQ(lpFileSpec->numExtraPointers, 0);
   EXPECT_EQ(lpFileSpec->physicalPageSize, 0);
@@ -289,7 +289,7 @@ TEST_F(wbtrv32Test, StatsDatabase) {
   EXPECT_EQ(lpKeySpec->position, 3);
   EXPECT_EQ(lpKeySpec->length, 32);
   EXPECT_EQ(lpKeySpec->attributes, UseExtendedDataType | Duplicates);
-  EXPECT_EQ(lpKeySpec->uniqueKeys, 4);
+  EXPECT_EQ(lpKeySpec->uniqueKeys, 4u);
   EXPECT_EQ(lpKeySpec->extendedDataType, btrieve::KeyDataType::Zstring);
   EXPECT_EQ(lpKeySpec->nullValue, 0);
   EXPECT_EQ(lpKeySpec->reserved, 0);
@@ -300,7 +300,7 @@ TEST_F(wbtrv32Test, StatsDatabase) {
   EXPECT_EQ(lpKeySpec->position, 35);
   EXPECT_EQ(lpKeySpec->length, 4);
   EXPECT_EQ(lpKeySpec->attributes, UseExtendedDataType | Modifiable);
-  EXPECT_EQ(lpKeySpec->uniqueKeys, 4);
+  EXPECT_EQ(lpKeySpec->uniqueKeys, 4u);
   EXPECT_EQ(lpKeySpec->extendedDataType, btrieve::KeyDataType::Integer);
   EXPECT_EQ(lpKeySpec->nullValue, 0);
   EXPECT_EQ(lpKeySpec->reserved, 0);
@@ -312,7 +312,7 @@ TEST_F(wbtrv32Test, StatsDatabase) {
   EXPECT_EQ(lpKeySpec->length, 32);
   EXPECT_EQ(lpKeySpec->attributes,
             UseExtendedDataType | Modifiable | Duplicates);
-  EXPECT_EQ(lpKeySpec->uniqueKeys, 4);
+  EXPECT_EQ(lpKeySpec->uniqueKeys, 4u);
   EXPECT_EQ(lpKeySpec->extendedDataType, btrieve::KeyDataType::Zstring);
   EXPECT_EQ(lpKeySpec->nullValue, 0);
   EXPECT_EQ(lpKeySpec->reserved, 0);
@@ -323,7 +323,7 @@ TEST_F(wbtrv32Test, StatsDatabase) {
   EXPECT_EQ(lpKeySpec->position, 71);
   EXPECT_EQ(lpKeySpec->length, 4);
   EXPECT_EQ(lpKeySpec->attributes, UseExtendedDataType);
-  EXPECT_EQ(lpKeySpec->uniqueKeys, 4);
+  EXPECT_EQ(lpKeySpec->uniqueKeys, 4u);
   EXPECT_EQ(lpKeySpec->extendedDataType, btrieve::KeyDataType::AutoInc);
   EXPECT_EQ(lpKeySpec->nullValue, 0);
   EXPECT_EQ(lpKeySpec->reserved, 0);
@@ -350,7 +350,7 @@ TEST_F(wbtrv32Test, StatsV6DatabaseWithMultiSegmentKeys) {
                     &dwDataBufferLength, fileName, sizeof(fileName), 0),
             btrieve::BtrieveError::Success);
 
-  ASSERT_EQ(dwDataBufferLength, 80);
+  ASSERT_EQ(dwDataBufferLength, 80u);
   // we don't support file name, so just 0 it out
   ASSERT_EQ(*fileName, 0);
 
@@ -360,7 +360,7 @@ TEST_F(wbtrv32Test, StatsV6DatabaseWithMultiSegmentKeys) {
   EXPECT_EQ(lpFileSpec->pageSize, 4096);
   EXPECT_EQ(lpFileSpec->numberOfKeys, 3);
   EXPECT_EQ(lpFileSpec->fileVersion, 0);
-  EXPECT_EQ(lpFileSpec->recordCount, 73);
+  EXPECT_EQ(lpFileSpec->recordCount, 73u);
   EXPECT_EQ(lpFileSpec->fileFlags, 0);
   EXPECT_EQ(lpFileSpec->numExtraPointers, 0);
   EXPECT_EQ(lpFileSpec->physicalPageSize, 0);
@@ -372,7 +372,7 @@ TEST_F(wbtrv32Test, StatsV6DatabaseWithMultiSegmentKeys) {
   EXPECT_EQ(lpKeySpec->length, 16);
   EXPECT_EQ(lpKeySpec->attributes,
             UseExtendedDataType | SegmentedKey | NumberedACS);
-  EXPECT_EQ(lpKeySpec->uniqueKeys, 73);
+  EXPECT_EQ(lpKeySpec->uniqueKeys, 73u);
   EXPECT_EQ(lpKeySpec->extendedDataType, btrieve::KeyDataType::Zstring);
   EXPECT_EQ(lpKeySpec->nullValue, 0);
   EXPECT_EQ(lpKeySpec->reserved, 0);
@@ -383,7 +383,7 @@ TEST_F(wbtrv32Test, StatsV6DatabaseWithMultiSegmentKeys) {
   EXPECT_EQ(lpKeySpec->position, 17);
   EXPECT_EQ(lpKeySpec->length, 16);
   EXPECT_EQ(lpKeySpec->attributes, UseExtendedDataType | NumberedACS);
-  EXPECT_EQ(lpKeySpec->uniqueKeys, 73);
+  EXPECT_EQ(lpKeySpec->uniqueKeys, 73u);
   EXPECT_EQ(lpKeySpec->extendedDataType, btrieve::KeyDataType::Zstring);
   EXPECT_EQ(lpKeySpec->nullValue, 0);
   EXPECT_EQ(lpKeySpec->reserved, 0);
@@ -395,7 +395,7 @@ TEST_F(wbtrv32Test, StatsV6DatabaseWithMultiSegmentKeys) {
   EXPECT_EQ(lpKeySpec->length, 16);
   EXPECT_EQ(lpKeySpec->attributes,
             UseExtendedDataType | NumberedACS | Duplicates);
-  EXPECT_EQ(lpKeySpec->uniqueKeys, 73);
+  EXPECT_EQ(lpKeySpec->uniqueKeys, 73u);
   EXPECT_EQ(lpKeySpec->extendedDataType, btrieve::KeyDataType::Zstring);
   EXPECT_EQ(lpKeySpec->nullValue, 0);
   EXPECT_EQ(lpKeySpec->reserved, 0);
@@ -407,7 +407,7 @@ TEST_F(wbtrv32Test, StatsV6DatabaseWithMultiSegmentKeys) {
   EXPECT_EQ(lpKeySpec->length, 16);
   EXPECT_EQ(lpKeySpec->attributes,
             UseExtendedDataType | NumberedACS | Duplicates);
-  EXPECT_EQ(lpKeySpec->uniqueKeys, 73);
+  EXPECT_EQ(lpKeySpec->uniqueKeys, 73u);
   EXPECT_EQ(lpKeySpec->extendedDataType, btrieve::KeyDataType::Zstring);
   EXPECT_EQ(lpKeySpec->nullValue, 0);
   EXPECT_EQ(lpKeySpec->reserved, 0);
@@ -460,7 +460,7 @@ TEST_F(wbtrv32Test, Delete) {
 
   wbtrv32::LPFILESPEC lpFileSpec =
       reinterpret_cast<wbtrv32::LPFILESPEC>(buffer);
-  ASSERT_EQ(lpFileSpec->recordCount, 4);
+  ASSERT_EQ(lpFileSpec->recordCount, 4u);
 
   ASSERT_EQ(btrcall(btrieve::OperationCode::Delete, posBlock, nullptr, nullptr,
                     nullptr, 0, 0),
@@ -472,7 +472,7 @@ TEST_F(wbtrv32Test, Delete) {
             btrieve::BtrieveError::Success);
 
   lpFileSpec = reinterpret_cast<wbtrv32::LPFILESPEC>(buffer);
-  ASSERT_EQ(lpFileSpec->recordCount, 3);
+  ASSERT_EQ(lpFileSpec->recordCount, 3u);
 }
 
 #pragma pack(push, 1)
@@ -525,7 +525,7 @@ TEST_F(wbtrv32Test, StepFirst) {
                     &dwDataBufferLength, nullptr, 0, 0),
             btrieve::BtrieveError::Success);
 
-  ASSERT_EQ(position, 0x1);
+  ASSERT_EQ(position, 0x1u);
 
   ASSERT_EQ(btrcall(btrieve::OperationCode::StepPrevious, posBlock, &record,
                     &dwDataBufferLength, nullptr, 0, 0),
@@ -545,7 +545,7 @@ TEST_F(wbtrv32Test, StepFirst) {
                     &dwDataBufferLength, nullptr, 0, 0),
             btrieve::BtrieveError::Success);
 
-  ASSERT_EQ(position, 2);
+  ASSERT_EQ(position, 2u);
 }
 
 TEST_F(wbtrv32Test, StepDataUnderrun) {
@@ -619,7 +619,7 @@ TEST_F(wbtrv32Test, StepLast) {
                     &dwDataBufferLength, nullptr, 0, 0),
             btrieve::BtrieveError::Success);
 
-  ASSERT_EQ(position, 4);
+  ASSERT_EQ(position, 4u);
 
   ASSERT_EQ(btrcall(btrieve::OperationCode::StepNext, posBlock, &record,
                     &dwDataBufferLength, nullptr, 0, 0),
@@ -639,7 +639,7 @@ TEST_F(wbtrv32Test, StepLast) {
                     &dwDataBufferLength, nullptr, 0, 0),
             btrieve::BtrieveError::Success);
 
-  ASSERT_EQ(position, 3);
+  ASSERT_EQ(position, 3u);
 }
 
 TEST_F(wbtrv32Test, GetDirectNoKeys) {
@@ -664,7 +664,7 @@ TEST_F(wbtrv32Test, GetDirectNoKeys) {
   ASSERT_EQ(record.int1, 3444);
   ASSERT_STREQ(record.string2, "3444");
   ASSERT_EQ(record.int2, 1);
-  ASSERT_EQ(dwDataBufferLength, 74);
+  ASSERT_EQ(dwDataBufferLength, 74u);
 }
 
 TEST_F(wbtrv32Test, GetDirectNoKeysBadPositioning) {
@@ -736,7 +736,7 @@ TEST_F(wbtrv32Test, GetDirectWithKey) {
               &dwDataBufferLength, &returnedKey, sizeof(returnedKey), 1),
       btrieve::BtrieveError::Success);
 
-  ASSERT_EQ(returnedKey, -615634567);
+  ASSERT_EQ(returnedKey, -615634567u);
 
   ASSERT_STREQ(record.string1, "Sysop");
   ASSERT_EQ(record.int1, -615634567);
@@ -748,7 +748,7 @@ TEST_F(wbtrv32Test, GetDirectWithKey) {
                     &dwDataBufferLength, &returnedKey, sizeof(returnedKey), 1),
             btrieve::BtrieveError::Success);
 
-  ASSERT_EQ(returnedKey, 3444);
+  ASSERT_EQ(returnedKey, 3444u);
 
   ASSERT_STREQ(record.string1, "Sysop");
   ASSERT_EQ(record.int1, 3444);
@@ -825,7 +825,7 @@ TEST_F(wbtrv32Test, Query) {
   ASSERT_STREQ(record.string2, "7776");
   ASSERT_EQ(record.int2, 2);
 
-  ASSERT_EQ(keyToSearch, 7776);
+  ASSERT_EQ(keyToSearch, 7776u);
 
   ASSERT_EQ(btrcall(btrieve::OperationCode::AcquireNext, posBlock, &record,
                     &dwDataBufferLength, &keyToSearch, sizeof(keyToSearch), 1),
@@ -836,7 +836,7 @@ TEST_F(wbtrv32Test, Query) {
   ASSERT_STREQ(record.string2, "StringValue");
   ASSERT_EQ(record.int2, 3);
 
-  ASSERT_EQ(keyToSearch, 1052234073);
+  ASSERT_EQ(keyToSearch, 1052234073u);
 }
 
 TEST_F(wbtrv32Test, QueryDataBufferOverrun) {
@@ -906,7 +906,7 @@ TEST_F(wbtrv32Test, InsertNoKey) {
                     &dwDataBufferLength, nullptr, 0, 0),
             btrieve::BtrieveError::Success);
 
-  ASSERT_EQ(reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 5);
+  ASSERT_EQ(reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 5u);
 
   // requery just to make sure the data was inserted properly
   memset(&record, 0, sizeof(record));
@@ -951,7 +951,7 @@ TEST_F(wbtrv32Test, InsertBreaksConstraints) {
                     &dwDataBufferLength, nullptr, 0, 0),
             btrieve::BtrieveError::Success);
 
-  ASSERT_EQ(reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 4);
+  ASSERT_EQ(reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 4u);
 }
 
 TEST_F(wbtrv32Test, InsertWithKey) {
@@ -978,14 +978,14 @@ TEST_F(wbtrv32Test, InsertWithKey) {
                     &dwDataBufferLength, key, sizeof(key), 1),
             btrieve::BtrieveError::Success);
 
-  ASSERT_EQ(*reinterpret_cast<uint32_t*>(key), -2000000000);
+  ASSERT_EQ(*reinterpret_cast<uint32_t*>(key), -2000000000u);
 
   dwDataBufferLength = sizeof(buffer);
   ASSERT_EQ(btrcall(btrieve::OperationCode::Stat, posBlock, buffer,
                     &dwDataBufferLength, nullptr, 0, 0),
             btrieve::BtrieveError::Success);
 
-  ASSERT_EQ(reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 5);
+  ASSERT_EQ(reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 5u);
 
   memset(&record, 0, sizeof(record));
   dwDataBufferLength = sizeof(record);
@@ -1030,7 +1030,7 @@ TEST_F(wbtrv32Test, InsertWithInvalidKey) {
                     &dwDataBufferLength, nullptr, 0, 0),
             btrieve::BtrieveError::Success);
 
-  ASSERT_EQ(reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 4);
+  ASSERT_EQ(reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 4u);
 }
 
 TEST_F(wbtrv32Test, InsertWithKeyBufferTooShort) {
@@ -1062,7 +1062,7 @@ TEST_F(wbtrv32Test, InsertWithKeyBufferTooShort) {
                     &dwDataBufferLength, nullptr, 0, 0),
             btrieve::BtrieveError::Success);
 
-  ASSERT_EQ(reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 4);
+  ASSERT_EQ(reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 4u);
 }
 
 TEST_F(wbtrv32Test, InsertNoKeyReadOnly) {
@@ -1093,7 +1093,7 @@ TEST_F(wbtrv32Test, InsertNoKeyReadOnly) {
                     &dwDataBufferLength, nullptr, 0, 0),
             btrieve::BtrieveError::Success);
 
-  ASSERT_EQ(reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 4);
+  ASSERT_EQ(reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 4u);
 
   // requery just to make sure the data is readable in readonly mode
   memset(&record, 0, sizeof(record));
@@ -1143,7 +1143,7 @@ TEST_F(wbtrv32Test, UpdateNoKey) {
                     &dwDataBufferLength, nullptr, 0, 0),
             btrieve::BtrieveError::Success);
 
-  ASSERT_EQ(reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 4);
+  ASSERT_EQ(reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 4u);
 
   // requery just to make sure the data was inserted properly
   memset(&record, 0, sizeof(record));
@@ -1222,7 +1222,7 @@ TEST_F(wbtrv32Test, UpdateWithKey) {
                     &dwDataBufferLength, nullptr, 0, 0),
             btrieve::BtrieveError::Success);
 
-  ASSERT_EQ(reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 4);
+  ASSERT_EQ(reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 4u);
 
   // requery just to make sure the data was inserted properly
   memset(&record, 0, sizeof(record));
@@ -1286,7 +1286,7 @@ TEST_F(wbtrv32Test, UpdateWithInvalidKey) {
                     &dwDataBufferLength, nullptr, 0, 0),
             btrieve::BtrieveError::Success);
 
-  ASSERT_EQ(reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 4);
+  ASSERT_EQ(reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 4u);
 
   // requery just to make sure the data wasn't updated
   memset(&record, 0, sizeof(record));
@@ -1337,7 +1337,7 @@ TEST_F(wbtrv32Test, UpdateKeyBufferTooShort) {
                     &dwDataBufferLength, nullptr, 0, 0),
             btrieve::BtrieveError::Success);
 
-  ASSERT_EQ(reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 4);
+  ASSERT_EQ(reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 4u);
 
   // requery just to make sure the data wasn't updated
   memset(&record, 0, sizeof(record));
@@ -1429,7 +1429,7 @@ TEST_F(wbtrv32Test, BadDataTest) {
                     &dwDataBufferLength, &key, sizeof(key), 0),
             btrieve::BtrieveError::Success);
   do {
-    ASSERT_EQ(dwDataBufferLength, 400);
+    ASSERT_EQ(dwDataBufferLength, 400u);
     ASSERT_EQ(key, i);
 
     uint32_t crc = xcrc32(record, dwDataBufferLength, 0xFFFFFFFF);
@@ -1507,9 +1507,9 @@ TEST_F(wbtrv32Test, CreateSingleKey) {
   ASSERT_EQ(driver.open(toWideString(path).c_str()),
             btrieve::BtrieveError::Success);
 
-  ASSERT_EQ(driver.getRecordCount(), 0);
+  ASSERT_EQ(driver.getRecordCount(), 0u);
   ASSERT_EQ(driver.isVariableLengthRecords(), false);
-  ASSERT_EQ(driver.getKeys().size(), 1);
+  ASSERT_EQ(driver.getKeys().size(), 1u);
 
   EXPECT_EQ(driver.getKeys()[0].getPrimarySegment(),
             btrieve::KeyDefinition(0, 4, 2, btrieve::KeyDataType::Integer,
@@ -1611,9 +1611,9 @@ TEST_F(wbtrv32Test, CreateSingleKeyWithAcs) {
   ASSERT_EQ(driver.open(toWideString(path).c_str()),
             btrieve::BtrieveError::Success);
 
-  ASSERT_EQ(driver.getRecordCount(), 0);
+  ASSERT_EQ(driver.getRecordCount(), 0u);
   ASSERT_EQ(driver.isVariableLengthRecords(), true);
-  ASSERT_EQ(driver.getKeys().size(), 1);
+  ASSERT_EQ(driver.getKeys().size(), 1u);
 
   std::vector<char> acsVector(ACS_LENGTH);
   memcpy(acsVector.data(), lpAcsCreateData->acs, ACS_LENGTH);
@@ -1710,9 +1710,9 @@ TEST_F(wbtrv32Test, CreateMultipleKeysWithAcs) {
   ASSERT_EQ(driver.open(toWideString(path).c_str()),
             btrieve::BtrieveError::Success);
 
-  ASSERT_EQ(driver.getRecordCount(), 0);
+  ASSERT_EQ(driver.getRecordCount(), 0u);
   ASSERT_EQ(driver.isVariableLengthRecords(), true);
-  ASSERT_EQ(driver.getKeys().size(), 3);
+  ASSERT_EQ(driver.getKeys().size(), 3u);
 
   std::vector<char> acsVector(ACS_LENGTH);
   memcpy(acsVector.data(), lpAcsCreateData1->acs, ACS_LENGTH);
@@ -1724,9 +1724,9 @@ TEST_F(wbtrv32Test, CreateMultipleKeysWithAcs) {
                              false, 0, 0, 0, "ALLCAPS", acsVector));
 
   EXPECT_EQ(driver.getKeys()[1].isComposite(), true);
-  EXPECT_EQ(driver.getKeys()[1].getSegments().size(), 2);
+  EXPECT_EQ(driver.getKeys()[1].getSegments().size(), 2u);
   EXPECT_EQ(driver.getKeys()[1].getNumber(), 1);
-  EXPECT_EQ(driver.getKeys()[1].getLength(), 12);
+  EXPECT_EQ(driver.getKeys()[1].getLength(), 12u);
 
   memcpy(acsVector.data(), lpAcsCreateData2->acs, ACS_LENGTH);
   EXPECT_EQ(driver.getKeys()[2].getPrimarySegment(),

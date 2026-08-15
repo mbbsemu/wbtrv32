@@ -18,12 +18,12 @@ TEST(BtrieveDatabase, LoadsMBBSEmuDat) {
         return BtrieveDatabase::LoadRecordResult::COUNT;
       });
 
-  ASSERT_EQ(database.getKeys().size(), 4);
-  EXPECT_EQ(database.getRecordLength(), 74);
-  EXPECT_EQ(database.getRecordCount(), 4);
-  EXPECT_EQ(database.getPhysicalRecordLength(), 90);
-  EXPECT_EQ(database.getPageLength(), 512);
-  EXPECT_EQ(database.getPageCount(), 6);
+  ASSERT_EQ(database.getKeys().size(), 4u);
+  EXPECT_EQ(database.getRecordLength(), 74u);
+  EXPECT_EQ(database.getRecordCount(), 4u);
+  EXPECT_EQ(database.getPhysicalRecordLength(), 90u);
+  EXPECT_EQ(database.getPageLength(), 512u);
+  EXPECT_EQ(database.getPageCount(), 6u);
   EXPECT_FALSE(database.isVariableLengthRecords());
 
   EXPECT_FALSE(database.getKeys()[0].isComposite());
@@ -85,12 +85,12 @@ TEST(BtrieveDatabase, LoadsVariableDat) {
         return BtrieveDatabase::LoadRecordResult::COUNT;
       });
 
-  ASSERT_EQ(database.getKeys().size(), 2);
-  EXPECT_EQ(database.getRecordLength(), 8);
-  EXPECT_EQ(database.getRecordCount(), 1024);
-  EXPECT_EQ(database.getPhysicalRecordLength(), 20);
+  ASSERT_EQ(database.getKeys().size(), 2u);
+  EXPECT_EQ(database.getRecordLength(), 8u);
+  EXPECT_EQ(database.getRecordCount(), 1024u);
+  EXPECT_EQ(database.getPhysicalRecordLength(), 20u);
   EXPECT_EQ(database.getPageLength(), 512);
-  EXPECT_EQ(database.getPageCount(), 1156);
+  EXPECT_EQ(database.getPageCount(), 1156u);
   EXPECT_TRUE(database.isVariableLengthRecords());
 
   EXPECT_FALSE(database.getKeys()[0].isComposite());
@@ -143,7 +143,7 @@ TEST(BtrieveDatabase, LoadsVariableDatV6) {
   database.parseDatabase(
       _TEXT("assets/WGSMENU2.DAT"),
       [&database]() {
-        EXPECT_EQ(database.getRecordLength(), 448);
+        EXPECT_EQ(database.getRecordLength(), 448u);
 
         return database.getRecordLength() == 448;
       },
@@ -159,15 +159,15 @@ TEST(BtrieveDatabase, LoadsVariableDatV6) {
         return BtrieveDatabase::LoadRecordResult::COUNT;
       });
 
-  ASSERT_EQ(expectedData.size(), 0);
+  ASSERT_EQ(expectedData.size(), 0u);
 
   ASSERT_EQ(database.getRecordCount(),
             sizeof(variableData) / sizeof(variableData[0]));
 
-  ASSERT_EQ(database.getKeys().size(), 1);
+  ASSERT_EQ(database.getKeys().size(), 1u);
   ASSERT_EQ(database.getKeys()[0].getPrimarySegment().getOffset(), 0);
   ASSERT_EQ(database.getKeys()[0].getPrimarySegment().getPosition(), 1);
-  ASSERT_EQ(database.getKeys()[0].getPrimarySegment().getLength(), 17);
+  ASSERT_EQ(database.getKeys()[0].getPrimarySegment().getLength(), 17u);
 }
 
 TEST(BtrieveDatabase, LoadsFixedDatV6) {
@@ -177,33 +177,33 @@ TEST(BtrieveDatabase, LoadsFixedDatV6) {
   database.parseDatabase(
       _TEXT("assets/GALTELA.DAT"),
       [&database]() {
-        EXPECT_EQ(database.getRecordLength(), 950);
+        EXPECT_EQ(database.getRecordLength(), 950u);
 
         return database.getRecordLength() == 950;
       },
       [&database, &recordCount](std::basic_string_view<uint8_t> record) {
         ++recordCount;
 
-        EXPECT_EQ(record.size(), 950);
+        EXPECT_EQ(record.size(), 950u);
 
         return BtrieveDatabase::LoadRecordResult::COUNT;
       });
 
-  ASSERT_EQ(recordCount, 73);
-  ASSERT_EQ(database.getRecordCount(), 73);
+  ASSERT_EQ(recordCount, 73u);
+  ASSERT_EQ(database.getRecordCount(), 73u);
 
-  ASSERT_EQ(database.getKeys().size(), 3);
+  ASSERT_EQ(database.getKeys().size(), 3u);
 
-  ASSERT_EQ(database.getKeys()[0].getSegments().size(), 2);
-  ASSERT_EQ(database.getKeys()[0].getLength(), 32);
+  ASSERT_EQ(database.getKeys()[0].getSegments().size(), 2u);
+  ASSERT_EQ(database.getKeys()[0].getLength(), 32u);
 
   ASSERT_EQ(database.getKeys()[1].getPrimarySegment().getOffset(), 0);
   ASSERT_EQ(database.getKeys()[1].getPrimarySegment().getPosition(), 1);
-  ASSERT_EQ(database.getKeys()[1].getPrimarySegment().getLength(), 16);
+  ASSERT_EQ(database.getKeys()[1].getPrimarySegment().getLength(), 16u);
 
   ASSERT_EQ(database.getKeys()[2].getPrimarySegment().getOffset(), 16);
   ASSERT_EQ(database.getKeys()[2].getPrimarySegment().getPosition(), 17);
-  ASSERT_EQ(database.getKeys()[2].getPrimarySegment().getLength(), 16);
+  ASSERT_EQ(database.getKeys()[2].getPrimarySegment().getLength(), 16u);
 }
 
 TEST(BtrieveDatabase, LoadsMultiAcsDatV6) {
@@ -212,7 +212,7 @@ TEST(BtrieveDatabase, LoadsMultiAcsDatV6) {
   database.parseDatabase(
       _TEXT("assets/MULTIACS.DAT"),
       [&database]() {
-        EXPECT_EQ(database.getRecordLength(), 128);
+        EXPECT_EQ(database.getRecordLength(), 128u);
 
         return database.getRecordLength() == 128;
       },
@@ -220,9 +220,9 @@ TEST(BtrieveDatabase, LoadsMultiAcsDatV6) {
         return BtrieveDatabase::LoadRecordResult::COUNT;
       });
 
-  ASSERT_EQ(database.getRecordCount(), 0);
+  ASSERT_EQ(database.getRecordCount(), 0u);
 
-  ASSERT_EQ(database.getKeys().size(), 3);
+  ASSERT_EQ(database.getKeys().size(), 3u);
 
   ASSERT_STREQ(database.getKeys().at(0).getACSName(), "ALLCAPS");
   ASSERT_STREQ(database.getKeys().at(2).getACSName(), "LOWER");

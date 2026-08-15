@@ -28,6 +28,16 @@ typedef struct _taguuid {
 
 static_assert(sizeof(uuid) == 16);
 
+namespace {
+struct FileCloser {
+  void operator()(FILE *f) const {
+    if (f) {
+      fclose(f);
+    }
+  }
+};
+}  // namespace
+
 bool TempPath::create() {
   char buf[64];
 
@@ -43,8 +53,7 @@ bool TempPath::create() {
   wcstombs_s(&unused, buf, ARRAYSIZE(buf), guidBuf, _TRUNCATE);
 #else
   uuid id;
-  std::unique_ptr<FILE, decltype(&fclose)> f(fopen("/dev/random", "r"),
-                                             &fclose);
+  std::unique_ptr<FILE, FileCloser> f(fopen("/dev/random", "r"));
   if (!f) {
     return false;
   }
@@ -106,17 +115,17 @@ std::basic_string<wchar_t> TempPath::copyToTempPath(const char *filePath) {
 
   {
     FILE *src = fopen(filePath, "rb");
-    std::unique_ptr<FILE, decltype(&fclose)> sourceFile(src, &fclose);
+    std::unique_ptr<FILE, FileCloser> sourceFile(src);
     if (!sourceFile) {
       throw btrieve::BtrieveException(btrieve::BtrieveError::FileNotFound,
                                       "Can't open %s\n", filePath);
     }
 
-    std::unique_ptr<FILE, decltype(&fclose)> destFile(
+    std::unique_ptr<FILE, FileCloser> destFile(
 #ifdef WIN32
-        _wfopen(destPath.c_str(), _TEXT("wb")), &fclose);
+        _wfopen(destPath.c_str(), _TEXT("wb")));
 #else
-        fopen(destPath.c_str(), "wb"), &fclose);
+        fopen(destPath.c_str(), "wb"));
 #endif
     if (!destFile) {
       throw btrieve::BtrieveException(btrieve::BtrieveError::IOError,
