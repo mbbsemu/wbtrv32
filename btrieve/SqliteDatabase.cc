@@ -646,6 +646,11 @@ std::pair<BtrieveError, unsigned int> SqliteDatabase::insertRecord(
     return std::make_pair(error, 0);
   }
 
+  // insertAutoincrementValues only mutates data, not record, so repoint record
+  // at it -- otherwise the row we insert below still has the caller's original
+  // (unincremented) placeholder value rather than the one we just computed.
+  record = std::basic_string_view<uint8_t>(data.data(), data.size());
+
   std::string insertSql;
   if (!keys.empty()) {
     std::stringstream sb;

@@ -101,7 +101,7 @@ static std::vector<ParameterizedFixtureType> create() {
       {DATA_POSITIVE, 8, KeyDataType::OldBinary, 0x807060504030201}};
 }
 
-INSTANTIATE_TEST_SUITE_P(Key, ParameterizedFixture,
+INSTANTIATE_TEST_CASE_P(Key, ParameterizedFixture,
                         ::testing::ValuesIn(create()));
 
 struct ParameterizedStringFixtureType {
@@ -144,7 +144,7 @@ static std::vector<ParameterizedStringFixtureType> createStringData() {
       {2, KeyDataType::OldAscii, "Te"},    {1, KeyDataType::OldAscii, "T"}};
 }
 
-INSTANTIATE_TEST_SUITE_P(Key, ParameterizedStringFixture,
+INSTANTIATE_TEST_CASE_P(Key, ParameterizedStringFixture,
                         ::testing::ValuesIn(createStringData()));
 
 TEST(Key, SegmentIndices) {
@@ -224,7 +224,7 @@ static std::vector<ParameterizedKeyDataType> createKeyDataTypeData() {
       {KeyDataType::Float}};
 }
 
-INSTANTIATE_TEST_SUITE_P(Key, ParameterizedKeyDataTypeFixture,
+INSTANTIATE_TEST_CASE_P(Key, ParameterizedKeyDataTypeFixture,
                         ::testing::ValuesIn(createKeyDataTypeData()));
 
 static std::vector<char> upperACS() {
@@ -350,7 +350,7 @@ createACSReplacementMultipleKey() {
       {false, "test1234test4321", "test1234TEST4321"}};
 }
 
-INSTANTIATE_TEST_SUITE_P(Key, ParameterizedACSReplacementMultipleKeyFixture,
+INSTANTIATE_TEST_CASE_P(Key, ParameterizedACSReplacementMultipleKeyFixture,
                         ::testing::ValuesIn(createACSReplacementMultipleKey()));
 
 TEST(Key, FloatKeys) {
