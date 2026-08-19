@@ -16,6 +16,9 @@ cc_shared_library(
   name = "wbtrv32",
   deps = [":libwbtrv32"],
   shared_lib_name = "wbtrv32.so",
+  # gcc_toolchain (used for arm32/arm64 cross builds) doesn't auto-link
+  # libstdc++ for C++ sources; harmless no-op under the native toolchain.
+  user_link_flags = ["-lstdc++"],
 )
 
 cc_test(

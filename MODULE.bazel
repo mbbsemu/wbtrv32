@@ -1,3 +1,24 @@
 bazel_dep(name = "gflags", version = "2.3.1")
 bazel_dep(name = "googletest", version = "1.18.0")
 bazel_dep(name = "rules_cc", version = "0.2.22")
+
+# Fully hermetic GCC + sysroot toolchains used only for cross-compiling to
+# arm32/arm64 linux; native x64 builds keep using the local auto-detected
+# toolchain. No system cross-compilers or apt packages needed.
+bazel_dep(name = "gcc_toolchain", version = "0.12.0")
+
+gcc_toolchains = use_extension("@gcc_toolchain//toolchain:module_extensions.bzl", "gcc_toolchains")
+gcc_toolchains.toolchain(
+    name = "gcc_toolchain_aarch64",
+    target_arch = "aarch64",
+)
+gcc_toolchains.toolchain(
+    name = "gcc_toolchain_armv7",
+    target_arch = "armv7",
+)
+use_repo(gcc_toolchains, "gcc_toolchain_aarch64", "gcc_toolchain_armv7")
+
+register_toolchains(
+    "@gcc_toolchain_aarch64//:all",
+    "@gcc_toolchain_armv7//:all",
+)

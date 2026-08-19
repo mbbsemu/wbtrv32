@@ -1,1 +1,7 @@
 build --action_env=BAZEL_CXXOPTS="-std=c++20"
+
+# Cross-compilation configs, e.g.:
+#   bazel build --config=linux_arm64 //vstudio/wbtrv32:wbtrv32
+#   bazel build --config=linux_arm32 //vstudio/wbtrv32:wbtrv32
+build:linux_arm64 --platforms=@gcc_toolchain//platforms:aarch64_linux
+build:linux_arm32 --platforms=@gcc_toolchain//platforms:armv7_linux
