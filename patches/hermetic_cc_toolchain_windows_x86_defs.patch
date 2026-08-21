@@ -1,0 +1,42 @@
+--- a/toolchain/private/defs.bzl
++++ b/toolchain/private/defs.bzl
+@@ -51,6 +51,12 @@
+         ret.append(_target_linux_musl(gocpu, zigcpu))
+         for glibc in _GLIBCS:
+             ret.append(_target_linux_gnu(gocpu, zigcpu, glibc))
++
++    # Upstream only loops over amd64/arm64 above, but zig's mingw sysroot
++    # fully supports x86-windows-gnu (32-bit), so declare it directly
++    # rather than looping it through macOS/Linux too.
++    ret.append(_target_windows("386", "x86"))
++
+     ret.append(_target_wasm())
+     ret.append(_target_wasm_no_wasi())
+     return ret
+@@ -93,6 +99,11 @@
+     )
+ 
+ def _target_windows(gocpu, zigcpu):
++    # zig calls the 32-bit x86 arch "x86", but @platforms//cpu declares it
++    # as "x86_32" (matching platforms' own naming, unlike x86_64/aarch64
++    # which happen to match zig's names as-is).
++    platform_cpu = "x86_32" if zigcpu == "x86" else zigcpu
++
+     return struct(
+         gotarget = "windows_{}".format(gocpu),
+         zigtarget = "{}-windows-gnu".format(zigcpu),
+@@ -115,10 +126,12 @@
+         #   zig: error: argument unused during compilation: '-mthreads' [-Werror,-Wunused-command-line-argument]
+         copts = ["-Wno-unused-command-line-argument"],
+         libc = "mingw",
+-        bazel_target_cpu = "x64_windows",
++        # "x64_windows"/"x86_windows" are Bazel's own legacy --cpu values
++        # for 64-/32-bit Windows.
++        bazel_target_cpu = "x64_windows" if zigcpu == "x86_64" else "x86_windows",
+         constraint_values = [
+             "@platforms//os:windows",
+-            "@platforms//cpu:{}".format(zigcpu),
++            "@platforms//cpu:{}".format(platform_cpu),
+         ],
+         ld_zig_subcmd = "lld-link",
+         artifact_name_patterns = [

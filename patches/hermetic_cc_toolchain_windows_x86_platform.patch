@@ -1,0 +1,32 @@
+--- a/toolchain/platform/defs.bzl
++++ b/toolchain/platform/defs.bzl
+@@ -14,6 +14,12 @@
+             for os in oss:
+                 declare_platform(gocpu, zigcpu, bzlos, os)
+ 
++    # 32-bit x86 Windows isn't part of _CPUS above (only amd64/arm64 are),
++    # but zig's mingw sysroot fully supports x86-windows-gnu, so declare it
++    # directly rather than adding it to _CPUS (which would also add
++    # linux/macos x86 platforms nothing here needs).
++    declare_platform("386", "x86", "windows", "windows")
++
+     # We can support GOARCH=wasm32 after https://github.com/golang/go/issues/63131
+     declare_platform("wasm", "wasm32", "wasi", "wasip1")
+     declare_platform("wasm", "wasm32", "none", "none")
+@@ -33,9 +39,15 @@
+             )
+ 
+ def declare_platform(gocpu, zigcpu, bzlos, os, suffix = "", extra_constraints = []):
++    # zig calls the 32-bit x86 arch "x86", but @platforms//cpu declares it
++    # as "x86_32" (matching platforms' own naming, unlike x86_64/aarch64
++    # which happen to match zig's names as-is). Platform/toolchain names
++    # still use zigcpu/gocpu as-is so they stay "windows_x86"/"windows_386".
++    platform_cpu = "x86_32" if zigcpu == "x86" else zigcpu
++
+     constraint_values = [
+         "@platforms//os:{}".format(bzlos),
+-        "@platforms//cpu:{}".format(zigcpu),
++        "@platforms//cpu:{}".format(platform_cpu),
+     ] + extra_constraints
+ 
+     native.platform(

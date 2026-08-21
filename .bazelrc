@@ -11,3 +11,5 @@ build:linux_arm32 --platforms=@gcc_toolchain//platforms:armv7_linux
 # (...W) instead of ANSI (...A) overloads; match that here.
 build:windows_amd64 --platforms=@zig_sdk//platform:windows_amd64
 build:windows_amd64 --copt=-DUNICODE --copt=-D_UNICODE
+build:windows_x86 --platforms=@zig_sdk//platform:windows_x86
+build:windows_x86 --copt=-DUNICODE --copt=-D_UNICODE
