@@ -14,6 +14,12 @@ bool FileExists(const wchar_t *file);
 
 #include "combaseapi.h"
 
+// The windows-gnu zig-cc toolchain (unlike MSVC or a real mingw-w64 GCC)
+// auto-dllexports every externally-visible function by default; the build
+// disables that (-fno-dll-export-fns) and exports BTRCALL explicitly here
+// instead, so the DLL's export table only contains the public Btrieve API.
+#define WBTRV32_EXPORT __declspec(dllexport)
+
 #else
 
 #include <dlfcn.h>
@@ -70,6 +76,8 @@ DWORD GetFullPathName(const wchar_t *lpFileName, DWORD nBufferLength,
 #define _unlink unlink
 
 #define __stdcall
+
+#define WBTRV32_EXPORT
 
 #endif  // #ifdef WIN32
 

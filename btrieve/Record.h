@@ -6,6 +6,8 @@
 #include <string_view>
 #include <vector>
 
+#include "ByteStringViewTraits.h"
+
 namespace btrieve {
 class Record {
  public:

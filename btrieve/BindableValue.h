@@ -6,6 +6,8 @@
 #include <string>
 #include <vector>
 
+#include "ByteStringViewTraits.h"
+
 namespace btrieve {
 class BindableValue {
  public:
