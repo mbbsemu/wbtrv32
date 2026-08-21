@@ -38,8 +38,15 @@ static inline bool fileExists(const wchar_t *filename,
     return false;
   }
 
+#ifdef __APPLE__
+  // macOS's struct stat has no st_mtim (POSIX.1-2008); the equivalent
+  // timespec field is named st_mtimespec there.
+  fileModificationNanos = (stbuf.st_mtimespec.tv_sec * 1000000000l) +
+                          stbuf.st_mtimespec.tv_nsec;
+#else
   fileModificationNanos =
       (stbuf.st_mtim.tv_sec * 1000000000l) + stbuf.st_mtim.tv_nsec;
+#endif
   return true;
 #endif
 }
