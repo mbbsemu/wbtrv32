@@ -17,6 +17,7 @@ cc_shared_library(
   deps = [":libwbtrv32"],
   shared_lib_name = select({
     "@platforms//os:windows": "wbtrv32.dll",
+    "@platforms//os:macos": "wbtrv32.dylib",
     "//conditions:default": "wbtrv32.so",
   }),
   # win_def_file (and wbtrv32.def, still used by the real MSVC build) only
@@ -27,13 +28,14 @@ cc_shared_library(
   # -fno-dll-export-fns in .bazelrc and WBTRV32_EXPORT in framework.h.
   # gcc_toolchain (used for arm32/arm64 cross builds) doesn't auto-link
   # libstdc++ for C++ sources; harmless no-op under the native toolchain.
-  # Not needed (and not valid) for the windows-gnu zig-cc toolchain, which
-  # links libstdc++ in statically by default.
+  # Not needed (and not valid) for the zig-cc toolchains (windows-gnu and
+  # macos-none), which link their C++ runtime in statically by default.
   user_link_flags = select({
     # CoCreateGuid/StringFromGUID2 (framework.cc) live in ole32.dll; MSVC
     # pulls in ole32.lib implicitly via $(CoreLibraryDependencies), which
     # Bazel has no equivalent of, so link it explicitly.
     "@platforms//os:windows": ["-lole32"],
+    "@platforms//os:macos": [],
     "//conditions:default": ["-lstdc++"],
   }),
 )

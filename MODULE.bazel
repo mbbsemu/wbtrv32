@@ -28,9 +28,26 @@ register_toolchains(
 # (wbtrv32.dll); gcc_toolchain above only ships Linux-targeting toolchains.
 bazel_dep(name = "hermetic_cc_toolchain", version = "4.3.0")
 
+# Upstream only generates Windows toolchains for amd64/arm64 (see the
+# hardcoded loop in toolchain/private/defs.bzl); zig's bundled mingw sysroot
+# fully supports x86-windows-gnu (32-bit) too, so patch in a windows_x86
+# target the same way upstream builds windows_amd64/windows_arm64.
+single_version_override(
+    module_name = "hermetic_cc_toolchain",
+    version = "4.3.0",
+    patches = [
+        "//patches:hermetic_cc_toolchain_windows_x86_defs.patch",
+        "//patches:hermetic_cc_toolchain_windows_x86_platform.patch",
+    ],
+    patch_strip = 1,
+)
+
 zig_toolchains = use_extension("@hermetic_cc_toolchain//toolchain:ext.bzl", "toolchains")
 use_repo(zig_toolchains, "zig_sdk")
 
 register_toolchains(
     "@zig_sdk//toolchain:windows_amd64",
+    "@zig_sdk//toolchain:windows_386",
+    "@zig_sdk//toolchain:darwin_amd64",
+    "@zig_sdk//toolchain:darwin_arm64",
 )

@@ -65,8 +65,8 @@ void *GetProcAddress(HMODULE hModule, const char *symbol);
 #define _TRUNCATE -1
 
 template <size_t size>
-error_t mbstowcs_s(size_t *pReturnValue, wchar_t (&wcstr)[size],
-                   const char *mbstr, size_t count);
+int mbstowcs_s(size_t *pReturnValue, wchar_t (&wcstr)[size],
+               const char *mbstr, size_t count);
 
 DWORD GetFullPathName(const wchar_t *lpFileName, DWORD nBufferLength,
                       wchar_t *lpBuffer, wchar_t **lpFilePart);

@@ -4,6 +4,7 @@ build --action_env=BAZEL_CXXOPTS="-std=c++20"
 #   bazel build --config=linux_arm64 //vstudio/wbtrv32:wbtrv32
 #   bazel build --config=linux_arm32 //vstudio/wbtrv32:wbtrv32
 #   bazel build --config=windows_amd64 //vstudio/wbtrv32:wbtrv32
+#   bazel build --config=macos_arm64 //vstudio/wbtrv32:wbtrv32
 build:linux_arm64 --platforms=@gcc_toolchain//platforms:aarch64_linux
 build:linux_arm32 --platforms=@gcc_toolchain//platforms:armv7_linux
 # The vcxproj builds use CharacterSet=Unicode, which defines UNICODE/_UNICODE
@@ -11,3 +12,7 @@ build:linux_arm32 --platforms=@gcc_toolchain//platforms:armv7_linux
 # (...W) instead of ANSI (...A) overloads; match that here.
 build:windows_amd64 --platforms=@zig_sdk//platform:windows_amd64
 build:windows_amd64 --copt=-DUNICODE --copt=-D_UNICODE
+build:windows_x86 --platforms=@zig_sdk//platform:windows_x86
+build:windows_x86 --copt=-DUNICODE --copt=-D_UNICODE
+build:macos_amd64 --platforms=@zig_sdk//platform:darwin_amd64
+build:macos_arm64 --platforms=@zig_sdk//platform:darwin_arm64

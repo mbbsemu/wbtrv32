@@ -53,8 +53,8 @@ void *GetProcAddress(HMODULE hModule, const char *symbol) {
 }
 
 template <size_t size>
-error_t mbstowcs_s(size_t *pReturnValue, wchar_t (&wcstr)[size],
-                   const char *mbstr, size_t count) {
+int mbstowcs_s(size_t *pReturnValue, wchar_t (&wcstr)[size],
+               const char *mbstr, size_t count) {
   size_t wordsWritten = mbstowcs(wcstr, mbstr, count);
   wcstr[size - 1] = 0;
   if (count < size) {
