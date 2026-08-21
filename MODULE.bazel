@@ -1,3 +1,4 @@
+bazel_dep(name = "platforms", version = "1.1.0")
 bazel_dep(name = "gflags", version = "2.3.1")
 bazel_dep(name = "googletest", version = "1.18.0")
 bazel_dep(name = "rules_cc", version = "0.2.22")
@@ -21,4 +22,15 @@ use_repo(gcc_toolchains, "gcc_toolchain_aarch64", "gcc_toolchain_armv7")
 register_toolchains(
     "@gcc_toolchain_aarch64//:all",
     "@gcc_toolchain_armv7//:all",
+)
+
+# Hermetic zig-cc based toolchain, used only for cross-compiling to Windows
+# (wbtrv32.dll); gcc_toolchain above only ships Linux-targeting toolchains.
+bazel_dep(name = "hermetic_cc_toolchain", version = "4.3.0")
+
+zig_toolchains = use_extension("@hermetic_cc_toolchain//toolchain:ext.bzl", "toolchains")
+use_repo(zig_toolchains, "zig_sdk")
+
+register_toolchains(
+    "@zig_sdk//toolchain:windows_amd64",
 )

@@ -1,6 +1,7 @@
 #ifndef __SQLITE_READER_H_
 #define __SQLITE_READER_H_
 
+#include "ByteStringViewTraits.h"
 #include "Reader.h"
 #include "SqliteUtil.h"
 #include "sqlite/sqlite3.h"

@@ -24,6 +24,10 @@
 #include "Psapi.h"
 #endif
 
+#ifdef WIN32
+#include <share.h>
+#endif
+
 using namespace btrieve;
 
 static std::unordered_map<std::basic_string<wchar_t>,
@@ -702,11 +706,13 @@ static BtrieveError handle(BtrieveCommand &command) {
 }
 // clang-format on
 
-extern "C" int __stdcall BTRCALL(WORD wOperation, LPVOID lpPositionBlock,
-                                 LPVOID lpDataBuffer,
-                                 LPDWORD lpdwDataBufferLength,
-                                 LPVOID lpKeyBuffer, BYTE bKeyLength,
-                                 CHAR sbKeyNumber) {
+extern "C" WBTRV32_EXPORT int __stdcall BTRCALL(WORD wOperation,
+                                                LPVOID lpPositionBlock,
+                                                LPVOID lpDataBuffer,
+                                                LPDWORD lpdwDataBufferLength,
+                                                LPVOID lpKeyBuffer,
+                                                BYTE bKeyLength,
+                                                CHAR sbKeyNumber) {
   BtrieveCommand btrieveCommand;
   BtrieveError error;
 
