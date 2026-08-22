@@ -417,7 +417,7 @@ bool BtrieveDatabase::loadACSAtPhysicalOffset(FILE* f, std::string& acsName,
                                               uint32_t physicalOffset) {
   static const uint8_t ACS_PAGE_HEADER[] = {0, 0, 1, 0, 0, 0, 0xAC};
 
-  char* acsPage = reinterpret_cast<char*>(alloca(pageLength));
+  unsigned char* acsPage = reinterpret_cast<unsigned char*>(alloca(pageLength));
 
   fseek_s(f, physicalOffset, SEEK_SET);
   fread_s(acsPage, pageLength, f);
