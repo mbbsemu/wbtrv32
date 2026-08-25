@@ -14,6 +14,9 @@ cc_library(
 
 cc_shared_library(
   name = "wbtrv32",
+  # //nuget:package depends on this only to piggyback on bazel's dependency
+  # graph for staleness tracking; see nuget/nuget_package.bzl.
+  visibility = ["//nuget:__pkg__"],
   deps = [":libwbtrv32"],
   shared_lib_name = select({
     "@platforms//os:windows": "wbtrv32.dll",
