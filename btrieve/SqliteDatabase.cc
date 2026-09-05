@@ -796,31 +796,43 @@ BtrieveError SqliteDatabase::updateRecord(
     return error;
   }
 
-  std::string updateSql;
-  if (!keys.empty()) {
-    std::stringstream sb;
-    sb << "UPDATE data_t SET data=@data, ";
-    sb << commaDelimited(keys.begin(), keys.end(), [](const Key &key) {
-      char buf[128];
-      snprintf(buf, sizeof(buf), "%s=@%s", key.getSqliteKeyName().c_str(),
-               key.getSqliteKeyName().c_str());
-      buf[sizeof(buf) - 1] = 0;
+  record = std::basic_string_view<uint8_t>(data.data(), data.size());
 
-      return std::string(buf);
-    });
-    sb << " WHERE id=@id;";
-    updateSql = sb.str();
-  } else {
-    updateSql = "UPDATE data_t SET data=@data WHERE id=@id";
+  auto existing = getRecord(id);
+  if (!existing.first) {
+    transaction.rollback();
+    return BtrieveError::InvalidPositioning;
   }
 
-  SqlitePreparedStatement &updateCmd = getPreparedStatement(updateSql.c_str());
+  auto existingData = std::basic_string_view<uint8_t>(
+      existing.second.getData().data(), existing.second.getData().size());
+  for (const auto &key : keys) {
+    if (!key.isModifiable() && key.extractKeyDataFromRecord(record) !=
+                                   key.extractKeyDataFromRecord(existingData)) {
+      transaction.rollback();
+      return BtrieveError::NonModifiableKeyValue;
+    }
+  }
+
+  std::stringstream sb;
+  sb << "UPDATE data_t SET data=@data";
+  for (const auto &key : keys) {
+    if (key.isModifiable()) {
+      sb << ", " << key.getSqliteKeyName() << "=@"
+         << key.getSqliteKeyName();
+    }
+  }
+  sb << " WHERE id=@id;";
+
+  SqlitePreparedStatement &updateCmd = getPreparedStatement(sb.str().c_str());
   updateCmd.bindParameter(1, BindableValue(record));
 
   unsigned int parameterNumber = 2;
-  for (auto &key : keys) {
-    updateCmd.bindParameter(parameterNumber++,
-                            key.extractKeyInRecordToSqliteObject(record));
+  for (const auto &key : keys) {
+    if (key.isModifiable()) {
+      updateCmd.bindParameter(parameterNumber++,
+                              key.extractKeyInRecordToSqliteObject(record));
+    }
   }
   updateCmd.bindParameter(parameterNumber, id);
 

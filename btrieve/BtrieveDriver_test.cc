@@ -826,6 +826,53 @@ TEST_F(BtrieveDriverTest, UpdateTestNonModifiableKeyModifiedFailed) {
   ASSERT_EQ(driver.getRecordCount(), 4u);
 }
 
+TEST_F(BtrieveDriverTest, UpdateIgnoresStaleNonModifiableSqliteKeyValue) {
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+
+  sqlite3 *db;
+  ASSERT_EQ(sqlite3_open_v2(fromPath(mbbsEmuDb).c_str(), &db,
+                            SQLITE_OPEN_READWRITE, nullptr),
+            SQLITE_OK);
+  ASSERT_EQ(sqlite3_exec(db, "DROP TRIGGER non_modifiable;", nullptr, nullptr,
+                         nullptr),
+            SQLITE_OK);
+  ASSERT_EQ(sqlite3_exec(db,
+                         "UPDATE data_t SET key_0='stale' WHERE id=1;",
+                         nullptr, nullptr, nullptr),
+            SQLITE_OK);
+  ASSERT_EQ(sqlite3_exec(
+                db,
+                "CREATE TRIGGER non_modifiable BEFORE UPDATE ON data_t BEGIN "
+                "SELECT CASE WHEN NEW.key_0 != OLD.key_0 THEN "
+                "RAISE (ABORT,'You modified a non-modifiable key_0!') "
+                "WHEN NEW.key_3 != OLD.key_3 THEN "
+                "RAISE (ABORT,'You modified a non-modifiable key_3!') "
+                "END; END;",
+                nullptr, nullptr, nullptr),
+            SQLITE_OK);
+  sqlite3_close(db);
+
+  BtrieveDriver driver(new SqliteDatabase());
+  ASSERT_EQ(driver.open(mbbsEmuDb.c_str()), BtrieveError::Success);
+
+  auto stored = driver.getRecord(1);
+  ASSERT_TRUE(stored.first);
+  std::vector<uint8_t> record = stored.second.getData();
+  auto *recordData = reinterpret_cast<MBBSEmuRecordStruct *>(record.data());
+  recordData->key1 = 31337;
+
+  EXPECT_EQ(driver.updateRecord(
+                1, std::basic_string_view<uint8_t>(record.data(), record.size())),
+            BtrieveError::Success);
+
+  stored = driver.getRecord(1);
+  ASSERT_TRUE(stored.first);
+  recordData = reinterpret_cast<MBBSEmuRecordStruct *>(
+      stored.second.getData().data());
+  EXPECT_STREQ(recordData->key0, "Sysop");
+  EXPECT_EQ(recordData->key1, 31337);
+}
+
 TEST_F(BtrieveDriverTest, UpdateInvalidKeyNumber) {
   BtrieveDriver driver(new SqliteDatabase());
 
