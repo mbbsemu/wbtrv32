@@ -1065,6 +1065,150 @@ TEST_F(wbtrv32Test, InsertWithKeyBufferTooShort) {
   ASSERT_EQ(reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 4u);
 }
 
+// Regression tests for a bug where Upsert() (wbtrv32.cpp) never updated the
+// driver's tracked current position after a successful Insert -- it only
+// called logicalCurrencySeek(), which builds a Query object for continuing
+// Step operations but doesn't touch SqlDatabase::position. A GetPosition
+// call made immediately after Insert (exactly what MBBSEmu's
+// BtrieveFileProcessor.Insert() does in C# to learn the new record's
+// position) could therefore return a stale value left over from whatever
+// Step/Query happened last, rather than the position of the record that
+// was just inserted.
+TEST_F(wbtrv32Test, InsertNoKeySetsPosition) {
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  ASSERT_FALSE(mbbsEmuDb.empty());
+
+  RECORD record;
+  DWORD dwDataBufferLength = sizeof(record);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr, nullptr,
+                    const_cast<LPVOID>(reinterpret_cast<LPCVOID>(
+                        toStdString(mbbsEmuDb.c_str()).c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
+
+  record.int1 = 10000;
+  record.int2 = 5;
+  strcpy(record.string1, "Sysop");
+  strcpy(record.string2, "whatever");
+
+  // No prior Step/Query has run on this driver, so before the fix,
+  // GetPosition below would read back position's default value rather than
+  // the newly inserted record's position.
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Insert, posBlock, &record,
+                    &dwDataBufferLength, nullptr, 0, -1),
+            btrieve::BtrieveError::Success);
+
+  uint32_t position = 0xFFFFFFFF;
+  dwDataBufferLength = sizeof(position);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::GetPosition, posBlock, &position,
+                    &dwDataBufferLength, nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
+
+  // MBBSEMU.DB already has 4 records, so the new one lands at position 5.
+  ASSERT_EQ(position, 5u);
+}
+
+TEST_F(wbtrv32Test, InsertWithKeySetsPosition) {
+  // Same regression as InsertNoKeySetsPosition, but exercising the
+  // keyNumber >= 0 path: logicalCurrencySeek() seeds a Query object with the
+  // correct position for continuing Step/Acquire calls, but that's a
+  // separate object from SqlDatabase::position -- it never updated the
+  // latter either, so GetPosition had the same staleness bug regardless of
+  // key number.
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  ASSERT_FALSE(mbbsEmuDb.empty());
+
+  RECORD record;
+  char key[32];
+  DWORD dwDataBufferLength = sizeof(record);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr, nullptr,
+                    const_cast<LPVOID>(reinterpret_cast<LPCVOID>(
+                        toStdString(mbbsEmuDb.c_str()).c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
+
+  record.int1 = -2000000000;
+  record.int2 = 5;
+  strcpy(record.string1, "Sysop");
+  strcpy(record.string2, "whatever");
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Insert, posBlock, &record,
+                    &dwDataBufferLength, key, sizeof(key), 1),
+            btrieve::BtrieveError::Success);
+
+  uint32_t position = 0xFFFFFFFF;
+  dwDataBufferLength = sizeof(position);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::GetPosition, posBlock, &position,
+                    &dwDataBufferLength, nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(position, 5u);
+}
+
+TEST_F(wbtrv32Test, InsertIntoFreshlyCreatedFileSetsPosition) {
+  // Regression test for the exact scenario that produced a false "insert
+  // failed" report in MBBSEmu: the very first insert into a brand new file.
+  // SqlDatabase::position was also uninitialized by its constructor (fixed
+  // alongside this), so on a driver that had never had a Step/Query
+  // performed on it, GetPosition deterministically read back 0 -- the same
+  // sentinel MBBSEmu's C# wrapper treats as insert failure -- even though
+  // the record really was inserted successfully.
+  unsigned char buffer[1024];
+  auto mbbsEmuDb = tempPath->getTempPath();
+  std::filesystem::path path(mbbsEmuDb);
+  path /= L"test.dat";
+
+  memset(buffer, 0, sizeof(buffer));
+
+  wbtrv32::LPFILESPEC lpFileSpec =
+      reinterpret_cast<wbtrv32::LPFILESPEC>(buffer);
+
+  lpFileSpec->pageSize = 4096;
+  lpFileSpec->numberOfKeys = 1;
+  lpFileSpec->logicalFixedRecordLength = 128;
+  lpFileSpec->fileVersion = 0x60;
+  lpFileSpec->fileFlags = 0;            // not variable
+  lpFileSpec->physicalPageSize = 0xFF;  // in memory
+
+  wbtrv32::LPKEYSPEC lpKeySpec =
+      reinterpret_cast<wbtrv32::LPKEYSPEC>(lpFileSpec + 1);
+  lpKeySpec->position = 3;
+  lpKeySpec->length = 4;
+  lpKeySpec->attributes = UseExtendedDataType | Duplicates;
+  lpKeySpec->extendedDataType = btrieve::KeyDataType::Integer;
+
+  DWORD dwDataBufferLength =
+      reinterpret_cast<unsigned char*>(lpKeySpec + 1) - buffer;
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Create, posBlock, buffer,
+                    &dwDataBufferLength,
+                    const_cast<LPVOID>(
+                        reinterpret_cast<LPCVOID>(toStdString(path).c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
+
+  unsigned char record[128];
+  memset(record, 0, sizeof(record));
+  dwDataBufferLength = sizeof(record);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Insert, posBlock, record,
+                    &dwDataBufferLength, nullptr, 0, -1),
+            btrieve::BtrieveError::Success);
+
+  uint32_t position = 0xFFFFFFFF;
+  dwDataBufferLength = sizeof(position);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::GetPosition, posBlock, &position,
+                    &dwDataBufferLength, nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(position, 1u);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Close, posBlock, nullptr,
+                    &dwDataBufferLength, nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
+}
+
 TEST_F(wbtrv32Test, InsertNoKeyReadOnly) {
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   ASSERT_FALSE(mbbsEmuDb.empty());
@@ -1352,6 +1496,47 @@ TEST_F(wbtrv32Test, UpdateKeyBufferTooShort) {
   ASSERT_EQ(record.int2, 4);
   ASSERT_STREQ(record.string1, "Sysop");
   ASSERT_STREQ(record.string2, "stringValue");
+}
+
+TEST_F(wbtrv32Test, UpdateSetsPositionToUpdatedRecord) {
+  // Companion regression test to the Insert*SetsPosition tests above: the
+  // Update lambda passed into Upsert() computes insertedPosition as
+  // {updateRecord(position, record), position} using the position that was
+  // already current, so adding setPosition() there doesn't change behavior
+  // -- but it does exercise that same code path to confirm GetPosition
+  // still correctly reflects the record that was just updated.
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  ASSERT_FALSE(mbbsEmuDb.empty());
+
+  RECORD record;
+  DWORD dwDataBufferLength = sizeof(record);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr, nullptr,
+                    const_cast<LPVOID>(reinterpret_cast<LPCVOID>(
+                        toStdString(mbbsEmuDb.c_str()).c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::StepFirst, posBlock, &record,
+                    &dwDataBufferLength, nullptr, 0, -1),
+            btrieve::BtrieveError::Success);
+
+  record.int1 = -7000;
+  record.int2 = 1;
+  strcpy(record.string1, "Sysop");
+  strcpy(record.string2, "3444");
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Update, posBlock, &record,
+                    &dwDataBufferLength, nullptr, 0, -1),
+            btrieve::BtrieveError::Success);
+
+  uint32_t position = 0xFFFFFFFF;
+  dwDataBufferLength = sizeof(position);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::GetPosition, posBlock, &position,
+                    &dwDataBufferLength, nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(position, 1u);
 }
 
 static const uint32_t crc32_table[] = {

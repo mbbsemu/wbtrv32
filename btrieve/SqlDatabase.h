@@ -27,7 +27,11 @@ class RecordLoader {
 // BtrieveDatabase.
 class SqlDatabase {
  public:
-  SqlDatabase(unsigned int maxCacheSize) : cache(maxCacheSize) {}
+  SqlDatabase(unsigned int maxCacheSize)
+      : recordLength(0),
+        position(0),
+        variableLengthRecords(false),
+        cache(maxCacheSize) {}
 
   virtual ~SqlDatabase() = default;
 
