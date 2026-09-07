@@ -48,6 +48,19 @@ struct FileCloser {
 static std::unique_ptr<FILE, FileCloser> _logFile(nullptr);
 #endif
 
+#ifndef WIN32
+// DllMain (dllmain.cpp) is a Windows-only entry point and is never invoked
+// when this is built as a Linux .so/macOS .dylib, so processAttach()/
+// processDetach() otherwise never run outside of Windows.
+__attribute__((constructor)) static void wbtrv32_soConstructor() {
+  wbtrv32::processAttach();
+}
+
+__attribute__((destructor)) static void wbtrv32_soDestructor() {
+  wbtrv32::processDetach();
+}
+#endif  // !WIN32
+
 void wbtrv32::processAttach() {
 #ifdef DEBUG_ATTACH
   {
@@ -486,6 +499,15 @@ static BtrieveError Upsert(
   if (insertedPosition.first != BtrieveError::Success) {
     return insertedPosition.first;
   }
+
+  // logicalCurrencySeek() below only establishes a query for continuing
+  // Step operations against a specific key -- it doesn't update the
+  // driver's tracked current position. Without this, a subsequent
+  // GetPosition (which callers rely on immediately after Insert/Update to
+  // learn the affected record's position) returns whatever position was
+  // last set by a Step/Query, which can still be its unset default of 0
+  // on a file that hasn't had one yet -- indistinguishable from failure.
+  btrieveDriver->setPosition(insertedPosition.second);
 
   if (command.keyNumber < 0) {
     return BtrieveError::Success;

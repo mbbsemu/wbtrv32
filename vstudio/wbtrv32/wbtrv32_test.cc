@@ -1065,6 +1065,150 @@ TEST_F(wbtrv32Test, InsertWithKeyBufferTooShort) {
   ASSERT_EQ(reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 4u);
 }
 
+// Regression tests for a bug where Upsert() (wbtrv32.cpp) never updated the
+// driver's tracked current position after a successful Insert -- it only
+// called logicalCurrencySeek(), which builds a Query object for continuing
+// Step operations but doesn't touch SqlDatabase::position. A GetPosition
+// call made immediately after Insert (exactly what MBBSEmu's
+// BtrieveFileProcessor.Insert() does in C# to learn the new record's
+// position) could therefore return a stale value left over from whatever
+// Step/Query happened last, rather than the position of the record that
+// was just inserted.
+TEST_F(wbtrv32Test, InsertNoKeySetsPosition) {
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  ASSERT_FALSE(mbbsEmuDb.empty());
+
+  RECORD record;
+  DWORD dwDataBufferLength = sizeof(record);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr, nullptr,
+                    const_cast<LPVOID>(reinterpret_cast<LPCVOID>(
+                        toStdString(mbbsEmuDb.c_str()).c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
+
+  record.int1 = 10000;
+  record.int2 = 5;
+  strcpy(record.string1, "Sysop");
+  strcpy(record.string2, "whatever");
+
+  // No prior Step/Query has run on this driver, so before the fix,
+  // GetPosition below would read back position's default value rather than
+  // the newly inserted record's position.
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Insert, posBlock, &record,
+                    &dwDataBufferLength, nullptr, 0, -1),
+            btrieve::BtrieveError::Success);
+
+  uint32_t position = 0xFFFFFFFF;
+  dwDataBufferLength = sizeof(position);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::GetPosition, posBlock, &position,
+                    &dwDataBufferLength, nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
+
+  // MBBSEMU.DB already has 4 records, so the new one lands at position 5.
+  ASSERT_EQ(position, 5u);
+}
+
+TEST_F(wbtrv32Test, InsertWithKeySetsPosition) {
+  // Same regression as InsertNoKeySetsPosition, but exercising the
+  // keyNumber >= 0 path: logicalCurrencySeek() seeds a Query object with the
+  // correct position for continuing Step/Acquire calls, but that's a
+  // separate object from SqlDatabase::position -- it never updated the
+  // latter either, so GetPosition had the same staleness bug regardless of
+  // key number.
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  ASSERT_FALSE(mbbsEmuDb.empty());
+
+  RECORD record;
+  char key[32];
+  DWORD dwDataBufferLength = sizeof(record);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr, nullptr,
+                    const_cast<LPVOID>(reinterpret_cast<LPCVOID>(
+                        toStdString(mbbsEmuDb.c_str()).c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
+
+  record.int1 = -2000000000;
+  record.int2 = 5;
+  strcpy(record.string1, "Sysop");
+  strcpy(record.string2, "whatever");
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Insert, posBlock, &record,
+                    &dwDataBufferLength, key, sizeof(key), 1),
+            btrieve::BtrieveError::Success);
+
+  uint32_t position = 0xFFFFFFFF;
+  dwDataBufferLength = sizeof(position);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::GetPosition, posBlock, &position,
+                    &dwDataBufferLength, nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(position, 5u);
+}
+
+TEST_F(wbtrv32Test, InsertIntoFreshlyCreatedFileSetsPosition) {
+  // Regression test for the exact scenario that produced a false "insert
+  // failed" report in MBBSEmu: the very first insert into a brand new file.
+  // SqlDatabase::position was also uninitialized by its constructor (fixed
+  // alongside this), so on a driver that had never had a Step/Query
+  // performed on it, GetPosition deterministically read back 0 -- the same
+  // sentinel MBBSEmu's C# wrapper treats as insert failure -- even though
+  // the record really was inserted successfully.
+  unsigned char buffer[1024];
+  auto mbbsEmuDb = tempPath->getTempPath();
+  std::filesystem::path path(mbbsEmuDb);
+  path /= L"test.dat";
+
+  memset(buffer, 0, sizeof(buffer));
+
+  wbtrv32::LPFILESPEC lpFileSpec =
+      reinterpret_cast<wbtrv32::LPFILESPEC>(buffer);
+
+  lpFileSpec->pageSize = 4096;
+  lpFileSpec->numberOfKeys = 1;
+  lpFileSpec->logicalFixedRecordLength = 128;
+  lpFileSpec->fileVersion = 0x60;
+  lpFileSpec->fileFlags = 0;            // not variable
+  lpFileSpec->physicalPageSize = 0xFF;  // in memory
+
+  wbtrv32::LPKEYSPEC lpKeySpec =
+      reinterpret_cast<wbtrv32::LPKEYSPEC>(lpFileSpec + 1);
+  lpKeySpec->position = 3;
+  lpKeySpec->length = 4;
+  lpKeySpec->attributes = UseExtendedDataType | Duplicates;
+  lpKeySpec->extendedDataType = btrieve::KeyDataType::Integer;
+
+  DWORD dwDataBufferLength =
+      reinterpret_cast<unsigned char*>(lpKeySpec + 1) - buffer;
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Create, posBlock, buffer,
+                    &dwDataBufferLength,
+                    const_cast<LPVOID>(
+                        reinterpret_cast<LPCVOID>(toStdString(path).c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
+
+  unsigned char record[128];
+  memset(record, 0, sizeof(record));
+  dwDataBufferLength = sizeof(record);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Insert, posBlock, record,
+                    &dwDataBufferLength, nullptr, 0, -1),
+            btrieve::BtrieveError::Success);
+
+  uint32_t position = 0xFFFFFFFF;
+  dwDataBufferLength = sizeof(position);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::GetPosition, posBlock, &position,
+                    &dwDataBufferLength, nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(position, 1u);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Close, posBlock, nullptr,
+                    &dwDataBufferLength, nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
+}
+
 TEST_F(wbtrv32Test, InsertNoKeyReadOnly) {
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   ASSERT_FALSE(mbbsEmuDb.empty());
@@ -1352,6 +1496,466 @@ TEST_F(wbtrv32Test, UpdateKeyBufferTooShort) {
   ASSERT_EQ(record.int2, 4);
   ASSERT_STREQ(record.string1, "Sysop");
   ASSERT_STREQ(record.string2, "stringValue");
+}
+
+TEST_F(wbtrv32Test, UpdateSetsPositionToUpdatedRecord) {
+  // Companion regression test to the Insert*SetsPosition tests above: the
+  // Update lambda passed into Upsert() computes insertedPosition as
+  // {updateRecord(position, record), position} using the position that was
+  // already current, so adding setPosition() there doesn't change behavior
+  // -- but it does exercise that same code path to confirm GetPosition
+  // still correctly reflects the record that was just updated.
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  ASSERT_FALSE(mbbsEmuDb.empty());
+
+  RECORD record;
+  DWORD dwDataBufferLength = sizeof(record);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr, nullptr,
+                    const_cast<LPVOID>(reinterpret_cast<LPCVOID>(
+                        toStdString(mbbsEmuDb.c_str()).c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::StepFirst, posBlock, &record,
+                    &dwDataBufferLength, nullptr, 0, -1),
+            btrieve::BtrieveError::Success);
+
+  record.int1 = -7000;
+  record.int2 = 1;
+  strcpy(record.string1, "Sysop");
+  strcpy(record.string2, "3444");
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Update, posBlock, &record,
+                    &dwDataBufferLength, nullptr, 0, -1),
+            btrieve::BtrieveError::Success);
+
+  uint32_t position = 0xFFFFFFFF;
+  dwDataBufferLength = sizeof(position);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::GetPosition, posBlock, &position,
+                    &dwDataBufferLength, nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(position, 1u);
+}
+
+// Schema of a real-world database that hit a bug where key_0's persisted
+// SQLite column value could get out of sync with the record's actual bytes,
+// permanently blocking updates with NonModifiableKeyValue even though the
+// modifiable keys (key_1/key_2) were never touched:
+//   Key 0: position=1   length=30 Zstring, non-modifiable
+//   Key 1: position=31  length=4  Integer, modifiable
+//   Key 2: position=135 length=4  Integer, modifiable
+#pragma pack(push, 1)
+typedef struct _tagNONMODIFIABLEKEYRECORD {
+  char name[30];
+  int32_t key1;
+  uint8_t reserved[100];
+  int32_t key2;
+} NONMODIFIABLEKEYRECORD, *LPNONMODIFIABLEKEYRECORD;
+#pragma pack(pop)
+
+static_assert(sizeof(NONMODIFIABLEKEYRECORD) == 138);
+
+TEST_F(wbtrv32Test, UpdateSucceedsWithNonAsciiNonModifiableKey) {
+  unsigned char buffer[1024];
+  auto mbbsEmuDb = tempPath->getTempPath();
+  std::filesystem::path path(mbbsEmuDb);
+  path /= L"test.dat";
+
+  memset(buffer, 0, sizeof(buffer));
+
+  wbtrv32::LPFILESPEC lpFileSpec =
+      reinterpret_cast<wbtrv32::LPFILESPEC>(buffer);
+
+  lpFileSpec->pageSize = 4096;
+  lpFileSpec->numberOfKeys = 3;
+  lpFileSpec->logicalFixedRecordLength = sizeof(NONMODIFIABLEKEYRECORD);
+  lpFileSpec->fileVersion = 0x60;
+  lpFileSpec->fileFlags = 0;            // not variable
+  lpFileSpec->physicalPageSize = 0xFF;  // in memory
+
+  // Key 0: name, deliberately non-modifiable (no Modifiable attribute).
+  wbtrv32::LPKEYSPEC lpKeySpec =
+      reinterpret_cast<wbtrv32::LPKEYSPEC>(lpFileSpec + 1);
+  lpKeySpec->position = 1;
+  lpKeySpec->length = 30;
+  lpKeySpec->attributes = UseExtendedDataType;
+  lpKeySpec->extendedDataType = btrieve::KeyDataType::Zstring;
+
+  // Key 1: modifiable integer.
+  ++lpKeySpec;
+  lpKeySpec->position = 31;
+  lpKeySpec->length = 4;
+  lpKeySpec->attributes = UseExtendedDataType | Modifiable;
+  lpKeySpec->extendedDataType = btrieve::KeyDataType::Integer;
+
+  // Key 2: modifiable integer.
+  ++lpKeySpec;
+  lpKeySpec->position = 135;
+  lpKeySpec->length = 4;
+  lpKeySpec->attributes = UseExtendedDataType | Modifiable;
+  lpKeySpec->extendedDataType = btrieve::KeyDataType::Integer;
+
+  DWORD dwDataBufferLength =
+      reinterpret_cast<unsigned char*>(lpKeySpec + 1) - buffer;
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Create, posBlock, buffer,
+                    &dwDataBufferLength,
+                    const_cast<LPVOID>(
+                        reinterpret_cast<LPCVOID>(toStdString(path).c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
+
+  // Insert a record whose non-modifiable key_0 (name) is the exact
+  // non-ASCII/binary hex pattern seen in production: 29 bytes of 0xAD
+  // followed by a null terminator.
+  NONMODIFIABLEKEYRECORD record;
+  memset(&record, 0, sizeof(record));
+  memset(record.name, 0xAD, sizeof(record.name));
+  record.name[sizeof(record.name) - 1] = 0;
+  record.key1 = 1379942206;
+  record.key2 = 42;
+
+  DWORD dataBufferLength = sizeof(record);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Insert, posBlock, &record,
+                    &dataBufferLength, nullptr, 0, -1),
+            btrieve::BtrieveError::Success);
+
+  // Fetch the record immediately after inserting and confirm it round-tripped
+  // exactly, including the non-modifiable key_0's hex bytes.
+  NONMODIFIABLEKEYRECORD fetched;
+  memset(&fetched, 0, sizeof(fetched));
+  DWORD fetchedLength = sizeof(fetched);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::StepFirst, posBlock, &fetched,
+                    &fetchedLength, nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(memcmp(fetched.name, record.name, sizeof(record.name)), 0);
+  ASSERT_EQ(fetched.key1, record.key1);
+  ASSERT_EQ(fetched.key2, record.key2);
+
+  // Update key_2 to a different value. key_0 (name) is left completely
+  // untouched, so this should succeed even though key_0 is non-modifiable.
+  fetched.key2 = 999;
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Update, posBlock, &fetched,
+                    &fetchedLength, nullptr, 0, -1),
+            btrieve::BtrieveError::Success);
+
+  // Verify the update actually stuck, and key_0/key_1 came through
+  // unmodified.
+  NONMODIFIABLEKEYRECORD verify;
+  memset(&verify, 0, sizeof(verify));
+  DWORD verifyLength = sizeof(verify);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::StepFirst, posBlock, &verify,
+                    &verifyLength, nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(memcmp(verify.name, record.name, sizeof(record.name)), 0);
+  ASSERT_EQ(verify.key1, record.key1);
+  ASSERT_EQ(verify.key2, 999);
+}
+
+// Lstring keys are length-prefixed and can legitimately contain a 0x00 byte
+// as real payload data anywhere in the middle -- unlike Zstring, it's not a
+// terminator. SqlitePreparedStatement::bindParameter used to _strdup() the
+// extracted key value and then tell sqlite3_bind_text() to read its full
+// logical length back out of that copy; strdup() stops at the first 0x00, so
+// whenever that happened before the true end of the value, sqlite3_bind_text
+// read past the end of the allocation. This test's payload embeds a 0x00
+// followed by more real (non-ASCII) bytes, which exercises exactly that path.
+#pragma pack(push, 1)
+typedef struct _tagLSTRINGRECORD {
+  uint8_t lstringKey[20];  // 1 length-prefix byte + 19 payload bytes
+  char filler[10];
+} LSTRINGRECORD, *LPLSTRINGRECORD;
+#pragma pack(pop)
+
+static_assert(sizeof(LSTRINGRECORD) == 30);
+
+TEST_F(wbtrv32Test, LstringKeyWithEmbeddedNullRoundTrips) {
+  unsigned char buffer[1024];
+  auto mbbsEmuDb = tempPath->getTempPath();
+  std::filesystem::path path(mbbsEmuDb);
+  path /= L"test.dat";
+
+  memset(buffer, 0, sizeof(buffer));
+
+  wbtrv32::LPFILESPEC lpFileSpec =
+      reinterpret_cast<wbtrv32::LPFILESPEC>(buffer);
+  lpFileSpec->pageSize = 4096;
+  lpFileSpec->numberOfKeys = 1;
+  lpFileSpec->logicalFixedRecordLength = sizeof(LSTRINGRECORD);
+  lpFileSpec->fileVersion = 0x60;
+  lpFileSpec->fileFlags = 0;            // not variable
+  lpFileSpec->physicalPageSize = 0xFF;  // in memory
+
+  wbtrv32::LPKEYSPEC lpKeySpec =
+      reinterpret_cast<wbtrv32::LPKEYSPEC>(lpFileSpec + 1);
+  lpKeySpec->position = 1;
+  lpKeySpec->length = sizeof(LSTRINGRECORD::lstringKey);
+  lpKeySpec->attributes = UseExtendedDataType;
+  lpKeySpec->extendedDataType = btrieve::KeyDataType::Lstring;
+
+  DWORD dwDataBufferLength =
+      reinterpret_cast<unsigned char*>(lpKeySpec + 1) - buffer;
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Create, posBlock, buffer,
+                    &dwDataBufferLength,
+                    const_cast<LPVOID>(
+                        reinterpret_cast<LPCVOID>(toStdString(path).c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
+
+  LSTRINGRECORD record;
+  memset(&record, 0, sizeof(record));
+  record.lstringKey[0] = 19;  // length prefix
+  const uint8_t payload[19] = {'A',  'B',  'C', 0x00, 'D', 'E', 0x80,
+                               0x81, 0xff, 'X', 'Y',  'Z', 1,   2,
+                               3,    4,    5,   6,    7};
+  memcpy(record.lstringKey + 1, payload, sizeof(payload));
+  strcpy(record.filler, "hello");
+
+  DWORD dataBufferLength = sizeof(record);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Insert, posBlock, &record,
+                    &dataBufferLength, nullptr, 0, -1),
+            btrieve::BtrieveError::Success);
+
+  // Searching for the record using its exact original key bytes must find
+  // it. Acquire/Query operations look records up through the persisted
+  // key_0 SQLite column, unlike Step which just returns the raw record
+  // bytes -- so if key_0 got corrupted on insert, this lookup fails even
+  // though the record is right there.
+  LSTRINGRECORD found;
+  memset(&found, 0, sizeof(found));
+  DWORD foundLength = sizeof(found);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::AcquireEqual, posBlock, &found,
+                    &foundLength, record.lstringKey,
+                    sizeof(record.lstringKey), 0),
+            btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(memcmp(found.lstringKey, record.lstringKey,
+                   sizeof(record.lstringKey)),
+            0);
+  ASSERT_STREQ(found.filler, "hello");
+}
+
+// For completeness: Zstring keys truncate at the first 0x00 by design (see
+// Key::extractNullTerminatedString), so an embedded null there is expected,
+// not a corruption case. Whatever comes after it is never part of the
+// extracted key value, so two records -- or a record and a search key --
+// that agree up to the first null must compare equal even if their bytes
+// diverge completely afterward.
+#pragma pack(push, 1)
+typedef struct _tagZSTRINGRECORD {
+  char name[30];
+  char filler[10];
+} ZSTRINGRECORD, *LPZSTRINGRECORD;
+#pragma pack(pop)
+
+static_assert(sizeof(ZSTRINGRECORD) == 40);
+
+TEST_F(wbtrv32Test, ZstringKeyWithEmbeddedNullTruncatesAtNull) {
+  unsigned char buffer[1024];
+  auto mbbsEmuDb = tempPath->getTempPath();
+  std::filesystem::path path(mbbsEmuDb);
+  path /= L"test.dat";
+
+  memset(buffer, 0, sizeof(buffer));
+
+  wbtrv32::LPFILESPEC lpFileSpec =
+      reinterpret_cast<wbtrv32::LPFILESPEC>(buffer);
+  lpFileSpec->pageSize = 4096;
+  lpFileSpec->numberOfKeys = 1;
+  lpFileSpec->logicalFixedRecordLength = sizeof(ZSTRINGRECORD);
+  lpFileSpec->fileVersion = 0x60;
+  lpFileSpec->fileFlags = 0;            // not variable
+  lpFileSpec->physicalPageSize = 0xFF;  // in memory
+
+  wbtrv32::LPKEYSPEC lpKeySpec =
+      reinterpret_cast<wbtrv32::LPKEYSPEC>(lpFileSpec + 1);
+  lpKeySpec->position = 1;
+  lpKeySpec->length = sizeof(ZSTRINGRECORD::name);
+  lpKeySpec->attributes = UseExtendedDataType;
+  lpKeySpec->extendedDataType = btrieve::KeyDataType::Zstring;
+
+  DWORD dwDataBufferLength =
+      reinterpret_cast<unsigned char*>(lpKeySpec + 1) - buffer;
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Create, posBlock, buffer,
+                    &dwDataBufferLength,
+                    const_cast<LPVOID>(
+                        reinterpret_cast<LPCVOID>(toStdString(path).c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
+
+  // "AB" followed by a null terminator, then non-zero garbage filling out
+  // the rest of the 30-byte field.
+  ZSTRINGRECORD record;
+  memset(&record, 0, sizeof(record));
+  memcpy(record.name, "AB", 2);
+  record.name[2] = 0;
+  memset(record.name + 3, 0xAD, sizeof(record.name) - 3);
+  strcpy(record.filler, "hello");
+
+  DWORD dataBufferLength = sizeof(record);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Insert, posBlock, &record,
+                    &dataBufferLength, nullptr, 0, -1),
+            btrieve::BtrieveError::Success);
+
+  // Search using "AB\0" followed by a completely different garbage tail.
+  // Since Zstring truncates at the first null, this must still match.
+  ZSTRINGRECORD searchKey;
+  memset(&searchKey, 0, sizeof(searchKey));
+  memcpy(searchKey.name, "AB", 2);
+  searchKey.name[2] = 0;
+  memset(searchKey.name + 3, 0xff, sizeof(searchKey.name) - 3);
+
+  ZSTRINGRECORD found;
+  memset(&found, 0, sizeof(found));
+  DWORD foundLength = sizeof(found);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::AcquireEqual, posBlock, &found,
+                    &foundLength, searchKey.name, sizeof(searchKey.name), 0),
+            btrieve::BtrieveError::Success);
+
+  // What comes back is the actual stored record -- its tail after the null
+  // is the original 0xAD bytes, not the search key's 0xff tail.
+  ASSERT_EQ(memcmp(found.name, record.name, sizeof(record.name)), 0);
+  ASSERT_STREQ(found.filler, "hello");
+}
+
+// Same name/filler shape as ZSTRINGRECORD, plus a second key: a modifiable
+// int32 that starts at 0 and gets updated to 1.
+#pragma pack(push, 1)
+typedef struct _tagZSTRINGRECORDWITHINTKEY {
+  char name[30];
+  char filler[10];
+  int32_t intKey;
+} ZSTRINGRECORDWITHINTKEY, *LPZSTRINGRECORDWITHINTKEY;
+#pragma pack(pop)
+
+static_assert(sizeof(ZSTRINGRECORDWITHINTKEY) == 44);
+
+TEST_F(wbtrv32Test, ZstringKeyWithEmbeddedNullUpdatesAfterNull) {
+  unsigned char buffer[1024];
+  auto mbbsEmuDb = tempPath->getTempPath();
+  std::filesystem::path path(mbbsEmuDb);
+  path /= L"test.dat";
+
+  memset(buffer, 0, sizeof(buffer));
+
+  wbtrv32::LPFILESPEC lpFileSpec =
+      reinterpret_cast<wbtrv32::LPFILESPEC>(buffer);
+  lpFileSpec->pageSize = 4096;
+  lpFileSpec->numberOfKeys = 2;
+  lpFileSpec->logicalFixedRecordLength = sizeof(ZSTRINGRECORDWITHINTKEY);
+  lpFileSpec->fileVersion = 0x60;
+  lpFileSpec->fileFlags = 0;            // not variable
+  lpFileSpec->physicalPageSize = 0xFF;  // in memory
+
+  // Key 0: name, non-modifiable Zstring.
+  wbtrv32::LPKEYSPEC lpKeySpec =
+      reinterpret_cast<wbtrv32::LPKEYSPEC>(lpFileSpec + 1);
+  lpKeySpec->position = 1;
+  lpKeySpec->length = sizeof(ZSTRINGRECORDWITHINTKEY::name);
+  lpKeySpec->attributes = UseExtendedDataType;
+  lpKeySpec->extendedDataType = btrieve::KeyDataType::Zstring;
+
+  // Key 1: modifiable integer, right after name/filler.
+  ++lpKeySpec;
+  lpKeySpec->position = 41;
+  lpKeySpec->length = sizeof(ZSTRINGRECORDWITHINTKEY::intKey);
+  lpKeySpec->attributes = UseExtendedDataType | Modifiable;
+  lpKeySpec->extendedDataType = btrieve::KeyDataType::Integer;
+
+  DWORD dwDataBufferLength =
+      reinterpret_cast<unsigned char*>(lpKeySpec + 1) - buffer;
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Create, posBlock, buffer,
+                    &dwDataBufferLength,
+                    const_cast<LPVOID>(
+                        reinterpret_cast<LPCVOID>(toStdString(path).c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
+
+  // "AB" followed by a null terminator, then non-zero garbage filling out
+  // the rest of the 30-byte field. The int key starts at 0.
+  ZSTRINGRECORDWITHINTKEY record;
+  memset(&record, 0, sizeof(record));
+  memcpy(record.name, "AB", 2);
+  record.name[2] = 0;
+  memset(record.name + 3, 0xAD, sizeof(record.name) - 3);
+  strcpy(record.filler, "hello");
+  record.intKey = 0;
+
+  DWORD dataBufferLength = sizeof(record);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Insert, posBlock, &record,
+                    &dataBufferLength, nullptr, 0, -1),
+            btrieve::BtrieveError::Success);
+
+  // Insert alone doesn't move currency onto the new record (see
+  // InsertNoKey), so establish it before updating.
+  ASSERT_EQ(btrcall(btrieve::OperationCode::StepFirst, posBlock, &record,
+                    &dataBufferLength, nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
+
+  // Now overwrite this newly inserted record with a data structure that
+  // changes the int key from 0 to 1, but keeps key_0's logical value ("AB")
+  // the same -- only the junk bytes after the null terminator differ. Since
+  // Zstring extraction truncates at the first null, the persisted key_0
+  // value is unchanged, so this update must succeed even though key_0 has
+  // no Modifiable attribute.
+  ZSTRINGRECORDWITHINTKEY updatedRecord;
+  memset(&updatedRecord, 0, sizeof(updatedRecord));
+  memcpy(updatedRecord.name, "AB", 2);
+  updatedRecord.name[2] = 0;
+  memset(updatedRecord.name + 3, 0xff, sizeof(updatedRecord.name) - 3);
+  strcpy(updatedRecord.filler, "world");
+  updatedRecord.intKey = 1;
+
+  DWORD updateLength = sizeof(updatedRecord);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Update, posBlock, &updatedRecord,
+                    &updateLength, nullptr, 0, -1),
+            btrieve::BtrieveError::Success);
+
+  // Verify the update actually stuck: the int key moved from 0 to 1, filler
+  // changed, and the junk tail after the null reflects the new bytes -- the
+  // raw data blob is always fully overwritten even though key_0's extracted
+  // value didn't change.
+  ZSTRINGRECORDWITHINTKEY verify;
+  memset(&verify, 0, sizeof(verify));
+  DWORD verifyLength = sizeof(verify);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::StepFirst, posBlock, &verify,
+                    &verifyLength, nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(
+      memcmp(verify.name, updatedRecord.name, sizeof(updatedRecord.name)), 0);
+  ASSERT_STREQ(verify.filler, "world");
+  ASSERT_EQ(verify.intKey, 1);
+
+  // Finally, query by key_0 using yet another different junk tail after the
+  // null terminator (neither the original 0xAD nor the updated 0xff). Since
+  // Zstring truncates at the first null, this must still seek to the same
+  // row we just updated.
+  ZSTRINGRECORDWITHINTKEY searchKey;
+  memset(&searchKey, 0, sizeof(searchKey));
+  memcpy(searchKey.name, "AB", 2);
+  searchKey.name[2] = 0;
+  memset(searchKey.name + 3, 0x77, sizeof(searchKey.name) - 3);
+
+  ZSTRINGRECORDWITHINTKEY queried;
+  memset(&queried, 0, sizeof(queried));
+  DWORD queriedLength = sizeof(queried);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::AcquireEqual, posBlock, &queried,
+                    &queriedLength, searchKey.name, sizeof(searchKey.name),
+                    0),
+            btrieve::BtrieveError::Success);
+
+  // What comes back is the actual stored record, not the search key's junk
+  // tail.
+  ASSERT_EQ(
+      memcmp(queried.name, updatedRecord.name, sizeof(updatedRecord.name)),
+      0);
+  ASSERT_STREQ(queried.filler, "world");
+  ASSERT_EQ(queried.intKey, 1);
 }
 
 static const uint32_t crc32_table[] = {
