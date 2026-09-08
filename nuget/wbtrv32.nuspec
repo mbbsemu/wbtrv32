@@ -24,6 +24,7 @@
     <file src="$stagingDir$/runtimes/osx-x64/native/wbtrv32.dylib" target="runtimes/osx-x64/native/wbtrv32.dylib"/>
     <file src="$stagingDir$/runtimes/win-x86/native/wbtrv32.dll" target="runtimes/win-x86/native/wbtrv32.dll"/>
     <file src="$stagingDir$/runtimes/win-x64/native/wbtrv32.dll" target="runtimes/win-x64/native/wbtrv32.dll"/>
+    <file src="$stagingDir$/runtimes/win-arm64/native/wbtrv32.dll" target="runtimes/win-arm64/native/wbtrv32.dll"/>
     <file src="$stagingDir$/runtimes/linux-arm64/native/wbtrv32.so" target="runtimes/linux-arm64/native/wbtrv32.so"/>
     <file src="$stagingDir$/runtimes/linux-x64/native/wbtrv32.so" target="runtimes/linux-x64/native/wbtrv32.so"/>
     <file src="../README.md" target="\" />

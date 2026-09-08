@@ -54,6 +54,7 @@ PLATFORMS=(
   "linux-arm:linux_arm32:so"
   "win-x64:windows_amd64:dll"
   "win-x86:windows_x86:dll"
+  "win-arm64:windows_arm64:dll"
   "osx-x64:macos_amd64:dylib"
   "osx-arm64:macos_arm64:dylib"
 )
