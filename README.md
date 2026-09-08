@@ -44,8 +44,9 @@ Originally developed as part of [The Major BBS Emulation Project](https://github
     - **Linux**: Any modern distribution.
     - **macOS**: Versions supporting your application and SQLite.
 - **Development Tools** (if building from source):
-    - **Windows**: Visual Studio 2022 or newer.
-    - **Linux/macOS**: GCC 7.1+, Clang 5.0+, or equivalent with C++17 support.
+    - [Bazel](https://bazel.build/) (via [Bazelisk](https://github.com/bazelbuild/bazelisk) is recommended) drives the build on all platforms.
+    - A C++20-capable compiler. Bazel will fetch hermetic toolchains for cross-compilation automatically (see below); a native compiler (GCC/Clang on Linux/macOS, or Visual Studio's MSVC on Windows) is only needed to build for your host platform.
+    - Windows builds can alternatively be produced with Visual Studio 2022 or newer via `vstudio/vstudio.sln`.
 
 ### Installation
 1. **Backup Original DLL**:
@@ -76,61 +77,62 @@ Originally developed as part of [The Major BBS Emulation Project](https://github
 
 ### Building from Source
 
-The project is developed entirely in modern C++, utilizing C++17 features for improved performance and code clarity.
+The project is built with [Bazel](https://bazel.build/) and developed entirely in modern C++ (C++20). SQLite is vendored directly in the [`sqlite/`](sqlite/) directory, so no external SQLite installation is required.
 
 #### Prerequisites
-- **C++ Compiler**:
-    - **Windows**: Visual Studio 2017 or later, or MinGW-w64 with GCC 7.1+.
-    - **Linux/macOS**: GCC 7.1+ or Clang 5.0+.
-- **CMake**: Version 3.10 or later.
-- **SQLite Development Libraries**: Ensure the SQLite development headers and libraries are available.
+- **Bazel**: Install via [Bazelisk](https://github.com/bazelbuild/bazelisk), which reads the project's pinned Bazel version automatically.
+- A native C++ compiler is only needed when building for your host platform; cross-compilation targets use Bazel-managed hermetic toolchains (`gcc_toolchain` for Linux arm32/arm64, `hermetic_cc_toolchain` (zig-cc) for Windows and macOS) that Bazel downloads on demand.
 
 #### Build Steps
 1. **Clone the Repository**:
 ```
-git clone https://github.com/mbbsemu/wbtrv3t.git
-cd wbtrv3t
-``` 
-    
-2. **Create Build Directory**:
+git clone https://github.com/mbbsemu/wbtrv32.git
+cd wbtrv32
 ```
-mkdir build && cd build
+
+2. **Build for your host platform**:
 ```
-    
-3. **Configure the Build with CMake**:
+bazel build //vstudio/wbtrv32:wbtrv32
 ```
-cmake .. -DCMAKE_BUILD_TYPE=Release
-``` 
-    
-5.  **Build the Project**:
-    - **Windows**:
-        ```
-        cmake --build . --config Release
-        ```
-    - **Linux/macOS**:
-        ```
-        make
-        ``` 
-6.  **Output**:
-    - The compiled `WBTRV32.DLL` (or equivalent shared library) will be located in the build output directory.
+    The resulting shared library (`wbtrv32.dll`, `wbtrv32.dylib`, or `wbtrv32.so` depending on platform) is written under `bazel-bin/vstudio/wbtrv32/`.
+
+3. **Cross-compile for another platform** using one of the configs defined in `.bazelrc`:
+```
+bazel build --config=linux_arm64   //vstudio/wbtrv32:wbtrv32
+bazel build --config=linux_arm32   //vstudio/wbtrv32:wbtrv32
+bazel build --config=windows_amd64 //vstudio/wbtrv32:wbtrv32
+bazel build --config=windows_x86   //vstudio/wbtrv32:wbtrv32
+bazel build --config=windows_arm64 //vstudio/wbtrv32:wbtrv32
+bazel build --config=macos_amd64   //vstudio/wbtrv32:wbtrv32
+bazel build --config=macos_arm64   //vstudio/wbtrv32:wbtrv32
+```
+    This makes it possible to produce the Windows `WBTRV32.DLL` (and macOS/Linux equivalents) from a single Linux or macOS host without any additional toolchain installation.
+
+4. **Build the NuGet package** (bundles every supported runtime into a single package):
+```
+bazel build //nuget:package
+```
+    The `.nupkg` is written to `bazel-bin/nuget/package/`.
+
+5. **Windows via Visual Studio** (alternative to Bazel on Windows):
+    - Open `vstudio/vstudio.sln` in Visual Studio 2022 or newer and build the `wbtrv32` project. This is the same solution used by the project's CI.
 
 ### Unit Tests
 Comprehensive unit tests are included to verify functionality across various Btrieve data scenarios.
 
 #### Running Tests
-1. **Build Tests**:
-    -   Ensure that the `BUILD_TESTS` option is enabled during the CMake configuration:
+Run the full test suite with Bazel:
 ```
-cmake .. -DBUILD_TESTS=ON
+bazel test //...
 ```
-2. **Compile**:
-    - Build the test suite along with the main project.
-3. **Execute Tests**:
-    - Run the test executable generated during the build process:
-`./wbtrv32_tests` 
-    - Review the test results to ensure all tests pass.
-4. **Continuous Integration**:
-    - The project may include CI configurations (e.g., GitHub Actions) for automated testing on different platforms.
+Or target a specific test suite, e.g.:
+```
+bazel test //vstudio/wbtrv32:tests
+bazel test //btrieve:tests
+```
+Test data files (sample `.DAT`/`.DB` Btrieve databases) are provided in [`assets/`](assets/) and are pulled in automatically as test data by Bazel.
+
+**Continuous Integration**: GitHub Actions builds and runs the test suite on Windows via MSBuild/`vstudio.sln` on every push and pull request to `main` (see [`.github/workflows/msbuild.yml`](.github/workflows/msbuild.yml)).
 
 ## Supported Versions
 - **Btrieve Version 5**: Full support for data files and operations.
