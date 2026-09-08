@@ -48,6 +48,7 @@ use_repo(zig_toolchains, "zig_sdk")
 register_toolchains(
     "@zig_sdk//toolchain:windows_amd64",
     "@zig_sdk//toolchain:windows_386",
+    "@zig_sdk//toolchain:windows_arm64",
     "@zig_sdk//toolchain:darwin_amd64",
     "@zig_sdk//toolchain:darwin_arm64",
 )
