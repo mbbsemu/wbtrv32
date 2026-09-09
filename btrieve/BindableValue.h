@@ -90,15 +90,18 @@ class BindableValue {
     value.type = Type::Null;
   }
 
-  ~BindableValue() {
-    if (type == Type::Blob && blob_value != nullptr) {
-      delete blob_value;
-    } else if (type == Type::Text && text_value != nullptr) {
-      delete text_value;
-    }
-  }
+  ~BindableValue() { freeResource(); }
 
   BindableValue &operator=(BindableValue &&value) {
+    if (this == &value) {
+      return *this;
+    }
+
+    // release whatever *this currently holds before overwriting it --
+    // otherwise moving into an existing Text/Blob-holding instance leaks the
+    // std::string/std::vector it was pointing to.
+    freeResource();
+
     type = value.type;
     switch (value.type) {
       case Type::Null:
@@ -137,6 +140,14 @@ class BindableValue {
   bool isNull() const { return getType() == Type::Null; }
 
  private:
+  void freeResource() {
+    if (type == Type::Blob && blob_value != nullptr) {
+      delete blob_value;
+    } else if (type == Type::Text && text_value != nullptr) {
+      delete text_value;
+    }
+  }
+
   Type type;
   union {
     int64_t int_value;

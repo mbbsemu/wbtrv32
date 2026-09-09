@@ -161,6 +161,18 @@ static void debug(const BtrieveCommand &command, const char *format, ...) {
 
 static void AddToOpenFiles(BtrieveCommand &command,
                            std::shared_ptr<BtrieveDriver> driver) {
+  // if this position block already references an open database (e.g. the
+  // caller re-opened without closing first), close that one out first so we
+  // don't orphan it in _openFiles -- overwriting the GUID below without doing
+  // this would leak the previous entry (and its underlying sqlite
+  // connection) for the lifetime of the process.
+  if (command.lpPositionBlock != nullptr) {
+    wchar_t existingGuidStr[64];
+    StringFromGUID2(*reinterpret_cast<GUID *>(command.lpPositionBlock),
+                    existingGuidStr, ARRAYSIZE(existingGuidStr));
+    _openFiles.erase(existingGuidStr);
+  }
+
   // add to my list of open files
   GUID guid;
   CoCreateGuid(&guid);
@@ -647,7 +659,7 @@ static BtrieveError Create(BtrieveCommand &command) {
   }
 
   // this is the in-memory create path
-  SqliteDatabase *sqliteDatabase = new SqliteDatabase();
+  std::unique_ptr<SqliteDatabase> sqliteDatabase(new SqliteDatabase());
   std::unique_ptr<RecordLoader> recordLoader =
       sqliteDatabase->create(nullptr, database);
   // create() leaves a transaction open (via createSqliteInsertionCommand)
@@ -656,7 +668,8 @@ static BtrieveError Create(BtrieveCommand &command) {
   // database aren't stuck behind an unclosed transaction.
   recordLoader->onRecordsComplete();
 
-  AddToOpenFiles(command, std::make_shared<BtrieveDriver>(sqliteDatabase));
+  AddToOpenFiles(command,
+                 std::make_shared<BtrieveDriver>(sqliteDatabase.release()));
 
   return BtrieveError::Success;
 }
@@ -751,6 +764,12 @@ extern "C" WBTRV32_EXPORT int __stdcall BTRCALL(WORD wOperation,
   } catch (const BtrieveException &ex) {
     // make sure we don't leak the exception back to our caller
     error = ex.getError();
+  } catch (...) {
+    // BtrieveException doesn't derive from std::exception, so a stray
+    // std::exception (e.g. std::out_of_range from a malformed record) would
+    // otherwise unwind straight through this extern "C" boundary -- make
+    // sure nothing ever escapes back to our (possibly non-C++) caller.
+    error = BtrieveError::UnrecoverableError;
   }
 
   if (error != BtrieveError::Success) {

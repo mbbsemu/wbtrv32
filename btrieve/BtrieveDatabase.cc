@@ -1,5 +1,7 @@
 #include "BtrieveDatabase.h"
 
+#include <memory>
+
 #include "BtrieveException.h"
 #include "Text.h"
 
@@ -335,22 +337,30 @@ BtrieveError BtrieveDatabase::parseDatabase(
     std::function<LoadRecordResult(const std::basic_string_view<uint8_t>)>
         onRecordLoaded,
     std::function<void()> onRecordsComplete) {
-  FILE* f = fopen(toStdString(fileName).c_str(), "rb");
-  if (f == nullptr) {
+  FILE* rawFile = fopen(toStdString(fileName).c_str(), "rb");
+  if (rawFile == nullptr) {
     fprintf(stderr, "Couldn't open %s: %d\n", toStdString(fileName).c_str(),
             errno);
     return BtrieveError::FileNotFound;
   }
+  // ensures the file is closed even if any of the calls below throw
+  struct FileCloser {
+    void operator()(FILE* file) const {
+      if (file) {
+        fclose(file);
+      }
+    }
+  };
+  std::unique_ptr<FILE, FileCloser> f(rawFile);
 
-  from(f);
+  from(f.get());
 
   if (onMetadataLoaded() && getRecordCount() > 0) {
-    loadRecords(f, onRecordLoaded);
+    loadRecords(f.get(), onRecordLoaded);
   }
 
   onRecordsComplete();
 
-  fclose(f);
   return BtrieveError::Success;
 }
 
