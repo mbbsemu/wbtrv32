@@ -137,7 +137,7 @@ extern "C" int __stdcall BTRCALL(WORD wOperation, LPVOID lpPositionBlock,
   DWORD comparativeDataBufferLength =
       lpdwDataBufferLength ? *lpdwDataBufferLength : 0;
 
-  std::unique_ptr<BYTE> comparativeDataBuffer(
+  std::unique_ptr<BYTE[]> comparativeDataBuffer(
       lpDataBuffer != nullptr && comparativeDataBufferLength > 0
           ? new BYTE[comparativeDataBufferLength]
           : nullptr);
@@ -146,7 +146,7 @@ extern "C" int __stdcall BTRCALL(WORD wOperation, LPVOID lpPositionBlock,
            comparativeDataBufferLength);
   }
 
-  std::unique_ptr<BYTE> comparativeKeyBuffer(
+  std::unique_ptr<BYTE[]> comparativeKeyBuffer(
       lpKeyBuffer != nullptr && bKeyLength > 0 ? new BYTE[bKeyLength]
                                                : nullptr);
   if (lpKeyBuffer && comparativeKeyBuffer) {

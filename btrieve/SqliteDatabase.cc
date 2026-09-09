@@ -750,6 +750,16 @@ BtrieveError SqliteDatabase::insertAutoincrementValues(
   unsigned int i = 0;
   for (const Key *key : autoincrementedKeys) {
     for (const KeyDefinition &keyDefinition : key->getSegments()) {
+      // guard against writing past the end of a record that's shorter than
+      // this key's position + length (e.g. a malformed/short variable-length
+      // record) -- without this check the writes below are an out-of-bounds
+      // heap write, not just a thrown exception.
+      if (static_cast<size_t>(keyDefinition.getOffset()) +
+              keyDefinition.getLength() >
+          record.size()) {
+        return BtrieveError::BadRecordLength;
+      }
+
       uint64_t value = reader->getInt64(i++);
       switch (keyDefinition.getLength()) {
         case 8:

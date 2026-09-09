@@ -15,9 +15,24 @@ class SqliteTransaction {
     beginTransaction();
   }
 
-  void commit() { execute("COMMIT"); }
+  // If neither commit() nor rollback() ran -- e.g. an exception other than
+  // BtrieveException unwound through a caller that only catches that type --
+  // don't leave the transaction open on the connection indefinitely.
+  ~SqliteTransaction() {
+    if (!finished) {
+      sqlite3_exec(database.get(), "ROLLBACK", nullptr, nullptr, nullptr);
+    }
+  }
 
-  void rollback() { execute("ROLLBACK"); }
+  void commit() {
+    execute("COMMIT");
+    finished = true;
+  }
+
+  void rollback() {
+    execute("ROLLBACK");
+    finished = true;
+  }
 
  private:
   void beginTransaction() { execute("BEGIN"); }
@@ -31,6 +46,7 @@ class SqliteTransaction {
   }
 
   std::shared_ptr<sqlite3> database;
+  bool finished = false;
 };
 }  // namespace btrieve
 
