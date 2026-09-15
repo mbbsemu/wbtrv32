@@ -64,12 +64,17 @@ class SqliteQuery : public Query {
     std::stringstream sql;
     sql << "SELECT id, " << key->getSqliteKeyName()
         << ", data FROM data_t WHERE " << key->getSqliteKeyName() << " ";
+    // Duplicate keys are ordered by id (insertion order) so the ordering is
+    // stable across queries and independent of SQLite's query plan, which
+    // seekTo() below relies on. SqliteDatabase's key queries do the same.
     switch (newDirection) {
       case CursorDirection::Forward:
-        sql << ">= @value ORDER BY " << key->getSqliteKeyName() << " ASC";
+        sql << ">= @value ORDER BY " << key->getSqliteKeyName()
+            << " ASC, id ASC";
         break;
       case CursorDirection::Reverse:
-        sql << "<= @value ORDER BY " << key->getSqliteKeyName() << " DESC";
+        sql << "<= @value ORDER BY " << key->getSqliteKeyName()
+            << " DESC, id DESC";
         break;
       default:
         // could log an error here

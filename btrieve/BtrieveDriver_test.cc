@@ -1808,6 +1808,141 @@ TEST_F(BtrieveDriverTest, SeekByKeyEqualWithDuplicatesUpAndDown) {
   ASSERT_EQ(driver.getPosition(), 1u);
 }
 
+// MBMGEPLT.DAT has 22 records whose key 2 (2-byte unsigned binary, duplicates
+// allowed) is 1, 2 or 3. Btrieve returns duplicates in insertion (position)
+// order when moving forward and the reverse when moving backward.
+static const std::vector<unsigned int> MBMGEPLT_KEY2_ORDER = {
+    7, 8, 10, 16, 18, 19, 20, 21,  // key 2 == 1
+    1, 2, 3,  11, 12, 13, 14, 22,  // key 2 == 2
+    4, 5, 6,  9,  15, 17,          // key 2 == 3
+};
+
+static std::vector<unsigned int> collectPositions(BtrieveDriver &driver,
+                                                  OperationCode continuation) {
+  std::vector<unsigned int> positions;
+  do {
+    positions.push_back(driver.getPosition());
+  } while (driver.performOperation(2, std::basic_string_view<uint8_t>(),
+                                   continuation) == BtrieveError::Success);
+  return positions;
+}
+
+static void verifyMbmgepltKey2Ordering(BtrieveDriver &driver) {
+  const uint16_t two = 2;
+  const auto keyTwo = std::basic_string_view<uint8_t>(
+      reinterpret_cast<const uint8_t *>(&two), sizeof(two));
+  const std::vector<unsigned int> &forward = MBMGEPLT_KEY2_ORDER;
+  const std::vector<unsigned int> reverse(forward.rbegin(), forward.rend());
+
+  ASSERT_EQ(driver.performOperation(2, std::basic_string_view<uint8_t>(),
+                                    OperationCode::QueryFirst),
+            BtrieveError::Success);
+  EXPECT_EQ(collectPositions(driver, OperationCode::QueryNext), forward);
+
+  ASSERT_EQ(driver.performOperation(2, std::basic_string_view<uint8_t>(),
+                                    OperationCode::QueryLast),
+            BtrieveError::Success);
+  EXPECT_EQ(collectPositions(driver, OperationCode::QueryPrevious), reverse);
+
+  // MBBSEmu issue #641: agebtv(key 2 == 2) followed by qnxbtv
+  ASSERT_EQ(driver.performOperation(2, keyTwo, OperationCode::QueryEqual),
+            BtrieveError::Success);
+  EXPECT_EQ(collectPositions(driver, OperationCode::QueryNext),
+            std::vector<unsigned int>(forward.begin() + 8, forward.end()));
+
+  ASSERT_EQ(
+      driver.performOperation(2, keyTwo, OperationCode::QueryGreaterOrEqual),
+      BtrieveError::Success);
+  EXPECT_EQ(collectPositions(driver, OperationCode::QueryNext),
+            std::vector<unsigned int>(forward.begin() + 8, forward.end()));
+
+  ASSERT_EQ(driver.performOperation(2, keyTwo, OperationCode::QueryGreater),
+            BtrieveError::Success);
+  EXPECT_EQ(collectPositions(driver, OperationCode::QueryNext),
+            std::vector<unsigned int>(forward.begin() + 16, forward.end()));
+
+  ASSERT_EQ(driver.performOperation(2, keyTwo, OperationCode::QueryLessOrEqual),
+            BtrieveError::Success);
+  EXPECT_EQ(collectPositions(driver, OperationCode::QueryPrevious),
+            std::vector<unsigned int>(reverse.begin() + 6, reverse.end()));
+
+  ASSERT_EQ(driver.performOperation(2, keyTwo, OperationCode::QueryLess),
+            BtrieveError::Success);
+  EXPECT_EQ(collectPositions(driver, OperationCode::QueryPrevious),
+            std::vector<unsigned int>(reverse.begin() + 14, reverse.end()));
+
+  // changing direction in the middle of a run of duplicates
+  ASSERT_EQ(driver.performOperation(2, keyTwo, OperationCode::QueryEqual),
+            BtrieveError::Success);
+  ASSERT_EQ(driver.getPosition(), 1u);
+  for (auto [operation, expectedPosition] :
+       std::vector<std::pair<OperationCode, unsigned int>>{
+           {OperationCode::QueryNext, 2},
+           {OperationCode::QueryNext, 3},
+           {OperationCode::QueryPrevious, 2},
+           {OperationCode::QueryPrevious, 1},
+           {OperationCode::QueryPrevious, 21},
+           {OperationCode::QueryNext, 1},
+       }) {
+    ASSERT_EQ(driver.performOperation(2, std::basic_string_view<uint8_t>(),
+                                      operation),
+              BtrieveError::Success);
+    EXPECT_EQ(driver.getPosition(), expectedPosition);
+  }
+
+  // gabbtv(position 12, key 2) followed by qnxbtv / qprbtv
+  ASSERT_EQ(driver.logicalCurrencySeek(2, 12), BtrieveError::Success);
+  ASSERT_EQ(driver.performOperation(2, std::basic_string_view<uint8_t>(),
+                                    OperationCode::QueryNext),
+            BtrieveError::Success);
+  EXPECT_EQ(driver.getPosition(), 13u);
+
+  ASSERT_EQ(driver.logicalCurrencySeek(2, 12), BtrieveError::Success);
+  ASSERT_EQ(driver.performOperation(2, std::basic_string_view<uint8_t>(),
+                                    OperationCode::QueryPrevious),
+            BtrieveError::Success);
+  EXPECT_EQ(driver.getPosition(), 11u);
+}
+
+TEST_F(BtrieveDriverTest, SeekByKeyDuplicatesOrderedByPosition) {
+  BtrieveDriver driver(new SqliteDatabase());
+
+  auto dat = tempPath->copyToTempPath("assets/MBMGEPLT.DAT");
+  ASSERT_EQ(driver.open(dat.c_str()), BtrieveError::Success);
+
+  verifyMbmgepltKey2Ordering(driver);
+}
+
+// Duplicate ordering must not depend on SQLite happening to walk the key's
+// index. Without the index, SQLite sorts and keeps duplicates in table (id)
+// order even for DESC, so backwards traversal breaks unless id is an explicit
+// tiebreaker.
+TEST_F(BtrieveDriverTest, SeekByKeyDuplicatesOrderedByPositionWithoutIndex) {
+  auto dat = tempPath->copyToTempPath("assets/MBMGEPLT.DAT");
+
+  {
+    BtrieveDriver driver(new SqliteDatabase());
+    ASSERT_EQ(driver.open(dat.c_str()), BtrieveError::Success);
+  }
+
+  std::filesystem::path dbPath(dat);
+  dbPath.replace_extension("db");
+
+  sqlite3 *db;
+  ASSERT_EQ(sqlite3_open_v2(fromPath(dbPath).c_str(), &db,
+                            SQLITE_OPEN_READWRITE, nullptr),
+            SQLITE_OK);
+  ASSERT_EQ(sqlite3_exec(db, "DROP INDEX key_2_index", nullptr, nullptr,
+                         nullptr),
+            SQLITE_OK);
+  sqlite3_close(db);
+
+  BtrieveDriver driver(new SqliteDatabase());
+  ASSERT_EQ(driver.open(dat.c_str()), BtrieveError::Success);
+
+  verifyMbmgepltKey2Ordering(driver);
+}
+
 const unsigned int ACS_RECORD_LENGTH = 128;
 
 static std::vector<char> upperACS() {

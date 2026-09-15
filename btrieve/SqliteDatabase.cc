@@ -892,9 +892,9 @@ BtrieveError SqliteDatabase::getByKeyEqual(Query *query) {
   if (sqliteObject.isNull()) {
     sql << " IS NULL";
   } else {
-    sql << " = @value ORDER BY " << query->getKey()->getSqliteKeyName()
-        << " ASC";
+    sql << " = @value";
   }
+  sql << " ORDER BY " << query->getKey()->getSqliteKeyName() << " ASC, id ASC";
 
   SqlitePreparedStatement &command = getPreparedStatement(sql.str().c_str());
   if (!sqliteObject.isNull()) {
@@ -919,7 +919,7 @@ BtrieveError SqliteDatabase::getByKeyFirst(Query *query) {
 
   sql << "SELECT id, " << query->getKey()->getSqliteKeyName()
       << ", data FROM data_t ORDER BY " << query->getKey()->getSqliteKeyName()
-      << " ASC";
+      << " ASC, id ASC";
   SqlitePreparedStatement &command = getPreparedStatement(sql.str().c_str());
 
   static_cast<SqliteQuery *>(query)->setReader(command.executeReader());
@@ -932,7 +932,7 @@ BtrieveError SqliteDatabase::getByKeyLast(Query *query) {
 
   sql << "SELECT id, " << query->getKey()->getSqliteKeyName()
       << ", data FROM data_t ORDER BY " << query->getKey()->getSqliteKeyName()
-      << " DESC";
+      << " DESC, id DESC";
   SqlitePreparedStatement &command = getPreparedStatement(sql.str().c_str());
 
   static_cast<SqliteQuery *>(query)->setReader(command.executeReader());
@@ -953,7 +953,7 @@ BtrieveError SqliteDatabase::getByKeyGreater(Query *query,
   sql << "SELECT id, " << query->getKey()->getSqliteKeyName()
       << ", data FROM data_t WHERE " << query->getKey()->getSqliteKeyName()
       << " " << opurator << " @value ORDER BY "
-      << query->getKey()->getSqliteKeyName() << " ASC";
+      << query->getKey()->getSqliteKeyName() << " ASC, id ASC";
 
   auto sqliteObject =
       query->getKey()->keyDataToSqliteObject(query->getKeyData());
@@ -977,7 +977,7 @@ BtrieveError SqliteDatabase::getByKeyLess(Query *query, const char *opurator) {
   sql << "SELECT id, " << query->getKey()->getSqliteKeyName()
       << ", data FROM data_t WHERE " << query->getKey()->getSqliteKeyName()
       << " " << opurator << " @value ORDER BY "
-      << query->getKey()->getSqliteKeyName() << " DESC";
+      << query->getKey()->getSqliteKeyName() << " DESC, id DESC";
 
   auto sqliteObject =
       query->getKey()->keyDataToSqliteObject(query->getKeyData());
