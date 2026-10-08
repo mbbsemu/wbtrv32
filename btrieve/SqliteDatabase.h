@@ -75,6 +75,7 @@ class SqliteDatabase : public SqlDatabase {
   void createSqliteDataIndices(const BtrieveDatabase &database);
   void createSqliteTriggers(const BtrieveDatabase &database);
 
+  void initializeConnection();
   void loadSqliteMetadata(const wchar_t *filename, unsigned int openFlags);
   void loadSqliteKeys();
 
@@ -101,6 +102,9 @@ class SqliteDatabase : public SqlDatabase {
 
   BtrieveError insertAutoincrementValues(std::vector<uint8_t> &record);
 
+  const std::string &getInsertSql();
+  const std::string &getUpdateSql();
+
   BtrieveError nextReader(Query *query, CursorDirection cursorDirection);
 
   void upgradeDatabaseFromVersion(uint32_t currentVersion,
@@ -112,6 +116,10 @@ class SqliteDatabase : public SqlDatabase {
   unsigned int openFlags;
   mutable std::unordered_map<std::string, SqlitePreparedStatement>
       preparedStatements;
+  SqliteTransactionStatements transactionStatements;
+  // built on first use from keys, which don't change while the file is open
+  std::string insertSql;
+  std::string updateSql;
   std::shared_ptr<sqlite3> database;
 
   friend class SqliteQuery;
