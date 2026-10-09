@@ -83,6 +83,9 @@ class SqlitePreparedStatement {
     }
   }
 
+  // Steps the statement once and returns sqlite's raw result code.
+  int step() { return sqlite3_step(statement.get()); }
+
   bool executeNoThrow() {
     int errorCode = sqlite3_step(statement.get());
     // SQLITE_DONE is expected, meaning the statement has finished

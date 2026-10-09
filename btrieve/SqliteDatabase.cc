@@ -118,6 +118,7 @@ BtrieveError SqliteDatabase::open(const wchar_t *filename, OpenMode openMode) {
 
   this->database = std::shared_ptr<sqlite3>(db, &sqlite3_close);
 
+  initializeConnection();
   loadSqliteMetadata(filename, openFlags);
   loadSqliteKeys();
 
@@ -131,6 +132,34 @@ BtrieveError SqliteDatabase::open(const wchar_t *filename, OpenMode openMode) {
   }
 
   return BtrieveError::Success;
+}
+
+// Prepares a freshly opened connection: drops per-connection caches left from
+// any previous connection, then applies the performance pragmas.
+//
+// Every Btrieve Insert/Update/Delete is its own transaction, so the default
+// rollback journal with synchronous=FULL costs an fsync (~10ms) per operation.
+// WAL with synchronous=NORMAL remains durable across application crashes and
+// only risks the most recent commits on OS crash/power loss. The larger page
+// cache (32 MiB, the default is 2 MiB) keeps random key lookups out of the OS.
+// Checkpoints are the only fsyncs left under synchronous=NORMAL, so let the
+// WAL grow to ~40 MiB (10000 pages, the default is 1000) between them.
+void SqliteDatabase::initializeConnection() {
+  transactionStatements.clear();
+  insertSql.clear();
+  updateSql.clear();
+
+  const char *const pragmas =
+      "PRAGMA journal_mode = WAL;"
+      "PRAGMA synchronous = NORMAL;"
+      "PRAGMA cache_size = -32768;"
+      "PRAGMA wal_autocheckpoint = 10000;";
+
+  int errorCode =
+      sqlite3_exec(database.get(), pragmas, nullptr, nullptr, nullptr);
+  if (errorCode != SQLITE_OK) {
+    throwException(errorCode);
+  }
 }
 
 void SqliteDatabase::loadSqliteMetadata(const wchar_t *filename,
@@ -309,6 +338,8 @@ std::unique_ptr<RecordLoader> SqliteDatabase::create(
 
   this->database = std::shared_ptr<sqlite3>(db, &sqlite3_close);
 
+  initializeConnection();
+
   recordLength = database.getRecordLength();
   variableLengthRecords = database.isVariableLengthRecords();
   keys = database.getKeys();
@@ -462,9 +493,12 @@ void SqliteDatabase::createSqliteTriggers(const BtrieveDatabase &database) {
 // Closes an opened database.
 void SqliteDatabase::close() {
   preparedStatements.clear();
+  transactionStatements.clear();
   database.reset();
 
   keys.clear();
+  insertSql.clear();
+  updateSql.clear();
   cache.clear();
 }
 
@@ -638,7 +672,7 @@ std::pair<BtrieveError, unsigned int> SqliteDatabase::insertRecord(
     record = std::basic_string_view<uint8_t>(data.data(), recordLength);
   }
 
-  SqliteTransaction transaction(database);
+  SqliteTransaction transaction(database, &transactionStatements);
 
   error = insertAutoincrementValues(data);
   if (error != BtrieveError::Success) {
@@ -651,23 +685,8 @@ std::pair<BtrieveError, unsigned int> SqliteDatabase::insertRecord(
   // (unincremented) placeholder value rather than the one we just computed.
   record = std::basic_string_view<uint8_t>(data.data(), data.size());
 
-  std::string insertSql;
-  if (!keys.empty()) {
-    std::stringstream sb;
-    sb << "INSERT INTO data_t(data, ";
-    sb << commaDelimited(keys.begin(), keys.end(),
-                         [](const Key &key) { return key.getSqliteKeyName(); });
-    sb << ") VALUES(@data, ";
-    sb << commaDelimited(keys.begin(), keys.end(), [](const Key &key) {
-      return "@" + key.getSqliteKeyName();
-    });
-    sb << ");";
-    insertSql = sb.str();
-  } else {
-    insertSql = "INSERT INTO data_t(data) VALUES (@data)";
-  }
-
-  SqlitePreparedStatement &insertCmd = getPreparedStatement(insertSql.c_str());
+  SqlitePreparedStatement &insertCmd =
+      getPreparedStatement(getInsertSql().c_str());
   insertCmd.bindParameter(1, BindableValue(record));
 
   unsigned int parameterNumber = 2;
@@ -784,29 +803,33 @@ BtrieveError SqliteDatabase::insertAutoincrementValues(
   return BtrieveError::Success;
 }
 
-BtrieveError SqliteDatabase::updateRecord(
-    unsigned int id, std::basic_string_view<uint8_t> record) {
-  std::vector<uint8_t> data(record.size());
-  memcpy(data.data(), record.data(), record.size());
-  BtrieveError error;
-
-  if (!variableLengthRecords && record.size() != recordLength) {
-    //_logger.Warn(
-    //    $"Btrieve Record Size Mismatch TRUNCATING. Expected Length
-    //    {RecordLength}, Actual Length {record.Length}");
-    data.resize(recordLength, 0);
-    record = std::basic_string_view<uint8_t>(data.data(), recordLength);
+const std::string &SqliteDatabase::getInsertSql() {
+  if (!insertSql.empty()) {
+    return insertSql;
   }
 
-  SqliteTransaction transaction(database);
+  if (!keys.empty()) {
+    std::stringstream sb;
+    sb << "INSERT INTO data_t(data, ";
+    sb << commaDelimited(keys.begin(), keys.end(),
+                         [](const Key &key) { return key.getSqliteKeyName(); });
+    sb << ") VALUES(@data, ";
+    sb << commaDelimited(keys.begin(), keys.end(), [](const Key &key) {
+      return "@" + key.getSqliteKeyName();
+    });
+    sb << ");";
+    insertSql = sb.str();
+  } else {
+    insertSql = "INSERT INTO data_t(data) VALUES (@data)";
+  }
+  return insertSql;
+}
 
-  error = insertAutoincrementValues(data);
-  if (error != BtrieveError::Success) {
-    transaction.rollback();
-    return error;
+const std::string &SqliteDatabase::getUpdateSql() {
+  if (!updateSql.empty()) {
+    return updateSql;
   }
 
-  std::string updateSql;
   if (!keys.empty()) {
     std::stringstream sb;
     sb << "UPDATE data_t SET data=@data, ";
@@ -823,8 +846,33 @@ BtrieveError SqliteDatabase::updateRecord(
   } else {
     updateSql = "UPDATE data_t SET data=@data WHERE id=@id";
   }
+  return updateSql;
+}
 
-  SqlitePreparedStatement &updateCmd = getPreparedStatement(updateSql.c_str());
+BtrieveError SqliteDatabase::updateRecord(
+    unsigned int id, std::basic_string_view<uint8_t> record) {
+  std::vector<uint8_t> data(record.size());
+  memcpy(data.data(), record.data(), record.size());
+  BtrieveError error;
+
+  if (!variableLengthRecords && record.size() != recordLength) {
+    //_logger.Warn(
+    //    $"Btrieve Record Size Mismatch TRUNCATING. Expected Length
+    //    {RecordLength}, Actual Length {record.Length}");
+    data.resize(recordLength, 0);
+    record = std::basic_string_view<uint8_t>(data.data(), recordLength);
+  }
+
+  SqliteTransaction transaction(database, &transactionStatements);
+
+  error = insertAutoincrementValues(data);
+  if (error != BtrieveError::Success) {
+    transaction.rollback();
+    return error;
+  }
+
+  SqlitePreparedStatement &updateCmd =
+      getPreparedStatement(getUpdateSql().c_str());
   updateCmd.bindParameter(1, BindableValue(record));
 
   unsigned int parameterNumber = 2;
