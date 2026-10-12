@@ -1,3 +1,4 @@
+// 26.10.12.1B 02:53PM
 #include "BtrieveDriver.h"
 
 #include <stdlib.h>
@@ -18,6 +19,7 @@
 #endif
 #include <sys/types.h>
 
+#include <chrono>
 #include <filesystem>
 
 #include "TestBase.h"
@@ -468,6 +470,32 @@ TEST_F(BtrieveDriverTest, GetRecordCount) {
   driver.open(mbbsEmuDb.c_str());
 
   ASSERT_EQ(driver.getRecordCount(), 4u);
+}
+
+// Once a .DAT has been converted, the .DB is the live copy of the data. A
+// .DAT that is later touched, restored from backup, or re-shipped by a module
+// installer must never cause the .DB (and everything written to it) to be
+// thrown away.
+TEST_F(BtrieveDriverTest, NewerDatDoesNotReplaceExistingDb) {
+  auto mbbsEmuDat = tempPath->copyToTempPath("assets/MBBSEMU.DAT");
+
+  {
+    BtrieveDriver driver(new SqliteDatabase());
+    ASSERT_EQ(driver.open(mbbsEmuDat.c_str()), BtrieveError::Success);
+    ASSERT_EQ(driver.getRecordCount(), 4u);
+
+    // Live data now differs from the .DAT.
+    ASSERT_EQ(driver.deleteAll(), BtrieveError::Success);
+    ASSERT_EQ(driver.getRecordCount(), 0u);
+  }
+
+  std::filesystem::last_write_time(
+      mbbsEmuDat, std::filesystem::file_time_type::clock::now() +
+                      std::chrono::hours(1));
+
+  BtrieveDriver driver(new SqliteDatabase());
+  ASSERT_EQ(driver.open(mbbsEmuDat.c_str()), BtrieveError::Success);
+  ASSERT_EQ(driver.getRecordCount(), 0u);
 }
 
 TEST_F(BtrieveDriverTest, DeleteAll) {
