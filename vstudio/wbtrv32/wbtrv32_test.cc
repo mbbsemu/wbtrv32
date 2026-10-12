@@ -1,3 +1,4 @@
+// 26.10.12.1B 02:53PM
 #include "wbtrv32.h"
 
 #include <cstdint>
@@ -2066,6 +2067,68 @@ TEST_F(wbtrv32Test, StopClosesAllDatabases) {
 
   ASSERT_EQ(btrcall(btrieve::OperationCode::Close, posBlock, nullptr,
                     &dwDataBufferLength, nullptr, 0, 0),
+            btrieve::BtrieveError::FileNotOpen);
+}
+
+// The Major BBS reads a record with a lock bias, then releases it the way
+// dfaUnlockCur() does: Unlock with key number -1 and the record's position
+// in the data buffer. Any non-zero status here would halt the BBS.
+TEST_F(wbtrv32Test, UnlockSingleRecordByPosition) {
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  ASSERT_FALSE(mbbsEmuDb.empty());
+
+  RECORD record;
+  uint32_t position;
+  DWORD dwDataBufferLength = sizeof(record);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr,
+                    &dwDataBufferLength,
+                    const_cast<LPVOID>(reinterpret_cast<LPCVOID>(
+                        toStdString(mbbsEmuDb.c_str()).c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(
+      btrcall(btrieve::OperationCode::StepFirst_SingleWaitRecordLock, posBlock,
+              &record, &dwDataBufferLength, nullptr, 0, 0),
+      btrieve::BtrieveError::Success);
+
+  dwDataBufferLength = sizeof(position);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::GetPosition, posBlock, &position,
+                    &dwDataBufferLength, nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
+
+  dwDataBufferLength = sizeof(position);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Unlock, posBlock, &position,
+                    &dwDataBufferLength, nullptr, 0, -1),
+            btrieve::BtrieveError::Success);
+}
+
+// dfaUnlock(pos, keynum) with keynum >= 0 sends no data buffer at all.
+TEST_F(wbtrv32Test, UnlockCurrentRecordByKeyNumber) {
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  ASSERT_FALSE(mbbsEmuDb.empty());
+
+  DWORD dwDataBufferLength = 0;
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr,
+                    &dwDataBufferLength,
+                    const_cast<LPVOID>(reinterpret_cast<LPCVOID>(
+                        toStdString(mbbsEmuDb.c_str()).c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
+
+  dwDataBufferLength = 0;
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Unlock, posBlock, nullptr,
+                    &dwDataBufferLength, nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
+}
+
+TEST_F(wbtrv32Test, CannotUnlockUnopenedDatabase) {
+  DWORD dwDataBufferLength = 0;
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Unlock, posBlock, nullptr,
+                    &dwDataBufferLength, nullptr, 0, -1),
             btrieve::BtrieveError::FileNotOpen);
 }
 
