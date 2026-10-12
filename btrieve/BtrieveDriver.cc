@@ -1,3 +1,4 @@
+// 26.10.12.1B 02:53PM
 #include "BtrieveDriver.h"
 
 #include <sys/stat.h>
@@ -19,35 +20,12 @@
 namespace btrieve {
 BtrieveDriver::~BtrieveDriver() { close(); }
 
-static inline bool fileExists(const wchar_t *filename,
-                              int64_t &fileModificationNanos) {
+static inline bool fileExists(const wchar_t *filename) {
 #ifdef WIN32
-  WIN32_FILE_ATTRIBUTE_DATA fileAttributeData;
-
-  if (GetFileAttributesEx(filename, GetFileExInfoStandard,
-                          &fileAttributeData) == 0) {
-    return false;
-  }
-
-  fileModificationNanos =
-      *reinterpret_cast<int64_t *>(&fileAttributeData.ftLastWriteTime);
-  return true;
+  return GetFileAttributes(filename) != INVALID_FILE_ATTRIBUTES;
 #else
   struct stat stbuf;
-  if (stat(toStdString(filename).c_str(), &stbuf)) {
-    return false;
-  }
-
-#ifdef __APPLE__
-  // macOS's struct stat has no st_mtim (POSIX.1-2008); the equivalent
-  // timespec field is named st_mtimespec there.
-  fileModificationNanos = (stbuf.st_mtimespec.tv_sec * 1000000000l) +
-                          stbuf.st_mtimespec.tv_nsec;
-#else
-  fileModificationNanos =
-      (stbuf.st_mtim.tv_sec * 1000000000l) + stbuf.st_mtim.tv_nsec;
-#endif
-  return true;
+  return stat(toStdString(filename).c_str(), &stbuf) == 0;
 #endif
 }
 
@@ -60,43 +38,30 @@ static std::basic_string<wchar_t> toUpper(
   return ret;
 }
 
-#ifdef _WIN32
-#define unlink _wunlink
-#endif
-
 BtrieveError BtrieveDriver::open(const wchar_t *fileName, OpenMode openMode) {
-  int64_t fileModificationTimeDat;
-  int64_t fileModificationTimeDb;
-
   std::filesystem::path dbPath =
       std::filesystem::path(fileName).replace_extension(
           sqlDatabase->getFileExtension());
 
   openedFilename = fileName;
 
-  bool datExists = fileExists(fileName, fileModificationTimeDat);
-  bool dbExists =
-      fileExists(toWideString(dbPath).c_str(), fileModificationTimeDb);
+  bool dbExists = fileExists(toWideString(dbPath).c_str());
   if (!dbExists) {
     // failed to find db, let's uppercase and try again
     std::filesystem::path dbPathUpper = dbPath;
     dbPathUpper.replace_extension(toUpper(sqlDatabase->getFileExtension()));
-    dbExists =
-        fileExists(toWideString(dbPathUpper).c_str(), fileModificationTimeDb);
+    dbExists = fileExists(toWideString(dbPathUpper).c_str());
     if (dbExists) {
       dbPath = dbPathUpper;
     }
   }
 
-  // if both DAT/DB exist, check if the DAT has an a newer time, if so
-  // we want to reconvert it by deleting the DB
-  if (datExists && dbExists &&
-      fileModificationTimeDat > fileModificationTimeDb) {
-    //_logger.Warn($"{fullPathDAT} is newer than {fullPathDB}, reconverting the
-    // DAT -> DB");
-    unlink(dbPath.c_str());
-    dbExists = false;
-  }
+  // Once a .DB exists it is the live copy of the data and always wins. The
+  // .DAT is only read to build a missing .DB; it is never written, so its
+  // timestamp says nothing about which copy is current. (A touched, restored
+  // or re-shipped .DAT used to trigger a reconversion that silently discarded
+  // everything written to the .DB.) To rebuild from a .DAT deliberately, delete
+  // the .DB first.
 
   BtrieveError error;
 
