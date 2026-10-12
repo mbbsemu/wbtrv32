@@ -1,3 +1,4 @@
+// 26.10.12.1B 02:53PM
 // wbtrv32.cpp : Defines the exported functions for the DLL.
 //
 #include "wbtrv32.h"
@@ -545,6 +546,18 @@ static BtrieveError Stop(const BtrieveCommand &command) {
   return BtrieveError::Success;
 }
 
+// Record locks are accepted and ignored by every read operation (see the
+// CASE_WITH_RECORD_LOCK dispatch below), so there is never a lock to release.
+// Unlock must still succeed: callers such as The Major BBS treat any non-zero
+// status from an unlock as fatal (DFAAPI.C dfaUnlock -> dfaError -> catastro).
+static BtrieveError Unlock(const BtrieveCommand &command) {
+  if (getOpenDatabase(command.lpPositionBlock) == nullptr) {
+    return BtrieveError::FileNotOpen;
+  }
+
+  return BtrieveError::Success;
+}
+
 static BtrieveError Create(BtrieveCommand &command) {
   const char *lpszFileName =
       reinterpret_cast<const char *>(command.lpKeyBuffer);
@@ -735,6 +748,8 @@ static BtrieveError handle(BtrieveCommand &command) {
       return ::Stop(command);
     case OperationCode::Create:
       return ::Create(command);
+    case OperationCode::Unlock:
+      return ::Unlock(command);
     default:
       return BtrieveError::InvalidOperation;
   }

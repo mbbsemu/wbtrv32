@@ -1,3 +1,4 @@
+// 26.10.12.1B 02:53PM
 #include "OperationCode.h"
 
 #include <cstdio>
@@ -123,6 +124,7 @@ const char* toString(OperationCode operationCode) {
     HANDLE_OPERATION_CODE_WITH_RECORD_LOCK(QueryFirst);
     HANDLE_OPERATION_CODE_WITH_RECORD_LOCK(QueryLast);
     HANDLE_OPERATION_CODE(Stop);
+    HANDLE_OPERATION_CODE(Unlock);
     HANDLE_OPERATION_CODE(None);
     default:
       static char buf[16];

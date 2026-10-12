@@ -1,4 +1,5 @@
-﻿#ifndef __OPERATION_CODES_H_
+﻿// 26.10.12.1B 02:53PM
+#ifndef __OPERATION_CODES_H_
 #define __OPERATION_CODES_H_
 
 namespace btrieve {
@@ -119,6 +120,11 @@ enum OperationCode {
   WITH_RECORD_LOCK(QueryLast, 0x3F),
 
   Stop = 0x19,
+
+  // Releases record locks. Key number -1 releases the single-record lock on
+  // the position passed in the data buffer, -2 releases all multiple-record
+  // locks, and any other key number releases the current single-record lock.
+  Unlock = 0x1B,
 
   None = 0xFFFF,
 };
