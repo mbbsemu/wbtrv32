@@ -1,4 +1,4 @@
-// 26.10.13.1B 03:38PM
+// 26.10.13.2B 04:25PM
 // Parity shim: installed as WBTRV32.DLL, it forwards every BTRCALL to two
 // real implementations and reports where they disagree.
 //
@@ -12,6 +12,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
 #include <stdarg.h>
+#include <share.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -215,7 +216,9 @@ bool attach(HMODULE self) {
   std::string dir(selfPath);
   dir.erase(dir.find_last_of("\\/") + 1);
 
-  fopen_s(&logFile, (dir + "SHIM.LOG").c_str(), "a");
+  // shared, so the log can be read (and other processes can append) while
+  // the host is still running
+  logFile = _fsopen((dir + "SHIM.LOG").c_str(), "a", _SH_DENYNO);
   trace = GetFileAttributesA((dir + "SHIM.TRACE").c_str()) !=
           INVALID_FILE_ATTRIBUTES;
   logLine("==== WBTRV32 parity shim (built " __DATE__ " " __TIME__
