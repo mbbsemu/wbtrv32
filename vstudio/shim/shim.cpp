@@ -1,4 +1,4 @@
-// 26.10.13.2B 04:25PM
+// 26.10.13.2B 04:53PM
 // Parity shim: installed as WBTRV32.DLL, it forwards every BTRCALL to two
 // real implementations and reports where they disagree.
 //
@@ -262,20 +262,24 @@ void detach(bool processTerminating) {
   }
 }
 
-// The engine always passes key length 255 regardless of the real key buffer
-// size, so the copy may run past the caller's buffer. Copy defensively.
-void copyKey(BYTE* dst, const void* src, BYTE length) {
+// Callers may declare a buffer longer than they own: the engine always passes
+// key length 255, and real Btrieve never reads a Get's data buffer, so an
+// oversized data length goes unnoticed there. Copy defensively, zero-filling
+// whatever cannot be read, and return how many bytes were readable.
+DWORD safeCopy(BYTE* dst, const void* src, DWORD length) {
   __try {
     memcpy(dst, src, length);
+    return length;
   } __except (EXCEPTION_EXECUTE_HANDLER) {
-    for (BYTE i = 0; i < length; ++i) {
+    for (DWORD i = 0; i < length; ++i) {
       __try {
         dst[i] = static_cast<const BYTE*>(src)[i];
       } __except (EXCEPTION_EXECUTE_HANDLER) {
         memset(dst + i, 0, length - i);
-        return;
+        return i;
       }
     }
+    return length;
   }
 }
 
@@ -326,13 +330,20 @@ extern "C" int __stdcall BTRCALL(WORD wOperation, LPVOID lpPositionBlock,
   std::unique_ptr<BYTE[]> comparativeData(
       lpDataBuffer != nullptr && inLength > 0 ? new BYTE[inLength] : nullptr);
   if (comparativeData) {
-    memcpy(comparativeData.get(), lpDataBuffer, inLength);
+    const DWORD readable =
+        safeCopy(comparativeData.get(), lpDataBuffer, inLength);
+    if (readable < inLength) {
+      logLine("SHORTBUF %s (op %u, key %d) [%s] data length %lu declared, "
+              "only %lu readable",
+              opName(op), wOperation, sbKeyNumber, filename, inLength,
+              readable);
+    }
   }
   std::unique_ptr<BYTE[]> comparativeKey(
       lpKeyBuffer != nullptr && bKeyLength > 0 ? new BYTE[bKeyLength]
                                                : nullptr);
   if (comparativeKey) {
-    copyKey(comparativeKey.get(), lpKeyBuffer, bKeyLength);
+    safeCopy(comparativeKey.get(), lpKeyBuffer, bKeyLength);
   }
 
   // GetDirect takes a physical position, which differs between the two
