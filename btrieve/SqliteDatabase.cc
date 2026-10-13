@@ -1,3 +1,4 @@
+// 26.10.13.2B 04:25PM
 #include "SqliteDatabase.h"
 
 #include <atomic>
@@ -17,7 +18,7 @@
 
 namespace btrieve {
 
-static const unsigned int CURRENT_VERSION = 3;
+static const unsigned int CURRENT_VERSION = 4;
 
 template <class InputIt, class UnaryPred>
 static std::string commaDelimited(InputIt first, InputIt last, UnaryPred pred) {
@@ -119,8 +120,12 @@ BtrieveError SqliteDatabase::open(const wchar_t *filename, OpenMode openMode) {
   this->database = std::shared_ptr<sqlite3>(db, &sqlite3_close);
 
   initializeConnection();
-  loadSqliteMetadata(filename, openFlags);
+  uint32_t version = loadSqliteMetadata(filename, openFlags);
   loadSqliteKeys();
+  // upgrades that need the keys run after they are loaded
+  if (version == 3) {
+    upgradeDatabaseFrom3To4();
+  }
 
   if (openMode == OpenMode::ReadOnly) {
     errorCode = sqlite3_exec(database.get(), "PRAGMA query_only = 1;", nullptr,
@@ -162,8 +167,8 @@ void SqliteDatabase::initializeConnection() {
   }
 }
 
-void SqliteDatabase::loadSqliteMetadata(const wchar_t *filename,
-                                        unsigned int openFlags) {
+uint32_t SqliteDatabase::loadSqliteMetadata(const wchar_t *filename,
+                                            unsigned int openFlags) {
   uint32_t version = 0;
   {  // start a block since command needs to go out of scope before
      // upgradeDatabaseFromVersion can be called
@@ -183,16 +188,21 @@ void SqliteDatabase::loadSqliteMetadata(const wchar_t *filename,
   }
 
   if (version != CURRENT_VERSION) {
-    upgradeDatabaseFromVersion(version, filename, openFlags);
+    version = upgradeDatabaseFromVersion(version, filename, openFlags);
   }
+  return version;
 }
 
-void SqliteDatabase::upgradeDatabaseFromVersion(uint32_t currentVersion,
-                                                const wchar_t *filename,
-                                                unsigned int openFlags) {
+// Runs the upgrades that need only the metadata and returns the resulting
+// version. Upgrades that need the keys run in open() afterwards.
+uint32_t SqliteDatabase::upgradeDatabaseFromVersion(uint32_t currentVersion,
+                                                    const wchar_t *filename,
+                                                    unsigned int openFlags) {
   if (currentVersion == 2) {
     upgradeDatabaseFrom2To3();
+    currentVersion = 3;
   }
+  return currentVersion;
 }
 
 void SqliteDatabase::upgradeDatabaseFrom2To3() {
@@ -245,7 +255,58 @@ void SqliteDatabase::upgradeDatabaseFrom2To3() {
     // bump version
     {
       SqlitePreparedStatement statement(
-          database, "UPDATE metadata_t SET version = %d", CURRENT_VERSION);
+          database, "UPDATE metadata_t SET version = 3");
+      statement.execute();
+    }
+
+    transaction.commit();
+  } catch (const BtrieveException &ex) {
+    transaction.rollback();
+    throw ex;
+  }
+}
+
+// Version 3 stored a composite key as NULL whenever its first segment was an
+// empty string, which dropped the remaining segments from the ordering and
+// from range queries. Recompute those keys from the record data.
+void SqliteDatabase::upgradeDatabaseFrom3To4() {
+  SqliteTransaction transaction(database);
+  try {
+    for (const Key &key : keys) {
+      if (!key.isComposite()) {
+        continue;
+      }
+
+      std::vector<std::pair<int32_t, std::vector<uint8_t>>> rows;
+      {
+        std::stringstream sql;
+        sql << "SELECT id, data FROM data_t WHERE " << key.getSqliteKeyName()
+            << " IS NULL";
+        SqlitePreparedStatement select(database, sql.str().c_str());
+        auto reader = select.executeReader();
+        while (reader->read()) {
+          rows.emplace_back(reader->getInt32(0), reader->getBlob(1));
+        }
+      }
+
+      std::stringstream sql;
+      sql << "UPDATE data_t SET " << key.getSqliteKeyName()
+          << " = @value WHERE id = @id";
+      SqlitePreparedStatement update(database, sql.str().c_str());
+      for (const auto &row : rows) {
+        update.reset();
+        update.bindParameter(
+            1, key.extractKeyInRecordToSqliteObject(
+                   std::basic_string_view<uint8_t>(row.second.data(),
+                                                   row.second.size())));
+        update.bindParameter(2, BindableValue(row.first));
+        update.execute();
+      }
+    }
+
+    {
+      SqlitePreparedStatement statement(database,
+                                        "UPDATE metadata_t SET version = 4");
       statement.execute();
     }
 

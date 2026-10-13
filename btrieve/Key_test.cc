@@ -1,3 +1,4 @@
+// 26.10.13.2B 04:25PM
 #include "Key.h"
 
 #include "AttributeMask.h"
@@ -191,6 +192,60 @@ TEST(Key, CompositeKeyConcatentation) {
 
   EXPECT_EQ(actual,
             std::vector<uint8_t>(expected, expected + sizeof(expected)));
+}
+
+// Two-segment key shaped like The Major BBS WGSGEN2.DAT key 0: a 30-byte
+// zstring (often empty) followed by a 25-byte zstring module name.
+static void wgsgen2Key(KeyDefinition (&defs)[2], uint16_t attributes) {
+  defs[0] = KeyDefinition(0, 30, 0, KeyDataType::Zstring,
+                          attributes | SegmentedKey, true, 0, 0, 0, "",
+                          std::vector<char>());
+  defs[1] = KeyDefinition(0, 25, 30, KeyDataType::Zstring, attributes, true, 0,
+                          1, 0, "", std::vector<char>());
+}
+
+static BindableValue wgsgen2KeyValue(const Key &key, const char *first,
+                                     const char *second) {
+  uint8_t record[55];
+  memset(record, 0, sizeof(record));
+  memcpy(record, first, strlen(first));
+  memcpy(record + 30, second, strlen(second));
+  return key.extractKeyInRecordToSqliteObject(
+      std::basic_string_view<uint8_t>(record, sizeof(record)));
+}
+
+// An empty leading string segment is an ordinary value: the later segments
+// must still take part in the key, so records sort by them as in Btrieve.
+TEST(Key, CompositeKeyWithEmptyLeadingStringIsNotNull) {
+  KeyDefinition defs[2];
+  wgsgen2Key(defs, UseExtendedDataType | Duplicates | Modifiable);
+  Key key(defs, 2);
+
+  auto snmytime = wgsgen2KeyValue(key, "", "SNMYTIME");
+  auto wormsg = wgsgen2KeyValue(key, "", "WORMSG");
+
+  ASSERT_FALSE(snmytime.isNull());
+  ASSERT_FALSE(wormsg.isNull());
+  EXPECT_LT(snmytime.getBlobValue(), wormsg.getBlobValue());
+}
+
+// A composite key whose bytes are all zero is a real value unless the key is
+// declared nullable.
+TEST(Key, CompositeKeyAllZeroIsNotNullWithoutNullAttribute) {
+  KeyDefinition defs[2];
+  wgsgen2Key(defs, UseExtendedDataType | Duplicates | Modifiable);
+  Key key(defs, 2);
+
+  EXPECT_FALSE(wgsgen2KeyValue(key, "", "").isNull());
+}
+
+TEST(Key, CompositeKeyAllNullValueIsNullWithNullAttribute) {
+  KeyDefinition defs[2];
+  wgsgen2Key(defs, UseExtendedDataType | Duplicates | NullAllSegments);
+  Key key(defs, 2);
+
+  EXPECT_TRUE(wgsgen2KeyValue(key, "", "").isNull());
+  EXPECT_FALSE(wgsgen2KeyValue(key, "", "WORMSG").isNull());
 }
 
 struct ParameterizedKeyDataType {

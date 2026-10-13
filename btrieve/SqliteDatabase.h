@@ -1,3 +1,4 @@
+// 26.10.13.2B 04:25PM
 #ifndef __SQLITE_DATABASE_H_
 #define __SQLITE_DATABASE_H_
 
@@ -76,7 +77,8 @@ class SqliteDatabase : public SqlDatabase {
   void createSqliteTriggers(const BtrieveDatabase &database);
 
   void initializeConnection();
-  void loadSqliteMetadata(const wchar_t *filename, unsigned int openFlags);
+  uint32_t loadSqliteMetadata(const wchar_t *filename,
+                              unsigned int openFlags);
   void loadSqliteKeys();
 
   BtrieveError getByKeyGreater(Query *query, const char *opurator);
@@ -107,11 +109,12 @@ class SqliteDatabase : public SqlDatabase {
 
   BtrieveError nextReader(Query *query, CursorDirection cursorDirection);
 
-  void upgradeDatabaseFromVersion(uint32_t currentVersion,
-                                  const wchar_t *filename,
-                                  unsigned int openFlags);
+  uint32_t upgradeDatabaseFromVersion(uint32_t currentVersion,
+                                      const wchar_t *filename,
+                                      unsigned int openFlags);
 
   void upgradeDatabaseFrom2To3();
+  void upgradeDatabaseFrom3To4();
 
   unsigned int openFlags;
   mutable std::unordered_map<std::string, SqlitePreparedStatement>

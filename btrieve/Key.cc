@@ -1,4 +1,5 @@
-﻿#include "Key.h"
+﻿// 26.10.13.2B 04:25PM
+#include "Key.h"
 
 #include <cassert>
 #include <cstring>
@@ -156,13 +157,21 @@ static bool bigEndian = isBigEndian();
 
 BindableValue Key::keyDataToSqliteObject(
     std::basic_string_view<uint8_t> keyData) const {
-  if (isNullable() &&
-      (isAllSameByteValue(
-           keyData, getPrimarySegment().getNullValue()) ||  // legacy null check
-       (getPrimarySegment().getDataType() ==
-            KeyDataType::Zstring &&  // special handling for null strings
-        keyData.size() > 0 &&
-        keyData[0] == 0))) {
+  if (isComposite()) {
+    // An empty leading string segment is an ordinary value; the remaining
+    // segments still order the key. Only a key declared nullable can be null.
+    if ((getPrimarySegment().getAttributes() &
+         (NullAllSegments | NullAnySegment)) &&
+        isAllSameByteValue(keyData, getPrimarySegment().getNullValue())) {
+      return BindableValue();
+    }
+  } else if (isNullable() &&
+             (isAllSameByteValue(keyData,
+                                 getPrimarySegment()
+                                     .getNullValue()) ||  // legacy null check
+              (getPrimarySegment().getDataType() ==
+                   KeyDataType::Zstring &&  // special handling for null strings
+               keyData.size() > 0 && keyData[0] == 0))) {
     return BindableValue();
   }
 
