@@ -1,4 +1,4 @@
-// 26.10.13.2B 04:53PM
+// 26.10.13.3B 06:26PM
 // Parity shim: installed as WBTRV32.DLL, it forwards every BTRCALL to two
 // real implementations and reports where they disagree.
 //
@@ -325,10 +325,15 @@ extern "C" int __stdcall BTRCALL(WORD wOperation, LPVOID lpPositionBlock,
       posBlock != nullptr && *posBlock->filename ? posBlock->filename : "-";
 
   // the comparative side gets private copies of every in/out buffer
-  const DWORD inLength = lpdwDataBufferLength ? *lpdwDataBufferLength : 0;
+  // Btrieve uses only the low word of the data length; The Major BBS leaves
+  // garbage in the high word (DFAAPI.C btvu), so never size anything by it
+  const DWORD inLength =
+      lpdwDataBufferLength ? (*lpdwDataBufferLength & 0xFFFF) : 0;
   DWORD comparativeLength = inLength;
   std::unique_ptr<BYTE[]> comparativeData(
-      lpDataBuffer != nullptr && inLength > 0 ? new BYTE[inLength] : nullptr);
+      lpDataBuffer != nullptr && inLength > 0 ? new (std::nothrow)
+                                                    BYTE[inLength]
+                                              : nullptr);
   if (comparativeData) {
     const DWORD readable =
         safeCopy(comparativeData.get(), lpDataBuffer, inLength);
