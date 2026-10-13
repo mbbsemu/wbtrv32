@@ -1,3 +1,4 @@
+// 26.10.13.4B 06:53PM
 #include "BtrieveDatabase.h"
 
 #include "gtest/gtest.h"
@@ -226,4 +227,48 @@ TEST(BtrieveDatabase, LoadsMultiAcsDatV6) {
 
   ASSERT_STREQ(database.getKeys().at(0).getACSName(), "ALLCAPS");
   ASSERT_STREQ(database.getKeys().at(2).getACSName(), "LOWER");
+}
+
+// A Btrieve v5 key table has one 30-byte entry per segment, not per key, so
+// every key after a multi-segment key starts further along than its number
+// suggests. Expected values are what Btrieve 6.15's Stat reports for this
+// file (an empty data file from a Major BBS add-on).
+TEST(BtrieveDatabase, LoadsV5KeysAfterSegmentedKeys) {
+  BtrieveDatabase database;
+  database.parseDatabase(
+      _TEXT("assets/V5SEGKEY.DAT"), []() { return true; },
+      [](std::basic_string_view<uint8_t> record) {
+        return BtrieveDatabase::LoadRecordResult::COUNT;
+      });
+
+  struct Segment {
+    uint16_t offset;
+    uint16_t length;
+    KeyDataType type;
+  };
+  const std::vector<std::vector<Segment>> expected = {
+      {{0, 4, KeyDataType::UnsignedBinary}},
+      {{4, 30, KeyDataType::Zstring}},
+      {{34, 30, KeyDataType::Zstring}},
+      {{4, 30, KeyDataType::Zstring}, {0, 4, KeyDataType::UnsignedBinary}},
+      {{34, 30, KeyDataType::Zstring}, {0, 4, KeyDataType::UnsignedBinary}},
+      {{34, 30, KeyDataType::Zstring},
+       {64, 1, KeyDataType::String},
+       {0, 4, KeyDataType::UnsignedBinary}},
+  };
+
+  ASSERT_EQ(database.getKeys().size(), expected.size());
+  EXPECT_EQ(database.getRecordLength(), 216u);
+  for (size_t k = 0; k < expected.size(); ++k) {
+    const auto &segments = database.getKeys()[k].getSegments();
+    ASSERT_EQ(segments.size(), expected[k].size()) << "key " << k;
+    for (size_t s = 0; s < segments.size(); ++s) {
+      EXPECT_EQ(segments[s].getOffset(), expected[k][s].offset)
+          << "key " << k << " segment " << s;
+      EXPECT_EQ(segments[s].getLength(), expected[k][s].length)
+          << "key " << k << " segment " << s;
+      EXPECT_EQ(segments[s].getDataType(), expected[k][s].type)
+          << "key " << k << " segment " << s;
+    }
+  }
 }

@@ -1,4 +1,4 @@
-// 26.10.13.3B 05:41PM
+// 26.10.13.4B 06:53PM
 #include "Key.h"
 
 #include "AttributeMask.h"
@@ -291,6 +291,37 @@ TEST(Key, CompositeSignedSegmentsOrderNumerically) {
               twoIntKeyValue(type, 2, 0x80000000).getBlobValue())
         << "type " << type;
   }
+}
+
+// Like a composite key, a single string key is null only when declared
+// nullable; otherwise an empty string is an ordinary, indexed value
+// (The Major BBS GALALS2.DAT key 2 holds many).
+TEST(Key, EmptyStringKeyIsNotNullWithoutNullAttribute) {
+  for (auto type : {KeyDataType::Zstring, KeyDataType::Lstring,
+                    KeyDataType::String, KeyDataType::OldAscii}) {
+    KeyDefinition keyDefinition(0, 17, 0, type,
+                                UseExtendedDataType | Duplicates, false, 0, 0,
+                                0, "", std::vector<char>());
+    Key key(&keyDefinition, 1);
+    uint8_t record[17];
+    memset(record, 0, sizeof(record));
+    EXPECT_FALSE(key.extractKeyInRecordToSqliteObject(
+                        std::basic_string_view<uint8_t>(record, sizeof(record)))
+                     .isNull())
+        << "type " << type;
+  }
+}
+
+TEST(Key, EmptyStringKeyIsNullWithNullAttribute) {
+  KeyDefinition keyDefinition(0, 17, 0, KeyDataType::Zstring,
+                              UseExtendedDataType | NullAllSegments, false, 0,
+                              0, 0, "", std::vector<char>());
+  Key key(&keyDefinition, 1);
+  uint8_t record[17];
+  memset(record, 0, sizeof(record));
+  EXPECT_TRUE(key.extractKeyInRecordToSqliteObject(
+                     std::basic_string_view<uint8_t>(record, sizeof(record)))
+                  .isNull());
 }
 
 struct ParameterizedKeyDataType {

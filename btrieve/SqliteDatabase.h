@@ -1,4 +1,4 @@
-// 26.10.13.3B 05:41PM
+// 26.10.13.4B 06:53PM
 #ifndef __SQLITE_DATABASE_H_
 #define __SQLITE_DATABASE_H_
 
@@ -114,7 +114,7 @@ class SqliteDatabase : public SqlDatabase {
                                       unsigned int openFlags);
 
   void upgradeDatabaseFrom2To3();
-  void upgradeCompositeKeys();
+  void upgradeKeys();
 
   unsigned int openFlags;
   mutable std::unordered_map<std::string, SqlitePreparedStatement>

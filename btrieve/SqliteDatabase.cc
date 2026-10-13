@@ -1,4 +1,4 @@
-// 26.10.13.3B 05:41PM
+// 26.10.13.4B 06:53PM
 #include "SqliteDatabase.h"
 
 #include <atomic>
@@ -18,7 +18,7 @@
 
 namespace btrieve {
 
-static const unsigned int CURRENT_VERSION = 5;
+static const unsigned int CURRENT_VERSION = 6;
 
 template <class InputIt, class UnaryPred>
 static std::string commaDelimited(InputIt first, InputIt last, UnaryPred pred) {
@@ -123,8 +123,8 @@ BtrieveError SqliteDatabase::open(const wchar_t *filename, OpenMode openMode) {
   uint32_t version = loadSqliteMetadata(filename, openFlags);
   loadSqliteKeys();
   // upgrades that need the keys run after they are loaded
-  if (version == 3 || version == 4) {
-    upgradeCompositeKeys();
+  if (version >= 3 && version <= 5) {
+    upgradeKeys();
   }
 
   if (openMode == OpenMode::ReadOnly) {
@@ -266,11 +266,12 @@ void SqliteDatabase::upgradeDatabaseFrom2To3() {
   }
 }
 
-// Composite keys written before version 5 are wrong: version 3 stored them as
-// NULL when the first segment was an empty string, and versions 3 and 4 kept
-// integer segments little-endian, so they did not order numerically.
-// Recompute every composite key from the record data.
-void SqliteDatabase::upgradeCompositeKeys() {
+// Keys written before version 6 can be wrong: versions 3-5 stored an empty
+// string key as NULL even when the key is not nullable (versions 3-4 also did
+// so for a composite key with an empty first segment), and versions 3-4 kept
+// composite integer segments little-endian, so they did not order
+// numerically. Recompute the affected keys from the record data.
+void SqliteDatabase::upgradeKeys() {
   SqliteTransaction transaction(database);
   try {
     // the non-modifiable trigger would reject rewriting those keys
@@ -300,14 +301,36 @@ void SqliteDatabase::upgradeCompositeKeys() {
     }
 
     for (const Key &key : keys) {
-      if (!key.isComposite()) {
-        continue;
-      }
-
       std::stringstream sql;
       sql << "UPDATE data_t SET " << key.getSqliteKeyName()
           << " = @value WHERE id = @id";
       SqlitePreparedStatement update(database, sql.str().c_str());
+
+      if (!key.isComposite()) {
+        // single keys only change where an empty string was stored as NULL;
+        // non-null values are unchanged, so nothing can collide
+        std::stringstream nulls;
+        nulls << "SELECT id, data FROM data_t WHERE "
+              << key.getSqliteKeyName() << " IS NULL";
+        SqlitePreparedStatement select(database, nulls.str().c_str());
+        std::vector<std::pair<int32_t, std::vector<uint8_t>>> nullRows;
+        {
+          auto reader = select.executeReader();
+          while (reader->read()) {
+            nullRows.emplace_back(reader->getInt32(0), reader->getBlob(1));
+          }
+        }
+        for (const auto &row : nullRows) {
+          update.reset();
+          update.bindParameter(
+              1, key.extractKeyInRecordToSqliteObject(
+                     std::basic_string_view<uint8_t>(row.second.data(),
+                                                     row.second.size())));
+          update.bindParameter(2, BindableValue(row.first));
+          update.execute();
+        }
+        continue;
+      }
 
       // Two passes so a unique key never collides with a value not yet
       // rewritten: first store each new value with a marker byte appended
@@ -338,7 +361,7 @@ void SqliteDatabase::upgradeCompositeKeys() {
 
     {
       SqlitePreparedStatement statement(database,
-                                        "UPDATE metadata_t SET version = 5");
+                                        "UPDATE metadata_t SET version = 6");
       statement.execute();
     }
 

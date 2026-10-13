@@ -1,4 +1,4 @@
-// 26.10.13.3B 05:41PM
+// 26.10.13.4B 06:53PM
 #include "BtrieveDriver.h"
 
 #include <stdlib.h>
@@ -131,7 +131,7 @@ TEST_F(BtrieveDriverTest, LoadsAndConverts) {
   ASSERT_EQ(sqlite_exec(db, "SELECT version FROM metadata_t",
                         [](int numResults, char **data, char **columns) {
                           ASSERT_EQ(numResults, 1);
-                          ASSERT_STREQ(data[0], "5");
+                          ASSERT_STREQ(data[0], "6");
                         }),
             SQLITE_OK);
 
@@ -796,6 +796,9 @@ TEST_F(BtrieveDriverTest, UpdateConstraintFailedTest) {
 
   MBBSEmuRecordStruct record;
   memset(&record, 0, sizeof(record));
+  // key 0 is not modifiable, so keep it: changing it as well makes Btrieve
+  // (and this driver) report NonModifiableKeyValue instead
+  strcpy(record.key0, "Sysop");
   record.key1 = 7776;
   strcpy(record.key2, "In orbe terrarum, optimus sum");
   record.key3 = 1;

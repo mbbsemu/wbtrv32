@@ -1,4 +1,4 @@
-// 26.10.13.3B 05:41PM
+// 26.10.13.4B 06:53PM
 #include "wbtrv32.h"
 
 #include <cstdint>
@@ -2868,4 +2868,132 @@ TEST_F(CompositeIntegerKeyTest, UpgradeAvoidsUniqueCollisions) {
   ASSERT_EQ(open(path), BtrieveError::Success);
   EXPECT_EQ(get(btrieve::OperationCode::AcquireFirst, 0, 0), "258:16909060");
   EXPECT_EQ(get(btrieve::OperationCode::AcquireNext, 0, 0), "513:67305985");
+}
+
+// Shaped like The Major BBS GALALS2.DAT key 2: a single 17-byte zstring with
+// duplicates and no null attribute, where many records hold an empty string.
+// Btrieve indexes those as "", so range queries must find them.
+TEST_F(wbtrv32Test, EmptyStringKeysAreIndexed) {
+  unsigned char buffer[256];
+  memset(buffer, 0, sizeof(buffer));
+  auto lpFileSpec = reinterpret_cast<wbtrv32::LPFILESPEC>(buffer);
+  lpFileSpec->pageSize = 4096;
+  lpFileSpec->numberOfKeys = 1;
+  lpFileSpec->logicalFixedRecordLength = 20;
+  lpFileSpec->fileVersion = 0x60;
+  lpFileSpec->physicalPageSize = 0xFF;  // in memory
+  auto lpKeySpec = reinterpret_cast<wbtrv32::LPKEYSPEC>(lpFileSpec + 1);
+  lpKeySpec->position = 1;
+  lpKeySpec->length = 17;
+  lpKeySpec->attributes = UseExtendedDataType | Duplicates | Modifiable;
+  lpKeySpec->extendedDataType = btrieve::KeyDataType::Zstring;
+
+  std::filesystem::path path(tempPath->getTempPath());
+  path /= L"alias.dat";
+  DWORD length = reinterpret_cast<unsigned char *>(lpKeySpec + 1) - buffer;
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Create, posBlock, buffer, &length,
+                    const_cast<char *>(toStdString(path).c_str()), -1, 0),
+            btrieve::BtrieveError::Success);
+
+  for (const char *alias : {"", "HIMMEY", ""}) {
+    char record[20] = {0};
+    strcpy_s(record, sizeof(record), alias);
+    length = sizeof(record);
+    ASSERT_EQ(btrcall(btrieve::OperationCode::Insert, posBlock, record,
+                      &length, nullptr, 0, -1),
+              btrieve::BtrieveError::Success);
+  }
+
+  auto get = [&](WORD operation, const char *key) {
+    char record[20];
+    char keyBuffer[255] = {0};
+    strcpy_s(keyBuffer, sizeof(keyBuffer), key);
+    DWORD length = sizeof(record);
+    int status =
+        btrcall(operation, posBlock, record, &length, keyBuffer, 255, 0);
+    return status == 0 ? "'" + std::string(record) + "'"
+                       : "status " + std::to_string(status);
+  };
+
+  EXPECT_EQ(get(btrieve::OperationCode::AcquireFirst, ""), "''");
+  EXPECT_EQ(get(btrieve::OperationCode::AcquireLast, ""), "'HIMMEY'");
+  EXPECT_EQ(get(btrieve::OperationCode::AcquireEqual, ""), "''");
+  EXPECT_EQ(get(btrieve::OperationCode::AcquireLessOrEqual, ""), "''");
+  EXPECT_EQ(get(btrieve::OperationCode::AcquireGreaterOrEqual, ""), "''");
+  EXPECT_EQ(get(btrieve::OperationCode::AcquireLess, "A"), "''");
+  EXPECT_EQ(get(btrieve::OperationCode::AcquireGreater, ""), "'HIMMEY'");
+  EXPECT_EQ(get(btrieve::OperationCode::AcquireLess, ""), "status 9");
+}
+
+// Databases written before schema version 6 stored those empty keys as NULL.
+TEST_F(wbtrv32Test, UpgradeIndexesEmptyStringKeys) {
+  unsigned char buffer[256];
+  memset(buffer, 0, sizeof(buffer));
+  auto lpFileSpec = reinterpret_cast<wbtrv32::LPFILESPEC>(buffer);
+  lpFileSpec->pageSize = 4096;
+  lpFileSpec->numberOfKeys = 1;
+  lpFileSpec->logicalFixedRecordLength = 20;
+  lpFileSpec->fileVersion = 0x60;
+  auto lpKeySpec = reinterpret_cast<wbtrv32::LPKEYSPEC>(lpFileSpec + 1);
+  lpKeySpec->position = 1;
+  lpKeySpec->length = 17;
+  lpKeySpec->attributes = UseExtendedDataType | Duplicates | Modifiable;
+  lpKeySpec->extendedDataType = btrieve::KeyDataType::Zstring;
+
+  std::filesystem::path path(tempPath->getTempPath());
+  path /= L"alias.dat";
+  std::filesystem::path dbPath(path);
+  dbPath.replace_extension(L".db");
+  DWORD length = reinterpret_cast<unsigned char *>(lpKeySpec + 1) - buffer;
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Create, posBlock, buffer, &length,
+                    const_cast<char *>(toStdString(path).c_str()), -1, 0),
+            btrieve::BtrieveError::Success);
+  length = 0;
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr, &length,
+                    const_cast<char *>(toStdString(path).c_str()), -1, 0),
+            btrieve::BtrieveError::Success);
+  for (const char *alias : {"", "HIMMEY", ""}) {
+    char record[20] = {0};
+    strcpy_s(record, sizeof(record), alias);
+    length = sizeof(record);
+    ASSERT_EQ(btrcall(btrieve::OperationCode::Insert, posBlock, record,
+                      &length, nullptr, 0, -1),
+              btrieve::BtrieveError::Success);
+  }
+  length = 0;
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Close, posBlock, nullptr, &length,
+                    nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
+
+  {
+    sqlite3 *db;
+    ASSERT_EQ(sqlite3_open_v2(toStdString(dbPath).c_str(), &db,
+                              SQLITE_OPEN_READWRITE, nullptr),
+              SQLITE_OK);
+    ASSERT_EQ(sqlite3_exec(db,
+                           "UPDATE data_t SET key_0 = NULL WHERE key_0 = ''; "
+                           "UPDATE metadata_t SET version = 5;",
+                           nullptr, nullptr, nullptr),
+              SQLITE_OK);
+    sqlite3_close(db);
+  }
+
+  length = 0;
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr, &length,
+                    const_cast<char *>(toStdString(path).c_str()), -1, 0),
+            btrieve::BtrieveError::Success);
+
+  char record[20];
+  char key[255] = {0};
+  length = sizeof(record);
+  EXPECT_EQ(btrcall(btrieve::OperationCode::AcquireLessOrEqual, posBlock,
+                    record, &length, key, 255, 0),
+            btrieve::BtrieveError::Success);
+  EXPECT_STREQ(record, "");
+  length = sizeof(record);
+  memset(key, 0, sizeof(key));
+  EXPECT_EQ(btrcall(btrieve::OperationCode::AcquireGreaterOrEqual, posBlock,
+                    record, &length, key, 255, 0),
+            btrieve::BtrieveError::Success);
+  EXPECT_STREQ(record, "");
 }
