@@ -1,4 +1,4 @@
-// 26.10.13.3B 06:26PM
+// 26.10.13.4B 06:53PM
 // Parity shim: installed as WBTRV32.DLL, it forwards every BTRCALL to two
 // real implementations and reports where they disagree.
 //
@@ -283,6 +283,87 @@ DWORD safeCopy(BYTE* dst, const void* src, DWORD length) {
   }
 }
 
+#pragma pack(push, 1)
+struct StatFileSpec {
+  WORD recordLength;
+  WORD pageSize;
+  BYTE numberOfKeys;
+  BYTE fileVersion;
+  DWORD recordCount;
+  WORD fileFlags;
+  BYTE numExtraPointers;
+  BYTE physicalPageSize;
+  WORD preallocatedPages;
+};
+struct StatKeySpec {
+  WORD position;
+  WORD length;
+  WORD attributes;
+  DWORD uniqueKeys;
+  BYTE extendedDataType;
+  BYTE nullValue;
+  WORD reserved;
+  BYTE number;
+  BYTE acsNumber;
+};
+#pragma pack(pop)
+
+// Compares the Stat fields The Major BBS reads (DFAAPI.C dfaCountRec,
+// dfaRecLen, clckln): record count and length, number of keys, and each
+// segment's position, length, flags and type. Page size, unique-key counts
+// and trailing ACS tables are implementation details and are not compared.
+void compareStat(const char* filename, const BYTE* auth, DWORD authLength,
+                 const BYTE* comp, DWORD compLength, DWORD bufferLength,
+                 OpStats& opStats) {
+  const auto* a = reinterpret_cast<const StatFileSpec*>(auth);
+  const auto* c = reinterpret_cast<const StatFileSpec*>(comp);
+  char diff[512] = "";
+  auto note = [&](const char* format, auto... args) {
+    size_t used = strlen(diff);
+    sprintf_s(diff + used, sizeof(diff) - used, format, args...);
+  };
+  if (a->recordLength != c->recordLength) {
+    note(" reclen %u/%u", a->recordLength, c->recordLength);
+  }
+  if (a->numberOfKeys != c->numberOfKeys) {
+    note(" keys %u/%u", a->numberOfKeys, c->numberOfKeys);
+  }
+  if (a->recordCount != c->recordCount) {
+    note(" records %lu/%lu", a->recordCount, c->recordCount);
+  }
+  if ((a->fileFlags & 1) != (c->fileFlags & 1)) {
+    note(" variable %u/%u", a->fileFlags & 1, c->fileFlags & 1);
+  }
+  // segments follow the file spec; stop at the first that is not in both
+  const DWORD available = min(min(authLength, compLength), bufferLength);
+  const auto* ak = reinterpret_cast<const StatKeySpec*>(a + 1);
+  const auto* ck = reinterpret_cast<const StatKeySpec*>(c + 1);
+  unsigned keys = 0;
+  for (unsigned i = 0; keys < a->numberOfKeys &&
+                       sizeof(StatFileSpec) + (i + 1) * sizeof(StatKeySpec) <=
+                           available;
+       ++i) {
+    // attributes: compare the bits that change meaning (segmented, dups,
+    // modifiable, binary, null, descending, extended type)
+    const WORD mask = 0x015F;
+    if (ak[i].position != ck[i].position || ak[i].length != ck[i].length ||
+        (ak[i].attributes & mask) != (ck[i].attributes & mask) ||
+        ak[i].extendedDataType != ck[i].extendedDataType) {
+      note(" seg%u pos %u/%u len %u/%u attr %04X/%04X type %u/%u", i,
+           ak[i].position, ck[i].position, ak[i].length, ck[i].length,
+           ak[i].attributes, ck[i].attributes, ak[i].extendedDataType,
+           ck[i].extendedDataType);
+    }
+    if (!(ak[i].attributes & 0x10)) {
+      ++keys;
+    }
+  }
+  if (*diff) {
+    ++opStats.dataMismatches;
+    logLine("STATINFO [%s]%s", filename, diff);
+  }
+}
+
 }  // namespace
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call,
@@ -422,6 +503,11 @@ extern "C" int __stdcall BTRCALL(WORD wOperation, LPVOID lpPositionBlock,
       memcpy(&a, lpDataBuffer, sizeof(DWORD));
       memcpy(&c, comparativeData.get(), sizeof(DWORD));
       posBlock->positions[a] = c;
+    } else if (responseAuthoritative == 0 && op == Stat && comparativeData &&
+               inLength >= sizeof(StatFileSpec)) {
+      compareStat(filename, static_cast<const BYTE*>(lpDataBuffer),
+                  *lpdwDataBufferLength, comparativeData.get(),
+                  comparativeLength, inLength, opStats);
     } else if (responseAuthoritative == 0 && returnsRecord(op) &&
                lpdwDataBufferLength != nullptr && comparativeData) {
       const DWORD authLength = *lpdwDataBufferLength;
