@@ -1,4 +1,4 @@
-// 26.10.12.1B 02:53PM
+// 26.10.13.1B 03:38PM
 #include "BtrieveDriver.h"
 
 #include <sys/stat.h>
@@ -107,6 +107,11 @@ void BtrieveDriver::close() {
 BtrieveError BtrieveDriver::performOperation(
     int keyNumber, std::basic_string_view<uint8_t> keyData,
     OperationCode operationCode) {
+  // record locks are not supported, so a lock bias (+100..+400) is ignored
+  if (operationCode >= 100 && operationCode < 500) {
+    operationCode = static_cast<OperationCode>(operationCode % 100);
+  }
+
   switch (operationCode) {
     case OperationCode::Delete:
       return sqlDatabase->deleteRecord();
