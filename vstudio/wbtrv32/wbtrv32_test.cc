@@ -1,4 +1,4 @@
-// 26.10.12.1B 02:53PM
+// 26.10.13.1B 03:38PM
 #include "wbtrv32.h"
 
 #include <cstdint>
@@ -2400,4 +2400,76 @@ TEST_F(wbtrv32Test, CreateMultipleKeysWithAcs) {
             btrieve::KeyDefinition(2, 16, 30, btrieve::KeyDataType::Zstring,
                                    UseExtendedDataType | NumberedACS, false, 0,
                                    0, 0, "LOWER", acsVector));
+}
+
+// The engine adds a record-lock bias (+100..+400) to Get and Query
+// operations (dfaAcqEQ etc. with a lock). Locks are ignored, so every biased
+// operation must behave exactly like its unbiased form; any non-zero status
+// would halt the BBS.
+TEST_F(wbtrv32Test, RecordLockBiasIsIgnoredByKeyedOperations) {
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  ASSERT_FALSE(mbbsEmuDb.empty());
+
+  DWORD dwDataBufferLength = 0;
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr,
+                    &dwDataBufferLength,
+                    const_cast<LPVOID>(reinterpret_cast<LPCVOID>(
+                        toStdString(mbbsEmuDb.c_str()).c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
+
+  // positioning operations, then Next/Previous which continue from them
+  const btrieve::OperationCode positioning[] = {
+      btrieve::OperationCode::AcquireFirst,
+      btrieve::OperationCode::AcquireLast,
+      btrieve::OperationCode::AcquireEqual,
+      btrieve::OperationCode::AcquireGreater,
+      btrieve::OperationCode::AcquireGreaterOrEqual,
+      btrieve::OperationCode::AcquireLess,
+      btrieve::OperationCode::AcquireLessOrEqual,
+      btrieve::OperationCode::QueryFirst,
+      btrieve::OperationCode::QueryLast,
+      btrieve::OperationCode::QueryEqual,
+      btrieve::OperationCode::QueryGreater,
+      btrieve::OperationCode::QueryGreaterOrEqual,
+      btrieve::OperationCode::QueryLess,
+      btrieve::OperationCode::QueryLessOrEqual,
+  };
+  const btrieve::OperationCode continuing[] = {
+      btrieve::OperationCode::AcquireNext,
+      btrieve::OperationCode::AcquirePrevious,
+      btrieve::OperationCode::QueryNext,
+      btrieve::OperationCode::QueryPrevious,
+  };
+
+  for (auto op : positioning) {
+    for (auto cont : continuing) {
+      int results[2][2];
+      uint32_t keys[2][2];
+      for (int bias = 0; bias <= 400; bias += 100) {
+        for (int pass = 0; pass < 2; ++pass) {
+          // pass 0 is unbiased (the reference), pass 1 adds the lock bias
+          const int add = pass == 0 ? 0 : bias;
+          RECORD record;
+          uint32_t key = 7776;
+          dwDataBufferLength = sizeof(record);
+          results[pass][0] = btrcall(op + add, posBlock, &record,
+                                     &dwDataBufferLength, &key, 255, 1);
+          keys[pass][0] = key;
+          dwDataBufferLength = sizeof(record);
+          results[pass][1] = btrcall(cont + add, posBlock, &record,
+                                     &dwDataBufferLength, &key, 255, 1);
+          keys[pass][1] = key;
+        }
+        ASSERT_EQ(results[1][0], btrieve::BtrieveError::Success)
+            << "op " << op + bias;
+        ASSERT_EQ(results[0][0], results[1][0]) << "op " << op + bias;
+        ASSERT_EQ(keys[0][0], keys[1][0]) << "op " << op + bias;
+        ASSERT_EQ(results[0][1], results[1][1])
+            << "op " << op + bias << " then " << cont + bias;
+        ASSERT_EQ(keys[0][1], keys[1][1])
+            << "op " << op + bias << " then " << cont + bias;
+      }
+    }
+  }
 }
