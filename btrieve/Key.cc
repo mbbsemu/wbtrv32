@@ -1,4 +1,4 @@
-﻿// 26.10.13.2B 04:25PM
+﻿// 26.10.13.3B 05:41PM
 #include "Key.h"
 
 #include <cassert>
@@ -137,6 +137,40 @@ static std::string extractNullTerminatedString(
   return std::string(reinterpret_cast<const char *>(keyData.data()), strlen);
 }
 
+// A composite key is stored as one blob and compared bytewise, but Btrieve
+// compares each segment by its type. Re-encode the little-endian integer
+// segments big-endian (flipping the sign bit of signed ones) so that blob
+// order matches Btrieve order.
+std::vector<uint8_t> Key::toOrderedCompositeBlob(
+    std::vector<uint8_t> keyData) const {
+  size_t offset = 0;
+  for (auto &segment : segments) {
+    const size_t length = segment.getLength();
+    if (offset + length > keyData.size()) {
+      break;
+    }
+    uint8_t *data = keyData.data() + offset;
+    switch (segment.getDataType()) {
+      case KeyDataType::Integer:
+      case KeyDataType::AutoInc:
+        std::reverse(data, data + length);
+        data[0] ^= 0x80;
+        break;
+      case KeyDataType::Unsigned:
+      case KeyDataType::UnsignedBinary:
+      case KeyDataType::OldBinary:
+      case KeyDataType::Date:
+      case KeyDataType::Time:
+        std::reverse(data, data + length);
+        break;
+      default:
+        break;
+    }
+    offset += length;
+  }
+  return keyData;
+}
+
 bool Key::isNullKeyInRecord(std::basic_string_view<uint8_t> record) const {
   std::vector<uint8_t> keyData = extractKeyDataFromRecord(record);
   return isAllSameByteValue(
@@ -178,7 +212,7 @@ BindableValue Key::keyDataToSqliteObject(
   std::vector<uint8_t> modifiedKeyData = applyACS(keyData);
 
   if (isComposite()) {
-    return BindableValue(modifiedKeyData);
+    return BindableValue(toOrderedCompositeBlob(std::move(modifiedKeyData)));
   }
 
   const uint8_t *data = modifiedKeyData.data();

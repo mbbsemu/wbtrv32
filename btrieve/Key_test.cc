@@ -1,4 +1,4 @@
-// 26.10.13.2B 04:25PM
+// 26.10.13.3B 05:41PM
 #include "Key.h"
 
 #include "AttributeMask.h"
@@ -187,8 +187,10 @@ TEST(Key, CompositeKeyConcatentation) {
                        std::basic_string_view<uint8_t>(record, sizeof(record)))
                     .getBlobValue();
 
-  uint8_t expected[] = {0x5, 0x5, 0x5, 0x5, 0x5, 0x5,
-                        0x5, 0x5, 'T', 'T', 'T', 'T'};
+  // the integer segment is stored big-endian with its sign bit flipped so the
+  // blob orders numerically; the string segment is copied as-is
+  uint8_t expected[] = {0x85, 0x5, 0x5, 0x5, 0x5, 0x5,
+                        0x5,  0x5, 'T', 'T', 'T', 'T'};
 
   EXPECT_EQ(actual,
             std::vector<uint8_t>(expected, expected + sizeof(expected)));
@@ -246,6 +248,49 @@ TEST(Key, CompositeKeyAllNullValueIsNullWithNullAttribute) {
 
   EXPECT_TRUE(wgsgen2KeyValue(key, "", "").isNull());
   EXPECT_FALSE(wgsgen2KeyValue(key, "", "WORMSG").isNull());
+}
+
+// Composite keys are compared as blobs, so integer segments must be encoded
+// so that byte order equals numeric order (Btrieve compares them as numbers).
+static BindableValue twoIntKeyValue(KeyDataType type, uint32_t first,
+                                    uint32_t second) {
+  KeyDefinition defs[2] = {
+      KeyDefinition(0, 2, 0, type, UseExtendedDataType | SegmentedKey, true, 0,
+                    0, 0, "", std::vector<char>()),
+      KeyDefinition(0, 4, 2, type, UseExtendedDataType, true, 0, 1, 0, "",
+                    std::vector<char>())};
+  Key key(defs, 2);
+  uint8_t record[6];
+  memcpy(record, &first, 2);
+  memcpy(record + 2, &second, 4);
+  return key.extractKeyInRecordToSqliteObject(
+      std::basic_string_view<uint8_t>(record, sizeof(record)));
+}
+
+TEST(Key, CompositeUnsignedSegmentsOrderNumerically) {
+  for (auto type : {KeyDataType::UnsignedBinary, KeyDataType::Unsigned,
+                    KeyDataType::OldBinary}) {
+    // 0xFF < 0x100, but little-endian bytes FF 00 > 00 01
+    EXPECT_LT(twoIntKeyValue(type, 2, 0xFF).getBlobValue(),
+              twoIntKeyValue(type, 2, 0x100).getBlobValue())
+        << "type " << type;
+    // the first segment dominates
+    EXPECT_LT(twoIntKeyValue(type, 0xFF, 0xFFFFFF).getBlobValue(),
+              twoIntKeyValue(type, 0x100, 0).getBlobValue())
+        << "type " << type;
+  }
+}
+
+TEST(Key, CompositeSignedSegmentsOrderNumerically) {
+  for (auto type : {KeyDataType::Integer, KeyDataType::AutoInc}) {
+    EXPECT_LT(twoIntKeyValue(type, 2, static_cast<uint32_t>(-1)).getBlobValue(),
+              twoIntKeyValue(type, 2, 1).getBlobValue())
+        << "type " << type;
+    EXPECT_LT(twoIntKeyValue(type, static_cast<uint32_t>(-5), 0x7FFFFFFF)
+                  .getBlobValue(),
+              twoIntKeyValue(type, 2, 0x80000000).getBlobValue())
+        << "type " << type;
+  }
 }
 
 struct ParameterizedKeyDataType {

@@ -1,4 +1,5 @@
-﻿#ifndef __BTRIEVEKEY_H_
+﻿// 26.10.13.3B 05:41PM
+#ifndef __BTRIEVEKEY_H_
 #define __BTRIEVEKEY_H_
 
 #include <algorithm>
@@ -94,6 +95,8 @@ class Key {
 
  private:
   std::vector<uint8_t> applyACS(std::basic_string_view<uint8_t> keyData) const;
+  std::vector<uint8_t> toOrderedCompositeBlob(
+      std::vector<uint8_t> keyData) const;
 
   std::vector<KeyDefinition> segments;
 };

@@ -1,4 +1,4 @@
-// 26.10.13.2B 04:25PM
+// 26.10.13.3B 05:41PM
 #include "BtrieveDriver.h"
 
 #include <stdlib.h>
@@ -131,7 +131,7 @@ TEST_F(BtrieveDriverTest, LoadsAndConverts) {
   ASSERT_EQ(sqlite_exec(db, "SELECT version FROM metadata_t",
                         [](int numResults, char **data, char **columns) {
                           ASSERT_EQ(numResults, 1);
-                          ASSERT_STREQ(data[0], "4");
+                          ASSERT_STREQ(data[0], "5");
                         }),
             SQLITE_OK);
 

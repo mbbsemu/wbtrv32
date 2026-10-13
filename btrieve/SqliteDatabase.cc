@@ -1,4 +1,4 @@
-// 26.10.13.2B 04:25PM
+// 26.10.13.3B 05:41PM
 #include "SqliteDatabase.h"
 
 #include <atomic>
@@ -18,7 +18,7 @@
 
 namespace btrieve {
 
-static const unsigned int CURRENT_VERSION = 4;
+static const unsigned int CURRENT_VERSION = 5;
 
 template <class InputIt, class UnaryPred>
 static std::string commaDelimited(InputIt first, InputIt last, UnaryPred pred) {
@@ -123,8 +123,8 @@ BtrieveError SqliteDatabase::open(const wchar_t *filename, OpenMode openMode) {
   uint32_t version = loadSqliteMetadata(filename, openFlags);
   loadSqliteKeys();
   // upgrades that need the keys run after they are loaded
-  if (version == 3) {
-    upgradeDatabaseFrom3To4();
+  if (version == 3 || version == 4) {
+    upgradeCompositeKeys();
   }
 
   if (openMode == OpenMode::ReadOnly) {
@@ -266,47 +266,79 @@ void SqliteDatabase::upgradeDatabaseFrom2To3() {
   }
 }
 
-// Version 3 stored a composite key as NULL whenever its first segment was an
-// empty string, which dropped the remaining segments from the ordering and
-// from range queries. Recompute those keys from the record data.
-void SqliteDatabase::upgradeDatabaseFrom3To4() {
+// Composite keys written before version 5 are wrong: version 3 stored them as
+// NULL when the first segment was an empty string, and versions 3 and 4 kept
+// integer segments little-endian, so they did not order numerically.
+// Recompute every composite key from the record data.
+void SqliteDatabase::upgradeCompositeKeys() {
   SqliteTransaction transaction(database);
   try {
+    // the non-modifiable trigger would reject rewriting those keys
+    std::string triggerSql;
+    {
+      SqlitePreparedStatement select(
+          database,
+          "SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = "
+          "'non_modifiable'");
+      auto reader = select.executeReader();
+      if (reader->read()) {
+        triggerSql = reader->getString(0);
+      }
+    }
+    if (!triggerSql.empty()) {
+      SqlitePreparedStatement drop(database, "DROP TRIGGER non_modifiable");
+      drop.execute();
+    }
+
+    std::vector<std::pair<int32_t, std::vector<uint8_t>>> rows;
+    {
+      SqlitePreparedStatement select(database, "SELECT id, data FROM data_t");
+      auto reader = select.executeReader();
+      while (reader->read()) {
+        rows.emplace_back(reader->getInt32(0), reader->getBlob(1));
+      }
+    }
+
     for (const Key &key : keys) {
       if (!key.isComposite()) {
         continue;
-      }
-
-      std::vector<std::pair<int32_t, std::vector<uint8_t>>> rows;
-      {
-        std::stringstream sql;
-        sql << "SELECT id, data FROM data_t WHERE " << key.getSqliteKeyName()
-            << " IS NULL";
-        SqlitePreparedStatement select(database, sql.str().c_str());
-        auto reader = select.executeReader();
-        while (reader->read()) {
-          rows.emplace_back(reader->getInt32(0), reader->getBlob(1));
-        }
       }
 
       std::stringstream sql;
       sql << "UPDATE data_t SET " << key.getSqliteKeyName()
           << " = @value WHERE id = @id";
       SqlitePreparedStatement update(database, sql.str().c_str());
-      for (const auto &row : rows) {
-        update.reset();
-        update.bindParameter(
-            1, key.extractKeyInRecordToSqliteObject(
-                   std::basic_string_view<uint8_t>(row.second.data(),
-                                                   row.second.size())));
-        update.bindParameter(2, BindableValue(row.first));
-        update.execute();
+
+      // Two passes so a unique key never collides with a value not yet
+      // rewritten: first store each new value with a marker byte appended
+      // (longer than any old value, so distinct from all of them), then
+      // store the plain new values.
+      for (int pass = 0; pass < 2; ++pass) {
+        for (const auto &row : rows) {
+          BindableValue value = key.extractKeyInRecordToSqliteObject(
+              std::basic_string_view<uint8_t>(row.second.data(),
+                                              row.second.size()));
+          if (pass == 0 && !value.isNull()) {
+            std::vector<uint8_t> marked = value.getBlobValue();
+            marked.push_back(0xFF);
+            value = BindableValue(marked);
+          }
+          update.reset();
+          update.bindParameter(1, value);
+          update.bindParameter(2, BindableValue(row.first));
+          update.execute();
+        }
       }
+    }
+
+    if (!triggerSql.empty()) {
+      SqlitePreparedStatement create(database, triggerSql.c_str());
+      create.execute();
     }
 
     {
       SqlitePreparedStatement statement(database,
-                                        "UPDATE metadata_t SET version = 4");
+                                        "UPDATE metadata_t SET version = 5");
       statement.execute();
     }
 
