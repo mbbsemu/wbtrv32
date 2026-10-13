@@ -298,11 +298,15 @@ void SqliteDatabase::loadSqliteKeys() {
       std::copy(acsBlob.begin(), acsBlob.end(), std::back_inserter(acs));
     }
 
+    // the segment column holds the segment's index within its key, whereas
+    // KeyDefinition's segment flag means "another segment follows", which
+    // is what the SegmentedKey attribute records
+    uint16_t attributes = reader->getInt32(2);
+    bool segment = attributes & SegmentedKey;
     KeyDefinition keyDefinition(
         number, reader->getInt32(5), reader->getInt32(4),
-        (KeyDataType)reader->getInt32(3), reader->getInt32(2),
-        reader->getBoolean(1), reader->getBoolean(1) ? number : 0, segmentIndex,
-        reader->getInt32(6), acsName, acs);
+        (KeyDataType)reader->getInt32(3), attributes, segment,
+        segment ? number : 0, segmentIndex, reader->getInt32(6), acsName, acs);
 
     keys[number].addSegment(keyDefinition);
   }

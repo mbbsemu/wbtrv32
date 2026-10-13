@@ -72,6 +72,13 @@ Originally developed as part of [The Major BBS Emulation Project](https://github
 - **Database Management**:
     -   Use standard SQLite tools for database maintenance and inspection.
     -   Backup the SQLite database regularly to prevent data loss.
+- **Creating Databases from Description Files**:
+    - `create_database` is the equivalent of `butil -create`: it reads a Btrieve [description file](https://docs.actian.com/psql/psqlv13/index.html#page/advops%2Fdescfile.htm) (`.BCR`) and issues a Btrieve Create through wbtrv32, producing an empty `.db` database.
+    - ```
+      bazel build //util:create_database
+      bazel-bin/util/create_database [--overwrite] <outputFile> <descriptionFile>
+      ```
+    - ACS files named with `name=` are resolved relative to the description file.
 
 ## Development and Testing
 
