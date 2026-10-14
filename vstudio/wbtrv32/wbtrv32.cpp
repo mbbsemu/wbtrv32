@@ -1,4 +1,4 @@
-// 26.10.13.5B 07:41PM
+// 26.10.13.6B 07:54PM
 // wbtrv32.cpp : Defines the exported functions for the DLL.
 //
 #include "wbtrv32.h"
@@ -340,8 +340,8 @@ static BtrieveError Step(BtrieveCommand &command) {
     return BtrieveError::IOError;
   }
 
+  // Btrieve keeps the record current even when it does not fit
   if (*command.lpdwDataBufferLength < record.second.getData().size()) {
-    btrieveDriver->setPosition(oldPosition);
     return BtrieveError::DataBufferLengthOverrun;
   }
 
@@ -387,12 +387,13 @@ static BtrieveError GetDirectRecord(BtrieveCommand &command) {
     return BtrieveError::InvalidRecordAddress;
   }
 
+  // the record read becomes the current one (GetPosition, Update, Delete),
+  // even when it does not fit the data buffer
+  btrieveDriver->setPosition(position);
+
   if (*command.lpdwDataBufferLength < record.second.getData().size()) {
     return BtrieveError::DataBufferLengthOverrun;
   }
-
-  // the record read becomes the current one (GetPosition, Update, Delete)
-  btrieveDriver->setPosition(position);
 
   if (command.keyNumber >= 0) {
     if (static_cast<uint32_t>(command.keyNumber) >=
