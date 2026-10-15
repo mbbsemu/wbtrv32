@@ -1,6 +1,7 @@
-// 26.10.13.4B 06:53PM
+// 26.10.15.1B 07:10PM
 #include "BtrieveDatabase.h"
 
+#include <algorithm>
 #include <memory>
 
 #include "BtrieveException.h"
@@ -370,7 +371,11 @@ bool BtrieveDatabase::loadPAT(FILE* f, std::string& acsName,
   uint8_t* pat1 = reinterpret_cast<uint8_t*>(alloca(pageLength * 2));
   uint8_t* pat2 = pat1 + pageLength;  // pat2 is sequentially after pat1
 
-  fseek_s(f, pageLength * 2, SEEK_SET);  // starts on third page
+  if (patPages.empty()) {
+    throw BtrieveException(BtrieveError::NotBtrieveFile,
+                           "PAT1 table is invalid");
+  }
+  fseek_s(f, patPages[0] * pageLength, SEEK_SET);  // normally the third page
   fread_s(pat1, pageLength * 2, f);
 
   if (pat1[0] != 'P' || pat1[1] != 'P') {
@@ -400,7 +405,8 @@ bool BtrieveDatabase::loadPAT(FILE* f, std::string& acsName,
     }
 
     if (type == 'A') {
-      loadACSAtPhysicalOffset(f, acsName, acs, pageNumber * pageLength);
+      loadACSAtPhysicalOffset(f, acsName, acs,
+                              toFilePage(pageNumber) * pageLength);
     }
 
     if (type != 0 && type != 'A' && type != 'D' && type != 'E' && type != 'V') {
@@ -576,6 +582,7 @@ void BtrieveDatabase::from(FILE* f) {
   FCRDATA fcrData = validateDatabase(f, firstPage);
 
   if (v6) {
+    locatePATs(f);
     loadPAT(f, acsName, acs);
   } else {
     getRecordPointerList(f, fcrData.deletedRecordPointer, deletedRecordOffsets);
@@ -697,7 +704,7 @@ int32_t BtrieveDatabase::lookupPATEntry(FILE* f, int32_t logicalPage,
   }
 
   // go through the PAT
-  uint32_t ret = 2;
+  uint32_t pat = 0;
   const int32_t pagesPerPAT = (pageLength / 4u) - 2u;
 
   // logical page can never be higher than max physical pages
@@ -709,13 +716,17 @@ int32_t BtrieveDatabase::lookupPATEntry(FILE* f, int32_t logicalPage,
   // not on the current page? if so page up
   while (logicalPage > pagesPerPAT) {
     logicalPage -= pagesPerPAT;
-    ret += (pageLength / 4u);
+    ++pat;
+  }
+  if (pat >= patPages.size()) {
+    outType = 0xFF;
+    return -1;
   }
 
   uint8_t* pat1 = reinterpret_cast<uint8_t*>(alloca(pageLength * 2));
   uint8_t* pat2 = pat1 + pageLength;
 
-  const uint32_t physicalOffset = ret * pageLength;
+  const uint32_t physicalOffset = patPages[pat] * pageLength;
   if (physicalOffset >= (fileLength - pageLength * 2)) {
     // we overflowed, this is junk
     outType = 0xFF;
@@ -750,7 +761,50 @@ int32_t BtrieveDatabase::lookupPATEntry(FILE* f, int32_t logicalPage,
     return -1;
   }
 
-  return static_cast<int32_t>(physicalPage * pageLength);
+  return static_cast<int32_t>(toFilePage(static_cast<uint32_t>(physicalPage)) *
+                              pageLength);
+}
+
+void BtrieveDatabase::locatePATs(FILE* f) {
+  const uint32_t pagesPerRegion = pageLength / 4u;
+  const uint32_t pagesPerPAT = pagesPerRegion - 2u;
+  const uint32_t filePages = fileLength / pageLength;
+  // logical pages 1 .. pageCount - 1, pagesPerPAT to each PAT
+  const uint32_t patCount =
+      pageCount > 1 ? (pageCount - 2) / pagesPerPAT + 1 : 1;
+
+  // true if page is a PAT page carrying sequence number n
+  auto isPATPage = [&](uint32_t page, uint32_t n) {
+    uint8_t header[4];
+    fseek_s(f, page * pageLength, SEEK_SET);
+    fread_s(header, sizeof(header), f);
+    return header[0] == 'P' && header[1] == 'P' && toUint16(header + 2) == n;
+  };
+
+  patPages.clear();
+  uint32_t expected = 2;
+  for (uint32_t n = 1; n <= patCount; ++n) {
+    for (uint32_t page = expected; page + 1 < filePages; ++page) {
+      if (isPATPage(page, n) && isPATPage(page + 1, n)) {
+        patPages.push_back(page);
+        break;
+      }
+    }
+    if (patPages.size() != n) {
+      break;
+    }
+    expected = patPages.back() + pagesPerRegion;
+  }
+}
+
+uint32_t BtrieveDatabase::toFilePage(uint32_t physicalPage) const {
+  const uint32_t pagesPerRegion = pageLength / 4u;
+  if (physicalPage < 2 || patPages.empty()) {
+    return physicalPage;
+  }
+  const size_t region = std::min<size_t>((physicalPage - 2) / pagesPerRegion,
+                                         patPages.size() - 1);
+  return physicalPage + patPages[region] - (2 + region * pagesPerRegion);
 }
 
 }  // namespace btrieve
