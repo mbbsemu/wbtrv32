@@ -1,4 +1,4 @@
-// 26.10.15.4B 10:45PM
+// 26.10.15.5B 11:20PM
 #include "wbtrv32.h"
 
 #include <cstdint>
@@ -3292,6 +3292,39 @@ TEST_F(wbtrv32TransactionTest, CloseAndReopenDuringTransaction) {
   ASSERT_EQ(operation(btrieve::OperationCode::EndTransaction),
             btrieve::BtrieveError::Success);
   EXPECT_EQ(recordCountOnDisk(db), 3u);
+}
+
+// A configuration utility writes a file while the BBS has it open. Between
+// calls the BBS holds no read snapshot, so it sees the change, and its own
+// next write is not refused as based on stale data.
+TEST_F(wbtrv32TransactionTest, SeesAnotherProgramsWritesBetweenCalls) {
+  auto db = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  ASSERT_EQ(open(posBlock, db), btrieve::BtrieveError::Success);
+  RECORD record;
+  char key[255];
+  DWORD length = sizeof(record);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::AcquireFirst, posBlock, &record,
+                    &length, key, sizeof(key), 1),
+            btrieve::BtrieveError::Success);
+
+  // the utility: its own connection, still open afterwards
+  BtrieveDriver utility(new SqliteDatabase());
+  ASSERT_EQ(utility.open(db.c_str()), btrieve::BtrieveError::Success);
+  RECORD added = {};
+  added.int1 = 20000;
+  added.int2 = 20000;
+  strcpy(added.string1, "Sysop");
+  strcpy(added.string2, "20000");
+  ASSERT_EQ(utility
+                .insertRecord(std::basic_string_view<uint8_t>(
+                    reinterpret_cast<uint8_t *>(&added), sizeof(added)))
+                .first,
+            btrieve::BtrieveError::Success);
+
+  EXPECT_EQ(recordCount(posBlock), 5u);
+  EXPECT_EQ(insert(posBlock, 20001), btrieve::BtrieveError::Success);
+  EXPECT_EQ(recordCount(posBlock), 6u);
+  ASSERT_EQ(close(posBlock), btrieve::BtrieveError::Success);
 }
 
 TEST_F(wbtrv32TransactionTest, StopAbortsTransaction) {

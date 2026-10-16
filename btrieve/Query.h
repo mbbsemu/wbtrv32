@@ -1,3 +1,4 @@
+// 26.10.15.5B 11:20PM
 #ifndef __QUERY_H_
 #define __QUERY_H_
 
@@ -38,6 +39,10 @@ class Query {
   }
 
   virtual std::pair<bool, Record> next(CursorDirection cursorDirection) = 0;
+
+  // Called between Btrieve calls: an implementation holding a live cursor
+  // lets go of it and resumes from the current record on the next call.
+  virtual void suspend() {}
 
  protected:
   unsigned int position;

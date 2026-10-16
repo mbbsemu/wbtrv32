@@ -1,4 +1,4 @@
-// 26.10.15.3B 10:20PM
+// 26.10.15.5B 11:20PM
 #ifndef __SQL_DATABASE_H_
 #define __SQL_DATABASE_H_
 
@@ -67,6 +67,11 @@ class SqlDatabase {
 
   // A client transaction: every Insert/Update/Delete until commit or rollback
   // is kept or discarded together. Closing with one open rolls it back.
+  // Ends any read the connection still has open, so it holds no read
+  // snapshot until it is next used: it then sees other processes' writes,
+  // and its own writes are not refused as based on stale data.
+  virtual void releaseStatements() = 0;
+
   virtual void beginTransaction() = 0;
   virtual void commitTransaction() = 0;
   virtual void rollbackTransaction() = 0;

@@ -1,4 +1,4 @@
-// 26.10.15.3B 10:20PM
+// 26.10.15.5B 11:20PM
 #include "SqliteDatabase.h"
 
 #include <atomic>
@@ -19,6 +19,9 @@
 namespace btrieve {
 
 static const unsigned int CURRENT_VERSION = 6;
+
+// how long a write waits for another process's write to finish
+static const int BUSY_TIMEOUT_MS = 2000;
 
 template <class InputIt, class UnaryPred>
 static std::string commaDelimited(InputIt first, InputIt last, UnaryPred pred) {
@@ -162,6 +165,16 @@ void SqliteDatabase::initializeConnection() {
 
   int errorCode =
       sqlite3_exec(database.get(), pragmas, nullptr, nullptr, nullptr);
+  if (errorCode != SQLITE_OK) {
+    throwException(errorCode);
+  }
+
+  // Stock Btrieve serializes every program through one engine. Here each
+  // process (the BBS and its configuration utilities) opens the file itself,
+  // so a write that finds another process writing waits for it instead of
+  // failing at once; a Btrieve error is fatal to The Major BBS. Writes take
+  // milliseconds, so the wait is normally far shorter than this limit.
+  errorCode = sqlite3_busy_timeout(database.get(), BUSY_TIMEOUT_MS);
   if (errorCode != SQLITE_OK) {
     throwException(errorCode);
   }
@@ -618,6 +631,15 @@ void SqliteDatabase::close() {
   insertSql.clear();
   updateSql.clear();
   cache.clear();
+}
+
+// Cached statements are otherwise only reset on their next use, and a
+// statement left part way through keeps the connection's read transaction
+// (and its snapshot of the file) open indefinitely.
+void SqliteDatabase::releaseStatements() {
+  for (auto &statement : preparedStatements) {
+    statement.second.reset();
+  }
 }
 
 void SqliteDatabase::beginTransaction() {

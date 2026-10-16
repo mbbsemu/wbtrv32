@@ -191,6 +191,7 @@
   <ItemGroup>
     <ClInclude Include="framework.h" />
     <ClInclude Include="wbtrv32.h" />
+    <ClInclude Include="version.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="dllmain.cpp" />

@@ -1,9 +1,10 @@
-// 26.10.15.4B 10:45PM
+// 26.10.15.5B 11:20PM
 // wbtrv32.cpp : Defines the exported functions for the DLL.
 //
 #include "wbtrv32.h"
 
 #include <algorithm>
+#include <ctime>
 #include <filesystem>
 
 #include "btrieve/BtrieveDriver.h"
@@ -12,13 +13,15 @@
 #include "btrieve/SqliteDatabase.h"
 #include "btrieve/Text.h"
 #include "framework.h"
+#include "version.h"
 
 // Define this to pop up a messagebox when wbtrv32.dll is loaded, to allow you
 // to attach a debugger on startup
 //
 // #define DEBUG_ATTACH
 
-// Define this to log errors to wbtrv32.log
+// Define this to log errors to wbtrv32.log in the current directory (the
+// BBS directory)
 #define LOG_TO_FILE
 
 #ifdef DEBUG_ATTACH
@@ -47,6 +50,57 @@ struct FileCloser {
 }  // namespace
 
 static std::unique_ptr<FILE, FileCloser> _logFile(nullptr);
+
+#ifdef WIN32
+static const wchar_t LOG_NAME[] = L"wbtrv32.log";
+static const wchar_t OLD_LOG_NAME[] = L"wbtrv32.old";
+#else
+static const char LOG_NAME[] = "/tmp/wbtrv32.log";
+#endif
+// past this a new log is started, keeping the previous one as wbtrv32.old
+static const long LOG_LIMIT = 1024 * 1024;
+
+static void openLog() {
+#ifdef WIN32
+  // shared: the BBS and its configuration utilities can each append
+  _logFile.reset(_wfsopen(LOG_NAME, L"ab", _SH_DENYNO));
+#else
+  _logFile.reset(fopen(LOG_NAME, "ab"));
+#endif
+}
+
+// Appends one line, prefixed with the local time.
+static void writeLogLine(const char *text) {
+  if (!_logFile) {
+    return;
+  }
+
+#ifdef WIN32
+  fseek(_logFile.get(), 0, SEEK_END);
+  if (ftell(_logFile.get()) > LOG_LIMIT) {
+    _logFile.reset(nullptr);
+    // fails harmlessly while another process has the log open; the log then
+    // just keeps growing until the next start
+    MoveFileExW(LOG_NAME, OLD_LOG_NAME, MOVEFILE_REPLACE_EXISTING);
+    openLog();
+    if (!_logFile) {
+      return;
+    }
+  }
+#endif
+
+  const time_t now = time(nullptr);
+  struct tm local;
+#ifdef WIN32
+  localtime_s(&local, &now);
+#else
+  localtime_r(&now, &local);
+#endif
+  char stamp[32];
+  strftime(stamp, sizeof(stamp), "%Y-%m-%d %H:%M:%S", &local);
+  fprintf(_logFile.get(), "%s  %s\r\n", stamp, text);
+  fflush(_logFile.get());
+}
 #endif
 
 #ifndef WIN32
@@ -73,11 +127,22 @@ void wbtrv32::processAttach() {
 #endif
 
 #ifdef LOG_TO_FILE
+  openLog();
+
+  // name the build and the program first, so a log always says which DLL
+  // wrote it
+  char header[MAX_PATH + 96];
 #ifdef WIN32
-  _logFile.reset(_wfsopen(L"wbtrv32.log", L"ab", _SH_DENYWR));
+  char program[MAX_PATH] = "";
+  GetModuleFileNameA(NULL, program, ARRAYSIZE(program));
+  snprintf(header, sizeof(header),
+           "==== WBTRV32.DLL %s loaded by %s (process %lu)",
+           WBTRV32_VERSION_STR, program, GetCurrentProcessId());
 #else
-  _logFile.reset(fopen("/tmp/wbtrv32.log", "ab"));
-#endif  // WIN32
+  snprintf(header, sizeof(header), "==== WBTRV32 %s loaded",
+           WBTRV32_VERSION_STR);
+#endif
+  writeLogLine(header);
 #endif  // LOG_TO_FILE
 }
 
@@ -133,44 +198,54 @@ struct BtrieveCommand {
 
 static void debug(const BtrieveCommand &command, const char *format, ...) {
   BtrieveDriver *driver = getOpenDatabase(command.lpPositionBlock);
-  char buf[256];
-  int len;
-
-  if (driver != nullptr) {
-    len = snprintf(
-        buf, sizeof(buf), "[%s]: ",
-        btrieve::toStdString(driver->getOpenedFilename().c_str()).c_str());
-
-#ifdef WIN32
-    OutputDebugStringA(buf);
-#endif
-
-#ifdef LOG_TO_FILE
-    if (_logFile) {
-      fwrite(buf, 1, len, _logFile.get());
-    }
-#endif
-  }
+  char message[256];
+  char line[MAX_PATH + 300];
 
   va_list args;
   va_start(args, format);
-  len = vsnprintf(buf, sizeof(buf) - 2, format, args);
+  vsnprintf(message, sizeof(message), format, args);
   va_end(args);
 
-  // append cr/lf
-  buf[len] = '\r';
-  buf[len + 1] = '\n';
-  buf[len + 2] = 0;
+  if (driver != nullptr) {
+    snprintf(
+        line, sizeof(line), "[%s] %s",
+        btrieve::toStdString(driver->getOpenedFilename().c_str()).c_str(),
+        message);
+  } else {
+    snprintf(line, sizeof(line), "%s", message);
+  }
+
 #ifdef WIN32
-  OutputDebugStringA(buf);
+  OutputDebugStringA(line);
+  OutputDebugStringA("\r\n");
 #endif
 
 #ifdef LOG_TO_FILE
-  if (_logFile) {
-    fwrite(buf, 1, len + 2, _logFile.get());
-    fflush(_logFile.get());
-  }
+  writeLogLine(line);
 #endif
+}
+
+// Statuses reads return in normal use: no such key (4), end of file (9), and
+// a record longer than the caller's buffer (22, filled as far as it fits,
+// e.g. The Major BBS reading WGSGEN2.DAT). Stock Btrieve returns them too and
+// callers expect them, so they are not logged; anything left in the log is
+// worth reading.
+static bool isExpectedReadStatus(OperationCode operation, BtrieveError error) {
+  if (error != BtrieveError::KeyValueNotFound &&
+      error != BtrieveError::EndOfFile &&
+      error != BtrieveError::DataBufferLengthOverrun) {
+    return false;
+  }
+  // without any lock bias
+  const int base = static_cast<int>(operation) % 100;
+  return (base >= OperationCode::AcquireEqual &&
+          base <= OperationCode::AcquireLast) ||
+         base == OperationCode::GetDirectChunkOrRecord ||
+         base == OperationCode::StepNext ||
+         (base >= OperationCode::StepFirst &&
+          base <= OperationCode::StepPreviousExtended) ||
+         (base >= OperationCode::QueryEqual &&
+          base <= OperationCode::QueryLast);
 }
 
 static void AddToOpenFiles(BtrieveCommand &command,
@@ -218,9 +293,6 @@ static BtrieveError Open(BtrieveCommand &command) {
   const char *lpszFilename =
       reinterpret_cast<const char *>(command.lpKeyBuffer);
   auto openMode = static_cast<OpenMode>(command.keyNumber);
-
-  debug(command, "Attempting to open %s with openMode %d", lpszFilename,
-        openMode);
 
   GetFullPathName(btrieve::toWideString(lpszFilename).c_str(),
                   ARRAYSIZE(fullPathFileName), fullPathFileName, nullptr);
@@ -942,10 +1014,19 @@ extern "C" WBTRV32_EXPORT int __stdcall BTRCALL(WORD wOperation,
     error = BtrieveError::UnrecoverableError;
   }
 
-  if (error != BtrieveError::Success) {
-    debug(btrieveCommand, "handled %s [key %d], returned %s",
-          toString(btrieveCommand.operation), btrieveCommand.keyNumber,
-          errorToString(error));
+  // Stock Btrieve serves every program through one engine; here the BBS and
+  // its configuration utilities each open the file. Between calls, hold no
+  // read snapshot of it, so the BBS sees a utility's changes and its own next
+  // write is not refused as based on stale data.
+  if (BtrieveDriver *driver = getOpenDatabase(lpPositionBlock)) {
+    driver->releaseReadSnapshot();
+  }
+
+  if (error != BtrieveError::Success &&
+      !isExpectedReadStatus(btrieveCommand.operation, error)) {
+    debug(btrieveCommand, "%s (op %d, key %d) returned status %d (%s)",
+          toString(btrieveCommand.operation), btrieveCommand.operation,
+          btrieveCommand.keyNumber, error, errorToString(error));
   }
 
   return error;

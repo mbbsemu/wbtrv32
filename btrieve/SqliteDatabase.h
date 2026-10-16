@@ -1,4 +1,4 @@
-// 26.10.15.3B 10:20PM
+// 26.10.15.5B 11:20PM
 #ifndef __SQLITE_DATABASE_H_
 #define __SQLITE_DATABASE_H_
 
@@ -36,6 +36,8 @@ class SqliteDatabase : public SqlDatabase {
 
   virtual void setSourceFingerprint(
       const SourceFingerprint &fingerprint) override;
+
+  virtual void releaseStatements() override;
 
   virtual void beginTransaction() override;
   virtual void commitTransaction() override;

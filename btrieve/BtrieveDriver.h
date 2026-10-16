@@ -1,4 +1,4 @@
-// 26.10.15.4B 10:45PM
+// 26.10.15.5B 11:20PM
 #ifndef __BTRIEVE_DRIVER_H_
 #define __BTRIEVE_DRIVER_H_
 
@@ -104,6 +104,16 @@ class BtrieveDriver {
   }
 
   std::basic_string<wchar_t> getOpenedFilename() { return openedFilename; }
+
+  // Lets go of everything holding the file's read snapshot, so between
+  // Btrieve calls other programs can write the file and this one sees it.
+  // Key cursors resume from the current record on the next call.
+  void releaseReadSnapshot() {
+    if (previousQuery) {
+      previousQuery->suspend();
+    }
+    sqlDatabase->releaseStatements();
+  }
 
   void beginTransaction() { sqlDatabase->beginTransaction(); }
 

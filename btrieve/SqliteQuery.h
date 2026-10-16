@@ -1,3 +1,4 @@
+// 26.10.15.5B 11:20PM
 #ifndef __SQLITE_QUERY_H_
 #define __SQLITE_QUERY_H_
 
@@ -20,9 +21,22 @@ class SqliteQuery : public Query {
     this->reader = std::move(reader);
   }
 
+  // Lets go of the cursor between Btrieve calls. SqliteDatabase then resets
+  // the statement, so the connection holds no read snapshot while idle; the
+  // next call resumes just after the current record (see resume()).
+  virtual void suspend() override {
+    if (reader) {
+      reader.reset(nullptr);
+      suspended = true;
+    }
+  }
+
   virtual std::pair<bool, Record> next(
       CursorDirection cursorDirection) override {
-    if (this->cursorDirection != cursorDirection) {
+    if (suspended) {
+      suspended = false;
+      resume(cursorDirection);
+    } else if (this->cursorDirection != cursorDirection) {
       reader.reset(nullptr);
       changeDirection(cursorDirection);
     }
@@ -100,9 +114,55 @@ class SqliteQuery : public Query {
     seekTo(position);
   }
 
+  // Reopens a suspended cursor at the record after (key, id) =
+  // (lastKey, position) in newDirection, the same order every key query
+  // uses. Unlike changeDirection() it needs no seek, so it is a single index
+  // lookup, and it still works when the current record has been deleted in
+  // the meantime (Btrieve then continues with its neighbour).
+  void resume(CursorDirection newDirection) {
+    this->cursorDirection = newDirection;
+    if (!lastKey ||
+        (newDirection != CursorDirection::Forward &&
+         newDirection != CursorDirection::Reverse)) {
+      return;
+    }
+
+    const std::string name = key->getSqliteKeyName();
+    const bool forward = newDirection == CursorDirection::Forward;
+    std::stringstream sql;
+    sql << "SELECT id, " << name << ", data FROM data_t WHERE ";
+    if (lastKey->isNull()) {
+      // NULL sorts first: forward runs through the rest of the NULLs and then
+      // every other key, reverse only through the earlier NULLs
+      if (forward) {
+        sql << "(" << name << " IS NULL AND id > @position) OR " << name
+            << " IS NOT NULL";
+      } else {
+        sql << name << " IS NULL AND id < @position";
+      }
+    } else {
+      // A row-value comparison is a single index range. Reverse leaves out
+      // NULL keys, as changeDirection() always has; no converted Major BBS
+      // file has any.
+      sql << "(" << name << ", id) " << (forward ? ">" : "<")
+          << " (@value, @position)";
+    }
+    sql << " ORDER BY " << name << (forward ? " ASC, id ASC" : " DESC, id DESC");
+
+    SqlitePreparedStatement &command =
+        database->getPreparedStatement(sql.str().c_str());
+    unsigned int parameter = 1;
+    if (!lastKey->isNull()) {
+      command.bindParameter(parameter++, *lastKey);
+    }
+    command.bindParameter(parameter, BindableValue(position));
+    setReader(command.executeReader());
+  }
+
   std::unique_ptr<BindableValue> lastKey;
   std::unique_ptr<Reader> reader;
   SqliteDatabase *database;
+  bool suspended = false;
 };
 }  // namespace btrieve
 #endif

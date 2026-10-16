@@ -1,4 +1,4 @@
-// 26.10.15.2B 08:57PM
+// 26.10.15.5B 11:20PM
 #include "BtrieveDriver.h"
 
 #include <stdlib.h>
@@ -22,6 +22,7 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <thread>
 
 #include "TestBase.h"
 
@@ -751,6 +752,52 @@ TEST_F(BtrieveDriverTest, RecordDeleteOneIteration) {
             BtrieveError::EndOfFile);
 
   ASSERT_EQ(driver.getPosition(), 4u);
+}
+
+// The BBS and a configuration utility open the same file from separate
+// processes (separate connections here). A write while the other side is
+// writing waits for it rather than failing, since a Btrieve error is fatal to
+// The Major BBS.
+TEST_F(BtrieveDriverTest, WriteWaitsForAnotherConnectionsWrite) {
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  BtrieveDriver board(new SqliteDatabase());
+  BtrieveDriver utility(new SqliteDatabase());
+  ASSERT_EQ(board.open(mbbsEmuDb.c_str()), BtrieveError::Success);
+  ASSERT_EQ(utility.open(mbbsEmuDb.c_str()), BtrieveError::Success);
+  // as WBTRV32.DLL does after every Btrieve call
+  board.releaseReadSnapshot();
+
+  auto insert = [](BtrieveDriver &driver, int32_t key1) {
+    MBBSEmuRecordStruct record;
+    memset(&record, 0, sizeof(record));
+    strcpy(record.key0, "Paladine");
+    record.key1 = key1;
+    snprintf(record.key2, sizeof(record.key2), "%d", key1);
+    try {
+      return driver
+          .insertRecord(std::basic_string_view<uint8_t>(
+              reinterpret_cast<uint8_t *>(&record), sizeof(record)))
+          .first;
+    } catch (const BtrieveException &ex) {
+      return ex.getError();
+    }
+  };
+
+  // the utility holds the write lock for a moment
+  utility.beginTransaction();
+  ASSERT_EQ(insert(utility, 31337), BtrieveError::Success);
+  std::thread release([&utility]() {
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    utility.commitTransaction();
+  });
+
+  const auto started = std::chrono::steady_clock::now();
+  EXPECT_EQ(insert(board, 31338), BtrieveError::Success);
+  // it waited for the utility rather than failing at once
+  EXPECT_GE(std::chrono::steady_clock::now() - started,
+            std::chrono::milliseconds(200));
+  release.join();
+  EXPECT_EQ(board.getRecordCount(), 6u);
 }
 
 TEST_F(BtrieveDriverTest, InsertionTest) {
@@ -1999,12 +2046,35 @@ static const std::vector<unsigned int> MBMGEPLT_KEY2_ORDER = {
     4, 5, 6,  9,  15, 17,          // key 2 == 3
 };
 
+// When set, the driver lets go of its read snapshot after every operation,
+// as WBTRV32.DLL does after every Btrieve call, so cursors must resume.
+static bool releaseBetweenCalls = false;
+
+static BtrieveError call(BtrieveDriver &driver, int keyNumber,
+                         std::basic_string_view<uint8_t> keyData,
+                         OperationCode operation) {
+  BtrieveError error = driver.performOperation(keyNumber, keyData, operation);
+  if (releaseBetweenCalls) {
+    driver.releaseReadSnapshot();
+  }
+  return error;
+}
+
+static BtrieveError seek(BtrieveDriver &driver, int keyNumber,
+                         unsigned int position) {
+  BtrieveError error = driver.logicalCurrencySeek(keyNumber, position);
+  if (releaseBetweenCalls) {
+    driver.releaseReadSnapshot();
+  }
+  return error;
+}
+
 static std::vector<unsigned int> collectPositions(BtrieveDriver &driver,
                                                   OperationCode continuation) {
   std::vector<unsigned int> positions;
   do {
     positions.push_back(driver.getPosition());
-  } while (driver.performOperation(2, std::basic_string_view<uint8_t>(),
+  } while (call(driver, 2, std::basic_string_view<uint8_t>(),
                                    continuation) == BtrieveError::Success);
   return positions;
 }
@@ -2016,45 +2086,45 @@ static void verifyMbmgepltKey2Ordering(BtrieveDriver &driver) {
   const std::vector<unsigned int> &forward = MBMGEPLT_KEY2_ORDER;
   const std::vector<unsigned int> reverse(forward.rbegin(), forward.rend());
 
-  ASSERT_EQ(driver.performOperation(2, std::basic_string_view<uint8_t>(),
+  ASSERT_EQ(call(driver, 2, std::basic_string_view<uint8_t>(),
                                     OperationCode::QueryFirst),
             BtrieveError::Success);
   EXPECT_EQ(collectPositions(driver, OperationCode::QueryNext), forward);
 
-  ASSERT_EQ(driver.performOperation(2, std::basic_string_view<uint8_t>(),
+  ASSERT_EQ(call(driver, 2, std::basic_string_view<uint8_t>(),
                                     OperationCode::QueryLast),
             BtrieveError::Success);
   EXPECT_EQ(collectPositions(driver, OperationCode::QueryPrevious), reverse);
 
   // MBBSEmu issue #641: agebtv(key 2 == 2) followed by qnxbtv
-  ASSERT_EQ(driver.performOperation(2, keyTwo, OperationCode::QueryEqual),
+  ASSERT_EQ(call(driver, 2, keyTwo, OperationCode::QueryEqual),
             BtrieveError::Success);
   EXPECT_EQ(collectPositions(driver, OperationCode::QueryNext),
             std::vector<unsigned int>(forward.begin() + 8, forward.end()));
 
   ASSERT_EQ(
-      driver.performOperation(2, keyTwo, OperationCode::QueryGreaterOrEqual),
+      call(driver, 2, keyTwo, OperationCode::QueryGreaterOrEqual),
       BtrieveError::Success);
   EXPECT_EQ(collectPositions(driver, OperationCode::QueryNext),
             std::vector<unsigned int>(forward.begin() + 8, forward.end()));
 
-  ASSERT_EQ(driver.performOperation(2, keyTwo, OperationCode::QueryGreater),
+  ASSERT_EQ(call(driver, 2, keyTwo, OperationCode::QueryGreater),
             BtrieveError::Success);
   EXPECT_EQ(collectPositions(driver, OperationCode::QueryNext),
             std::vector<unsigned int>(forward.begin() + 16, forward.end()));
 
-  ASSERT_EQ(driver.performOperation(2, keyTwo, OperationCode::QueryLessOrEqual),
+  ASSERT_EQ(call(driver, 2, keyTwo, OperationCode::QueryLessOrEqual),
             BtrieveError::Success);
   EXPECT_EQ(collectPositions(driver, OperationCode::QueryPrevious),
             std::vector<unsigned int>(reverse.begin() + 6, reverse.end()));
 
-  ASSERT_EQ(driver.performOperation(2, keyTwo, OperationCode::QueryLess),
+  ASSERT_EQ(call(driver, 2, keyTwo, OperationCode::QueryLess),
             BtrieveError::Success);
   EXPECT_EQ(collectPositions(driver, OperationCode::QueryPrevious),
             std::vector<unsigned int>(reverse.begin() + 14, reverse.end()));
 
   // changing direction in the middle of a run of duplicates
-  ASSERT_EQ(driver.performOperation(2, keyTwo, OperationCode::QueryEqual),
+  ASSERT_EQ(call(driver, 2, keyTwo, OperationCode::QueryEqual),
             BtrieveError::Success);
   ASSERT_EQ(driver.getPosition(), 1u);
   for (auto [operation, expectedPosition] :
@@ -2066,21 +2136,21 @@ static void verifyMbmgepltKey2Ordering(BtrieveDriver &driver) {
            {OperationCode::QueryPrevious, 21},
            {OperationCode::QueryNext, 1},
        }) {
-    ASSERT_EQ(driver.performOperation(2, std::basic_string_view<uint8_t>(),
+    ASSERT_EQ(call(driver, 2, std::basic_string_view<uint8_t>(),
                                       operation),
               BtrieveError::Success);
     EXPECT_EQ(driver.getPosition(), expectedPosition);
   }
 
   // gabbtv(position 12, key 2) followed by qnxbtv / qprbtv
-  ASSERT_EQ(driver.logicalCurrencySeek(2, 12), BtrieveError::Success);
-  ASSERT_EQ(driver.performOperation(2, std::basic_string_view<uint8_t>(),
+  ASSERT_EQ(seek(driver, 2, 12), BtrieveError::Success);
+  ASSERT_EQ(call(driver, 2, std::basic_string_view<uint8_t>(),
                                     OperationCode::QueryNext),
             BtrieveError::Success);
   EXPECT_EQ(driver.getPosition(), 13u);
 
-  ASSERT_EQ(driver.logicalCurrencySeek(2, 12), BtrieveError::Success);
-  ASSERT_EQ(driver.performOperation(2, std::basic_string_view<uint8_t>(),
+  ASSERT_EQ(seek(driver, 2, 12), BtrieveError::Success);
+  ASSERT_EQ(call(driver, 2, std::basic_string_view<uint8_t>(),
                                     OperationCode::QueryPrevious),
             BtrieveError::Success);
   EXPECT_EQ(driver.getPosition(), 11u);
@@ -2093,6 +2163,45 @@ TEST_F(BtrieveDriverTest, SeekByKeyDuplicatesOrderedByPosition) {
   ASSERT_EQ(driver.open(dat.c_str()), BtrieveError::Success);
 
   verifyMbmgepltKey2Ordering(driver);
+}
+
+// The same, letting go of the read snapshot between operations: cursors
+// resume from the current record and must give exactly the same order.
+TEST_F(BtrieveDriverTest, SeekByKeyDuplicatesOrderedAcrossCalls) {
+  BtrieveDriver driver(new SqliteDatabase());
+
+  auto dat = tempPath->copyToTempPath("assets/MBMGEPLT.DAT");
+  ASSERT_EQ(driver.open(dat.c_str()), BtrieveError::Success);
+
+  releaseBetweenCalls = true;
+  verifyMbmgepltKey2Ordering(driver);
+  releaseBetweenCalls = false;
+}
+
+// Btrieve continues with the deleted record's neighbour.
+TEST_F(BtrieveDriverTest, NextAfterDeletingCurrentRecordAcrossCalls) {
+  BtrieveDriver driver(new SqliteDatabase());
+
+  auto dat = tempPath->copyToTempPath("assets/MBMGEPLT.DAT");
+  ASSERT_EQ(driver.open(dat.c_str()), BtrieveError::Success);
+  const std::vector<unsigned int> &forward = MBMGEPLT_KEY2_ORDER;
+
+  releaseBetweenCalls = true;
+  ASSERT_EQ(call(driver, 2, std::basic_string_view<uint8_t>(),
+                 OperationCode::AcquireFirst),
+            BtrieveError::Success);
+  ASSERT_EQ(call(driver, 2, std::basic_string_view<uint8_t>(),
+                 OperationCode::AcquireNext),
+            BtrieveError::Success);
+  ASSERT_EQ(driver.getPosition(), forward[1]);
+  ASSERT_EQ(call(driver, -1, std::basic_string_view<uint8_t>(),
+                 OperationCode::Delete),
+            BtrieveError::Success);
+  ASSERT_EQ(call(driver, 2, std::basic_string_view<uint8_t>(),
+                 OperationCode::AcquireNext),
+            BtrieveError::Success);
+  EXPECT_EQ(driver.getPosition(), forward[2]);
+  releaseBetweenCalls = false;
 }
 
 // Duplicate ordering must not depend on SQLite happening to walk the key's
