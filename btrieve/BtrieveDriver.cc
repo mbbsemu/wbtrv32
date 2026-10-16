@@ -1,4 +1,4 @@
-// 26.10.15.2B 08:57PM
+// 26.10.15.4B 10:45PM
 #include "BtrieveDriver.h"
 
 #include <sys/stat.h>
@@ -158,6 +158,36 @@ static std::string displayName(const std::filesystem::path &path) {
 
 static std::string statusText(BtrieveError error) {
   return "status " + std::to_string(static_cast<int>(error));
+}
+
+std::filesystem::path retireDatabase(const std::filesystem::path &datPath,
+                                     const std::filesystem::path &dbPath,
+                                     const std::string &reason) {
+  const std::filesystem::path oldDb = retireDb(datPath, dbPath);
+  if (oldDb.empty()) {
+    logConversion(datPath, reason + ", but " + displayName(dbPath) +
+                               " could not be moved aside");
+  } else {
+    logConversion(datPath, reason + "; previous " + displayName(dbPath) +
+                               " moved to " +
+                               toStdString(oldDb.parent_path().filename()) +
+                               "\\" + displayName(oldDb));
+  }
+  return oldDb;
+}
+
+void writeDatPlaceholder(const std::filesystem::path &datPath,
+                         const std::filesystem::path &dbPath) {
+  std::ofstream placeholder(datPath, std::ios::binary);
+  placeholder << "This is not a Btrieve file. WBTRV32.DLL keeps the data for "
+              << displayName(datPath) << " in " << displayName(dbPath)
+              << ".\r\nLeave it in place: programs look for it to tell "
+                 "whether the file exists.\r\n";
+}
+
+std::optional<SourceFingerprint> sourceFingerprint(
+    const std::filesystem::path &datPath) {
+  return fingerprint(datPath, true);
 }
 
 BtrieveError BtrieveDriver::open(const wchar_t *fileName, OpenMode openMode) {

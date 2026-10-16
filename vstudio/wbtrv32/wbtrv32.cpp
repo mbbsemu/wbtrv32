@@ -1,4 +1,4 @@
-// 26.10.15.3B 10:20PM
+// 26.10.15.4B 10:45PM
 // wbtrv32.cpp : Defines the exported functions for the DLL.
 //
 #include "wbtrv32.h"
@@ -202,6 +202,16 @@ static void AddToOpenFiles(BtrieveCommand &command,
   memcpy(command.lpPositionBlock, &guid, sizeof(GUID));
 }
 
+// Whether .DATs are tracked: fingerprinted as the source of their .DB, and
+// written as placeholders by Create. WBTRV32_DAT_TRACKING=0 is set by the
+// parity shim, where stock Btrieve keeps writing the .DATs.
+static bool trackSourceFiles() {
+  wchar_t tracking[8];
+  return GetEnvironmentVariableW(L"WBTRV32_DAT_TRACKING", tracking,
+                                 ARRAYSIZE(tracking)) == 0 ||
+         wcscmp(tracking, L"0") != 0;
+}
+
 static BtrieveError Open(BtrieveCommand &command) {
   wchar_t fullPathFileName[MAX_PATH];
 
@@ -234,16 +244,8 @@ static BtrieveError Open(BtrieveCommand &command) {
     }
   }
 
-  // WBTRV32_DAT_TRACKING=0 is set by the parity shim, where stock Btrieve keeps
-  // writing the .DATs
-  wchar_t tracking[8];
-  const bool trackSourceFile =
-      GetEnvironmentVariableW(L"WBTRV32_DAT_TRACKING", tracking,
-                              ARRAYSIZE(tracking)) == 0 ||
-      wcscmp(tracking, L"0") != 0;
-
   std::shared_ptr<BtrieveDriver> driver = std::make_shared<BtrieveDriver>(
-      new SqliteDatabase(), trackSourceFile);
+      new SqliteDatabase(), trackSourceFiles());
 
   BtrieveError error = driver->open(fullPathFileName, openMode);
   if (error != BtrieveError::Success) {
@@ -630,11 +632,13 @@ static BtrieveError Create(BtrieveCommand &command) {
   std::filesystem::path dbPath = std::filesystem::path(fullPathFileName)
                                      .replace_extension(sql.getFileExtension());
 
-  if (command.keyNumber == -1) {
-    if (FileExists(fullPathFileName) ||
-        FileExists(toWideString(dbPath).c_str())) {
-      return BtrieveError::FileAlreadyExists;
-    }
+  // Key number -1 means fail if the file exists. As with stock Btrieve, that
+  // is decided by the .DAT: a .DB left without one belongs to a file that was
+  // deleted (or created before Create wrote placeholders), and is moved aside
+  // below rather than reused.
+  const bool datExists = !inMemory && FileExists(fullPathFileName);
+  if (command.keyNumber == -1 && datExists) {
+    return BtrieveError::FileAlreadyExists;
   }
 
   std::vector<wbtrv32::LPACSCREATEDATA> clientProvidedAcs;
@@ -715,7 +719,26 @@ static BtrieveError Create(BtrieveCommand &command) {
                            recordType, true, 0);
 
   if (!inMemory) {
+    if (command.keyNumber == -1 && FileExists(toWideString(dbPath).c_str()) &&
+        retireDatabase(fullPathFileName, dbPath,
+                       toStdString(std::filesystem::path(fullPathFileName)
+                                       .filename()) +
+                           " was missing and has been created afresh")
+            .empty()) {
+      return BtrieveError::FileAlreadyExists;
+    }
+
     sql.create(toWideString(dbPath).c_str(), database);
+
+    // under the parity shim stock Btrieve writes the real .DAT
+    if (trackSourceFiles()) {
+      if (!datExists) {
+        writeDatPlaceholder(fullPathFileName, dbPath);
+      }
+      if (auto source = sourceFingerprint(fullPathFileName)) {
+        sql.setSourceFingerprint(*source);
+      }
+    }
     return BtrieveError::Success;
   }
 

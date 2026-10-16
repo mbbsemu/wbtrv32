@@ -1,4 +1,4 @@
-// 26.10.15.3B 10:20PM
+// 26.10.15.4B 10:45PM
 // wbtrv32.rc : Windows version information embedded in WBTRV32.DLL, so a
 // sysop can see exactly which build is installed (Explorer > Properties >
 // Details). Bump the version on every build that leaves this machine.
@@ -6,8 +6,8 @@
 
 #include <winver.h>
 
-#define WBTRV32_VERSION_BIN 26,10,15,3
-#define WBTRV32_VERSION_STR "26.10.15.3B"
+#define WBTRV32_VERSION_BIN 26,10,15,4
+#define WBTRV32_VERSION_STR "26.10.15.4B"
 
 VS_VERSION_INFO VERSIONINFO
  FILEVERSION WBTRV32_VERSION_BIN
