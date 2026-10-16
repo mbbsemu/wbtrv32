@@ -158,6 +158,13 @@ We welcome contributions to enhance this project:
 	- Join the discussion on our [Discord](https://discord.gg/BgjxMD5)!
     - Share insights and usage experiences.
 
+## Tips / Donations
+
+If this project helps you, tips are appreciated:
+
+- Cash App: https://cash.app/$laudenbachm
+- Ko-fi: https://ko-fi.com/laudenbachm
+
 ## License
 
 This project is licensed under the MIT License. You are free to use, modify, and distribute this software under the terms of the license.

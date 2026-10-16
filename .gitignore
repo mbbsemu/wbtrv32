@@ -7,3 +7,5 @@ vstudio/packages/
 vstudio/.vs/
 vstudio/**/*.user
 nuget/dist/
+# Release archives (regenerated from DIST/<version>/ contents)
+DIST/*.zip

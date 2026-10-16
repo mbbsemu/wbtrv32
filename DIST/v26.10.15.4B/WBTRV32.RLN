@@ -1,0 +1,237 @@
+WBTRV32.DLL v26.10.15.4B (beta) - Release Notes
+SQLite driver for The Major BBS v10
+Copyright (c) 2024 The MajorBBS Emulation Project
+Copyright (c) 2026 Sysop Network
+MIT License - see LICENSE.TXT
+
+=======================================================================
+  READ THIS FIRST - BETA SOFTWARE
+=======================================================================
+
+  * This is a BETA build for developers and test boards. It replaces
+    the Btrieve database engine underneath The Major BBS and every
+    module you run, so a problem here can affect all of your data.
+
+  * BACK UP YOUR WHOLE BBS DIRECTORY BEFORE INSTALLING (for example,
+    copy C:\BBSV10 to C:\BBSV10-BACKUP with the BBS shut down). Check
+    that the copy opens and is complete before you go on.
+
+  * Do NOT install this on a production (public) board unless you are
+    certain you have a working, recent backup and you are prepared to
+    restore it. Try it on a copy of your board first.
+
+  * While this driver is installed, everything your board writes goes
+    into new .db files. Your original .DAT files are left exactly as
+    they were and are NOT updated. There is no tool yet to copy the
+    .db data back into .DAT files: going back to stock Btrieve means
+    restoring your backup and losing what changed since you installed.
+
+  * This build (4B) has run on the author's test boards, including a
+    cleanup and restart. It does NOT have 5B's
+    fix for programs sharing files: run configuration utilities (menu
+    tree, configuration, reports) ONLY while the BBS is shut down.
+
+=======================================================================
+  WHAT IT IS
+=======================================================================
+
+WBTRV32.DLL is a drop-in replacement for the Btrieve 6 WBTRV32.DLL that
+The Major BBS v10 ships with. It answers every Btrieve call the same way
+stock Btrieve does, but keeps the data in SQLite databases instead of
+Btrieve .DAT files. Your data can then be read live with any SQLite
+tool while the BBS runs.
+
+The first time each file is opened, its FOO.DAT is converted to a new
+FOO.db beside it. The .DAT is never changed. From then on the .db is
+the live copy of that file.
+
+It is derived from the wbtrv32 driver of The Major BBS Emulation
+Project (MBBSEmu), with compatibility work for The Major BBS v10 and
+its add-on modules.
+
+=======================================================================
+  WHAT'S NEW IN 4B
+=======================================================================
+
+  * Fixes "BTRIEVE CREATE ERROR 59" after a restart. Many modules
+    decide whether a Btrieve file exists by looking for its .DAT, then
+    create it if it is missing. The driver only wrote the .db, so the
+    module tried to create the file again on the next start. When a
+    module creates a file, the driver now also writes a small
+    placeholder .DAT (see FILES THE DRIVER CREATES).
+  * If a module re-creates a file whose .DAT was deleted, the old .db
+    is moved into "CONVERTED DATABASES" first, as stock Btrieve would
+    have started an empty file.
+
+=======================================================================
+  REQUIREMENTS
+=======================================================================
+
+  * The Major BBS v10 (32-bit). This DLL is 32-bit only.
+  * Windows with the Microsoft Visual C++ 2015-2022 Redistributable
+    (x86). The Major BBS v10 installer already installs it; if Windows
+    reports VCRUNTIME140.dll or MSVCP140.dll missing, install
+    vc_redist.x86.exe from Microsoft.
+  * Free disk space of at least the total size of your .DAT files, for
+    the .db copies.
+
+=======================================================================
+  INSTALLING
+=======================================================================
+
+  1. Shut the BBS down completely, along with any utilities you have
+     open (configuration, menu tree, reports).
+  2. BACK UP your whole BBS directory, as described above.
+  3. In the BBS directory, rename the existing WBTRV32.DLL to
+     WBTRV32.DLL.STOCK. Keep it - it is how you go back.
+     (The stock Btrieve 6 DLL is 64,000 bytes, dated 9/19/1996.)
+  4. Copy WBTRV32.DLL from this package into the BBS directory.
+  5. Check it: right-click WBTRV32.DLL > Properties > Details should
+     show "Btrieve-compatible SQLite database driver" and version
+     26.10.15.4B. You can compare SHA256SUMS.TXT with:
+       certutil -hashfile WBTRV32.DLL SHA256
+  6. Start the BBS. The first start converts every .DAT the BBS opens,
+     which takes longer than usual on large files. Each data directory
+     gets a "CONVERTED DATABASES" folder with CONVERSIONS.LOG, listing
+     every file converted and how many records it holds.
+  7. Use the board, and keep an eye on the screen and on wbtrv32.log.
+
+=======================================================================
+  UNINSTALLING
+=======================================================================
+
+The safe way back (recommended):
+
+  1. Shut the BBS down completely.
+  2. Restore the backup you made before installing.
+     Anything that changed while this driver was installed is lost.
+
+Going back to stock without a restore (only if you accept losing every
+change made while this driver was installed):
+
+  1. Shut the BBS down completely.
+  2. Delete WBTRV32.DLL and rename WBTRV32.DLL.STOCK back to
+     WBTRV32.DLL.
+  3. Delete the placeholder .DAT files this driver created for files
+     made while it was installed. They are tiny text files beginning
+     "This is not a Btrieve file", and stock Btrieve cannot open them.
+     To list them, from PowerShell in the BBS directory:
+       Get-ChildItem -Recurse -Filter *.dat | Where-Object {
+         (Get-Content $_.FullName -TotalCount 1) -like
+         'This is not a Btrieve file*' }
+  4. You may then delete the .db, .db-wal and .db-shm files and the
+     "CONVERTED DATABASES" folders.
+
+=======================================================================
+  FILES THE DRIVER CREATES
+=======================================================================
+
+  FOO.db (and while running FOO.db-wal, FOO.db-shm)
+      The live data for FOO.DAT. Never delete these while the BBS runs.
+  Placeholder FOO.DAT
+      When a module creates a new Btrieve file, the driver also writes a
+      small text FOO.DAT, because modules check for the .DAT to decide
+      whether the file exists. Leave it in place.
+  CONVERTED DATABASES\CONVERSIONS.LOG
+      One per data directory: every conversion, with record counts.
+  CONVERTED DATABASES\<date-time>\FOO.db
+      An earlier FOO.db, kept when a different FOO.DAT was put in its
+      place (a module upgrade or a restore) and converted afresh, or
+      when a module re-created a file whose .DAT had been deleted.
+      Nothing is ever thrown away.
+  wbtrv32.log
+      In the BBS directory. In 4B it records every file opened and
+      every call that returned a non-zero status, including normal
+      answers such as "record not found" (status 4) and "end of file"
+      (status 9), and it grows without limit: delete it now and then
+      while the BBS is down.
+
+=======================================================================
+  HOW TO TELL WHICH DRIVER IS INSTALLED
+=======================================================================
+
+  * Right-click WBTRV32.DLL > Properties > Details. This driver shows
+    "Btrieve-compatible SQLite database driver" and its version (later
+    versions show "SQLite driver for The Major BBS v10").
+    Stock Btrieve is 64,000 bytes, dated 9/19/1996.
+  * With this driver, .db files appear next to your .DAT files, and
+    "CONVERTED DATABASES" folders appear in your data directories.
+  * A wbtrv32.log appears in the BBS directory.
+  * A .db file is a SQLite database: its first bytes read
+    "SQLite format 3". A stock .DAT is binary Btrieve data.
+
+=======================================================================
+  BROWSING THE DATA
+=======================================================================
+
+Any SQLite tool can open the .db files, for example:
+
+  * DB Browser for SQLite (free): https://sqlitebrowser.org
+  * SQLiteStudio (free): https://sqlitestudio.pl
+  * The sqlite3 command-line program: https://sqlite.org
+
+Each .db holds:
+
+  data_t      one row per Btrieve record: id is the record's position,
+              data is the raw record (the same bytes, in the same
+              layout, as the module's own record structure), and
+              key_0, key_1, ... are the record's key values
+  keys_t      the key definitions
+  metadata_t  record length, page size, fixed or variable records
+  source_t    which .DAT the file was converted from
+
+To be safe, open files READ-ONLY (in DB Browser: File > Open Database
+Read Only). Never edit a .db while the BBS is running; an edit that
+breaks a module's assumptions can take the board down. To look without
+any risk, copy the .db (with its .db-wal, if there is one) somewhere
+else and open the copy.
+
+=======================================================================
+  KNOWN LIMITATIONS
+=======================================================================
+
+  * Records with exactly the same key value can be listed in a
+    different order than stock Btrieve lists them, for files converted
+    from .DAT. Lookups are not affected.
+  * Btrieve transactions are supported, but each file is committed
+    separately, so a crash in the middle of ending a transaction can
+    keep some files' changes and not others.
+  * Record locks are accepted and ignored. The Major BBS runs every
+    user on one thread, so it does not depend on them.
+  * Btrieve files that use data compression cannot be converted.
+  * Run configuration utilities only while the BBS is shut down. With
+    the BBS running, the BBS may keep using old data and can stop with
+    "BTRIEVE ... ERROR 2" on its next write to that file (fixed in 5B).
+  * Get Next after deleting the current record can return "end of
+    file" in some sequences (fixed in 5B).
+
+=======================================================================
+  REPORTING PROBLEMS
+=======================================================================
+
+If the BBS stops with "BTRIEVE <operation> ERROR <number> ON FILE
+<name>", please send:
+
+  * the exact message,
+  * wbtrv32.log from the BBS directory,
+  * the CONVERSIONS.LOG from the data directory of that file,
+  * what you were doing, and which module.
+
+=======================================================================
+  VERSION HISTORY
+=======================================================================
+
+  26.10.15.4B  Create writes a placeholder .DAT, fixing "BTRIEVE
+               CREATE ERROR 59" (above).
+  26.10.15.3B  Btrieve transactions (Begin/End/Abort) supported.
+  26.10.15.2B  A different .DAT put in place of a converted one is
+               converted afresh, keeping the old .db in "CONVERTED
+               DATABASES"; conversion log.
+  26.10.15.1B  Large Btrieve 6 files whose page tables are moved by
+               stray pages convert completely.
+  26.10.13.xB  Matching stock Btrieve on record positions, lock biases,
+               key ordering and data lengths, found by running boards
+               against stock Btrieve call for call.
+
+WBTRV32.DLL for The Major BBS v10 is developed and maintained by Mark
+Laudenbach at Sysop Network, building on the MBBSEmu project's work.
