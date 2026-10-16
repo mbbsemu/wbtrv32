@@ -1,3 +1,4 @@
+// 26.10.15.3B 10:20PM
 #ifndef __ERROR_CODES_H_
 #define __ERROR_CODES_H_
 
@@ -35,6 +36,8 @@ enum BtrieveError {
   BadKeyLength = 29,
   NotBtrieveFile = 30,
   TransactionIsActive = 37,
+  // End or Abort Transaction with no transaction active
+  TransactionNotActive = 39,
   /* Btrieve version 5.x returns this status code
 if you attempt to perform a Step, Update, or Delete operation on a
 key-only file or a Get operation on a data only file */

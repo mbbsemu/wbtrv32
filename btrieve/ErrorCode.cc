@@ -1,3 +1,4 @@
+// 26.10.15.3B 10:20PM
 #include "ErrorCode.h"
 
 #include <cstdio>
@@ -39,6 +40,7 @@ const char* errorToString(BtrieveError errorCode) {
     HANDLE_ERROR_CODE(BadKeyLength);
     HANDLE_ERROR_CODE(NotBtrieveFile);
     HANDLE_ERROR_CODE(TransactionIsActive);
+    HANDLE_ERROR_CODE(TransactionNotActive);
     HANDLE_ERROR_CODE(OperationNotAllowed);
     HANDLE_ERROR_CODE(InvalidRecordAddress);
     HANDLE_ERROR_CODE(InvalidKeyPath);

@@ -1,4 +1,4 @@
-// 26.10.15.2B 08:57PM
+// 26.10.15.3B 10:20PM
 #ifndef __BTRIEVE_DRIVER_H_
 #define __BTRIEVE_DRIVER_H_
 
@@ -86,6 +86,15 @@ class BtrieveDriver {
   }
 
   std::basic_string<wchar_t> getOpenedFilename() { return openedFilename; }
+
+  void beginTransaction() { sqlDatabase->beginTransaction(); }
+
+  void commitTransaction() { sqlDatabase->commitTransaction(); }
+
+  void rollbackTransaction() {
+    previousQuery.reset();
+    sqlDatabase->rollbackTransaction();
+  }
 
  private:
   BtrieveError refreshFromChangedSource(const wchar_t *fileName,

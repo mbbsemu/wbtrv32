@@ -1,4 +1,4 @@
-﻿// 26.10.12.1B 02:53PM
+﻿// 26.10.15.3B 10:20PM
 #ifndef __OPERATION_CODES_H_
 #define __OPERATION_CODES_H_
 
@@ -118,6 +118,12 @@ enum OperationCode {
 
   //[QueryOnly]
   WITH_RECORD_LOCK(QueryLast, 0x3F),
+
+  // Transactions span every file the client writes until End or Abort. A
+  // lock bias (+100/+200) on Begin is accepted and ignored.
+  WITH_RECORD_LOCK(BeginTransaction, 0x13),
+  EndTransaction = 0x14,
+  AbortTransaction = 0x15,
 
   Stop = 0x19,
 

@@ -1,4 +1,4 @@
-// 26.10.12.1B 02:53PM
+// 26.10.15.3B 10:20PM
 #include "OperationCode.h"
 
 #include <cstdio>
@@ -123,6 +123,9 @@ const char* toString(OperationCode operationCode) {
     HANDLE_OPERATION_CODE_WITH_RECORD_LOCK(QueryLessOrEqual);
     HANDLE_OPERATION_CODE_WITH_RECORD_LOCK(QueryFirst);
     HANDLE_OPERATION_CODE_WITH_RECORD_LOCK(QueryLast);
+    HANDLE_OPERATION_CODE_WITH_RECORD_LOCK(BeginTransaction);
+    HANDLE_OPERATION_CODE(EndTransaction);
+    HANDLE_OPERATION_CODE(AbortTransaction);
     HANDLE_OPERATION_CODE(Stop);
     HANDLE_OPERATION_CODE(Unlock);
     HANDLE_OPERATION_CODE(None);
