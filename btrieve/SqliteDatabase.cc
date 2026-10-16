@@ -1,4 +1,4 @@
-// 26.10.13.4B 06:53PM
+// 26.10.15.2B 08:57PM
 #include "SqliteDatabase.h"
 
 #include <atomic>
@@ -616,6 +616,49 @@ void SqliteDatabase::close() {
   insertSql.clear();
   updateSql.clear();
   cache.clear();
+}
+
+// source_t is optional: databases converted before it existed, and those made
+// by Create, have none. Readers that don't know it ignore it, so adding it
+// needs no version change.
+std::optional<SourceFingerprint> SqliteDatabase::getSourceFingerprint() {
+  {
+    SqlitePreparedStatement command(
+        database,
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND "
+        "name = 'source_t'");
+    if (!command.executeReader()->read()) {
+      return std::nullopt;
+    }
+  }
+
+  SqlitePreparedStatement command(database,
+                                  "SELECT size, modified, hash FROM source_t");
+  std::unique_ptr<SqliteReader> reader = command.executeReader();
+  if (!reader->read()) {
+    return std::nullopt;
+  }
+  return SourceFingerprint{reader->getInt64(0), reader->getInt64(1),
+                           reader->getInt64(2)};
+}
+
+void SqliteDatabase::setSourceFingerprint(
+    const SourceFingerprint &fingerprint) {
+  SqlitePreparedStatement(database,
+                          "CREATE TABLE IF NOT EXISTS source_t(size INTEGER "
+                          "NOT NULL, modified INTEGER NOT NULL, hash INTEGER "
+                          "NOT NULL)")
+      .execute();
+  SqlitePreparedStatement(database, "DELETE FROM source_t").execute();
+
+  SqlitePreparedStatement command(
+      database,
+      "INSERT INTO source_t(size, modified, hash) VALUES(@size, @modified, "
+      "@hash)");
+  command.bindParameter(1, BindableValue(fingerprint.size));
+  command.bindParameter(2, BindableValue(fingerprint.modified));
+  command.bindParameter(3, BindableValue(fingerprint.hash));
+  command.execute();
 }
 
 SqlitePreparedStatement &SqliteDatabase::getPreparedStatement(

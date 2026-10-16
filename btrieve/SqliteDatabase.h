@@ -1,4 +1,4 @@
-// 26.10.13.4B 06:53PM
+// 26.10.15.2B 08:57PM
 #ifndef __SQLITE_DATABASE_H_
 #define __SQLITE_DATABASE_H_
 
@@ -31,6 +31,11 @@ class SqliteDatabase : public SqlDatabase {
       const wchar_t *fileName, const BtrieveDatabase &database) override;
 
   virtual void close() override;
+
+  virtual std::optional<SourceFingerprint> getSourceFingerprint() override;
+
+  virtual void setSourceFingerprint(
+      const SourceFingerprint &fingerprint) override;
 
   virtual BtrieveError stepFirst() override;
   virtual BtrieveError stepLast() override;

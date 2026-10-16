@@ -1,4 +1,4 @@
-// 26.10.13.4B 06:53PM
+// 26.10.15.2B 08:57PM
 // Parity shim: installed as WBTRV32.DLL, it forwards every BTRCALL to two
 // real implementations and reports where they disagree.
 //
@@ -227,6 +227,9 @@ bool attach(HMODULE self) {
 
   hAuthoritative =
       loadImplementation(dir + "authoritative\\WBTRV32.DLL", &authoritative);
+  // stock Btrieve writes the .DATs here, so they never match what the .DBs
+  // were converted from; stop the comparative side reconverting on every open
+  SetEnvironmentVariableA("WBTRV32_DAT_TRACKING", "0");
   hComparative =
       loadImplementation(dir + "comparative\\WBTRV32.DLL", &comparative);
   return hAuthoritative != NULL && hComparative != NULL;
