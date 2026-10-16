@@ -129,7 +129,7 @@ TEST_F(BtrieveDriverTest, LoadsAndConverts) {
   ASSERT_EQ(sqlite_exec(db, "SELECT version FROM metadata_t",
                         [](int numResults, char **data, char **columns) {
                           ASSERT_EQ(numResults, 1);
-                          ASSERT_STREQ(data[0], "3");
+                          ASSERT_STREQ(data[0], "4");
                         }),
             SQLITE_OK);
 
@@ -2341,4 +2341,386 @@ TEST_F(BtrieveDriverTest, SeekByKeyInvalidKey) {
 
   ASSERT_EQ(driver.performOperation(4, key, OperationCode::QueryLessOrEqual),
             BtrieveError::InvalidKeyNumber);
+}
+
+#pragma pack(push, 1)
+typedef struct _tagCompositeRecordStruct {
+  int16_t a;
+  char name[8];
+  uint32_t b;
+  uint16_t padding;
+} CompositeRecordStruct;
+#pragma pack(pop)
+
+static_assert(sizeof(CompositeRecordStruct) == 16);
+
+static std::vector<uint8_t> createCompositeRecord(int16_t a, const char *name,
+                                                  uint32_t b) {
+  CompositeRecordStruct record;
+  memset(&record, 0, sizeof(record));
+  record.a = a;
+  strncpy(record.name, name, sizeof(record.name));
+  record.b = b;
+
+  auto data = reinterpret_cast<const uint8_t *>(&record);
+  return std::vector<uint8_t>(data, data + sizeof(record));
+}
+
+// key 0 is (a, name), key 1 is (b, a)
+static std::vector<uint8_t> createCompositeKey0(int16_t a, const char *name) {
+  auto record = createCompositeRecord(a, name, 0);
+  record.resize(offsetof(CompositeRecordStruct, b));
+  return record;
+}
+
+static std::vector<uint8_t> createCompositeKey1(uint32_t b, int16_t a) {
+  std::vector<uint8_t> key(sizeof(b) + sizeof(a));
+  memcpy(key.data(), &b, sizeof(b));
+  memcpy(key.data() + sizeof(b), &a, sizeof(a));
+  return key;
+}
+
+static std::vector<Key> createCompositeKeys() {
+  std::vector<Key> keys;
+
+  KeyDefinition key0[2] = {
+      KeyDefinition(0, 2, 0, KeyDataType::Integer,
+                    UseExtendedDataType | SegmentedKey, true, 0, 0, 0, "",
+                    std::vector<char>()),
+      KeyDefinition(0, 8, 2, KeyDataType::Zstring, UseExtendedDataType, false,
+                    0, 1, 0, "", std::vector<char>())};
+  keys.push_back(Key(key0, 2));
+
+  KeyDefinition key1[2] = {
+      KeyDefinition(
+          1, 4, 10, KeyDataType::Unsigned,
+          UseExtendedDataType | Duplicates | Modifiable | SegmentedKey, true, 1,
+          0, 0, "", std::vector<char>()),
+      KeyDefinition(1, 2, 0, KeyDataType::Integer,
+                    UseExtendedDataType | Duplicates | Modifiable, false, 1, 1,
+                    0, "", std::vector<char>())};
+  keys.push_back(Key(key1, 2));
+
+  return keys;
+}
+
+static BtrieveDatabase createCompositeBtrieveDatabase() {
+  return BtrieveDatabase(
+      createCompositeKeys(), 512, 1, sizeof(CompositeRecordStruct),
+      sizeof(CompositeRecordStruct), 0, 512, RecordType::Fixed, false, 0);
+}
+
+// Values chosen so that comparing the segments' raw little endian bytes, as a
+// single blob would, orders them incorrectly.
+static const struct {
+  int16_t a;
+  const char *name;
+  uint32_t b;
+} COMPOSITE_RECORDS[] = {
+    {256, "x", 0x100},     // position 1
+    {1, "x", 1},           // position 2
+    {-1, "x", 1},          // position 3
+    {2, "x", 0x10000},     // position 4
+    {1, "b", 0xFFFFFFFF},  // position 5
+    {1, "a", 1},           // position 6
+};
+
+// positions sorted by (a, name)
+static const unsigned int COMPOSITE_KEY0_ORDER[] = {3, 6, 5, 2, 4, 1};
+// positions sorted by (b, a), duplicates by position
+static const unsigned int COMPOSITE_KEY1_ORDER[] = {3, 2, 6, 1, 4, 5};
+
+static void insertCompositeRecords(BtrieveDriver &driver) {
+  unsigned int position = 1;
+  for (auto &record : COMPOSITE_RECORDS) {
+    auto data = createCompositeRecord(record.a, record.name, record.b);
+    ASSERT_EQ(driver.insertRecord(
+                  std::basic_string_view<uint8_t>(data.data(), data.size())),
+              std::make_pair(BtrieveError::Success, position++));
+  }
+}
+
+static void verifyCompositeOrdering(BtrieveDriver &driver, int keyNumber,
+                                    const unsigned int *expected,
+                                    size_t numExpected) {
+  std::basic_string_view<uint8_t> unused;
+
+  ASSERT_EQ(
+      driver.performOperation(keyNumber, unused, OperationCode::QueryFirst),
+      BtrieveError::Success);
+  ASSERT_EQ(driver.getPosition(), expected[0]);
+  for (size_t i = 1; i < numExpected; ++i) {
+    ASSERT_EQ(
+        driver.performOperation(keyNumber, unused, OperationCode::QueryNext),
+        BtrieveError::Success);
+    ASSERT_EQ(driver.getPosition(), expected[i]);
+  }
+  ASSERT_EQ(
+      driver.performOperation(keyNumber, unused, OperationCode::QueryNext),
+      BtrieveError::EndOfFile);
+
+  ASSERT_EQ(
+      driver.performOperation(keyNumber, unused, OperationCode::QueryLast),
+      BtrieveError::Success);
+  ASSERT_EQ(driver.getPosition(), expected[numExpected - 1]);
+  for (size_t i = numExpected - 1; i > 0; --i) {
+    ASSERT_EQ(driver.performOperation(keyNumber, unused,
+                                      OperationCode::QueryPrevious),
+              BtrieveError::Success);
+    ASSERT_EQ(driver.getPosition(), expected[i - 1]);
+  }
+  ASSERT_EQ(
+      driver.performOperation(keyNumber, unused, OperationCode::QueryPrevious),
+      BtrieveError::EndOfFile);
+}
+
+static std::basic_string_view<uint8_t> view(const std::vector<uint8_t> &data) {
+  return std::basic_string_view<uint8_t>(data.data(), data.size());
+}
+
+class CompositeKeyTest : public BtrieveDriverTest {
+ protected:
+  virtual void SetUp() override {
+    BtrieveDriverTest::SetUp();
+
+    database = new SqliteDatabase(SQLITE_OPEN_MEMORY);
+    driver.reset(new BtrieveDriver(database));
+
+    auto recordLoader =
+        database->create(_TEXT("unused.db"), createCompositeBtrieveDatabase());
+    recordLoader->onRecordsComplete();
+
+    insertCompositeRecords(*driver);
+  }
+
+  SqliteDatabase *database;
+  std::unique_ptr<BtrieveDriver> driver;
+};
+
+TEST_F(CompositeKeyTest, OrdersSegmentsByValue) {
+  verifyCompositeOrdering(*driver, 0, COMPOSITE_KEY0_ORDER,
+                          std::size(COMPOSITE_KEY0_ORDER));
+  verifyCompositeOrdering(*driver, 1, COMPOSITE_KEY1_ORDER,
+                          std::size(COMPOSITE_KEY1_ORDER));
+}
+
+TEST_F(CompositeKeyTest, QueryEqual) {
+  ASSERT_EQ(driver->performOperation(0, view(createCompositeKey0(1, "b")),
+                                     OperationCode::QueryEqual),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 5u);
+
+  ASSERT_EQ(driver->performOperation(0, view(createCompositeKey0(256, "x")),
+                                     OperationCode::QueryEqual),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 1u);
+
+  ASSERT_EQ(driver->performOperation(0, view(createCompositeKey0(1, "c")),
+                                     OperationCode::QueryEqual),
+            BtrieveError::KeyValueNotFound);
+
+  ASSERT_EQ(driver->performOperation(1, view(createCompositeKey1(1, 1)),
+                                     OperationCode::QueryEqual),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 2u);
+}
+
+TEST_F(CompositeKeyTest, QueryRanges) {
+  auto key = createCompositeKey0(1, "a");
+  ASSERT_EQ(driver->performOperation(0, view(key), OperationCode::QueryGreater),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 5u);
+
+  ASSERT_EQ(driver->performOperation(0, view(key),
+                                     OperationCode::QueryGreaterOrEqual),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 6u);
+
+  key = createCompositeKey0(2, "x");
+  ASSERT_EQ(driver->performOperation(0, view(key), OperationCode::QueryLess),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 2u);
+
+  ASSERT_EQ(
+      driver->performOperation(0, view(key), OperationCode::QueryLessOrEqual),
+      BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 4u);
+
+  key = createCompositeKey0(256, "x");
+  ASSERT_EQ(driver->performOperation(0, view(key), OperationCode::QueryGreater),
+            BtrieveError::EndOfFile);
+
+  key = createCompositeKey0(-1, "x");
+  ASSERT_EQ(driver->performOperation(0, view(key), OperationCode::QueryLess),
+            BtrieveError::EndOfFile);
+}
+
+TEST_F(CompositeKeyTest, ChangeDirectionThroughDuplicates) {
+  std::basic_string_view<uint8_t> unused;
+
+  ASSERT_EQ(driver->performOperation(1, view(createCompositeKey1(1, 1)),
+                                     OperationCode::QueryEqual),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 2u);
+
+  ASSERT_EQ(driver->performOperation(1, unused, OperationCode::QueryNext),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 6u);
+
+  ASSERT_EQ(driver->performOperation(1, unused, OperationCode::QueryNext),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 1u);
+
+  ASSERT_EQ(driver->performOperation(1, unused, OperationCode::QueryPrevious),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 6u);
+
+  ASSERT_EQ(driver->performOperation(1, unused, OperationCode::QueryPrevious),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 2u);
+
+  ASSERT_EQ(driver->performOperation(1, unused, OperationCode::QueryPrevious),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 3u);
+
+  ASSERT_EQ(driver->performOperation(1, unused, OperationCode::QueryPrevious),
+            BtrieveError::EndOfFile);
+}
+
+TEST_F(CompositeKeyTest, UniqueAcrossAllSegments) {
+  auto record = createCompositeRecord(1, "a", 1234);
+  ASSERT_EQ(driver->insertRecord(view(record)),
+            std::make_pair(BtrieveError::DuplicateKeyValue, 0u));
+
+  // same first segment, different second segment is fine
+  record = createCompositeRecord(1, "c", 1234);
+  ASSERT_EQ(driver->insertRecord(view(record)),
+            std::make_pair(BtrieveError::Success, 7u));
+}
+
+TEST_F(CompositeKeyTest, UpdateNonModifiableSegmentFails) {
+  ASSERT_EQ(driver->performOperation(0, view(createCompositeKey0(1, "a")),
+                                     OperationCode::QueryEqual),
+            BtrieveError::Success);
+
+  // key 1 is modifiable
+  auto record = createCompositeRecord(1, "a", 1234);
+  ASSERT_EQ(database->updateRecord(6, view(record)), BtrieveError::Success);
+
+  // key 0's second segment isn't
+  record = createCompositeRecord(1, "z", 1234);
+  ASSERT_EQ(database->updateRecord(6, view(record)),
+            BtrieveError::NonModifiableKeyValue);
+}
+
+// Version 3 stored composite keys as a blob of the concatenated segment
+// bytes, opening one should rebuild the per-segment key columns.
+TEST_F(BtrieveDriverTest, UpgradesCompositeKeysFromVersion3) {
+  std::string dbPath = tempPath->getTempPath() + "/COMPOSITE.DB";
+
+  sqlite3 *db;
+  ASSERT_EQ(
+      sqlite3_open_v2(dbPath.c_str(), &db,
+                      SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr),
+      SQLITE_OK);
+
+  std::stringstream sql;
+  sql << "CREATE TABLE metadata_t(record_length INTEGER NOT NULL, "
+         "physical_record_length INTEGER NOT NULL, page_length INTEGER NOT "
+         "NULL, variable_length_records INTEGER NOT NULL, version INTEGER NOT "
+         "NULL);"
+      << "INSERT INTO metadata_t VALUES(16, 16, 512, 0, 3);"
+      << "CREATE TABLE keys_t(id INTEGER PRIMARY KEY, number INTEGER NOT "
+         "NULL, segment INTEGER NOT NULL, attributes INTEGER NOT NULL, "
+         "data_type INTEGER NOT NULL, offset INTEGER NOT NULL, length INTEGER "
+         "NOT NULL, null_value INTEGER NOT NULL, acs_name STRING, acs BLOB, "
+         "UNIQUE(number, segment));";
+  for (auto &key : createCompositeKeys()) {
+    for (auto &segment : key.getSegments()) {
+      sql << "INSERT INTO keys_t(number, segment, attributes, data_type, "
+             "offset, length, null_value) VALUES("
+          << segment.getNumber() << ", " << segment.getSegmentIndex() << ", "
+          << segment.getAttributes() << ", "
+          << static_cast<int>(segment.getDataType()) << ", "
+          << segment.getOffset() << ", " << segment.getLength() << ", 0);";
+    }
+  }
+  sql << "CREATE TABLE data_t(id INTEGER PRIMARY KEY, data BLOB NOT NULL, "
+         "key_0 BLOB NOT NULL UNIQUE, key_1 BLOB NOT NULL);"
+      << "CREATE UNIQUE INDEX key_0_index on data_t(key_0);"
+      << "CREATE INDEX key_1_index on data_t(key_1);"
+      << "CREATE TRIGGER non_modifiable BEFORE UPDATE ON data_t BEGIN SELECT "
+         "CASE WHEN NEW.key_0 != OLD.key_0 THEN RAISE (ABORT,'You modified a "
+         "non-modifiable key_0!') END; END;";
+  ASSERT_EQ(sqlite3_exec(db, sql.str().c_str(), nullptr, nullptr, nullptr),
+            SQLITE_OK);
+
+  // insert with the concatenated segment bytes version 3 used as keys
+  sqlite3_stmt *insert;
+  ASSERT_EQ(sqlite3_prepare_v2(db,
+                               "INSERT INTO data_t(id, data, key_0, key_1) "
+                               "VALUES(?, ?, ?, ?)",
+                               -1, &insert, nullptr),
+            SQLITE_OK);
+  sqlite3_int64 id = 1;
+  for (auto &record : COMPOSITE_RECORDS) {
+    auto data = createCompositeRecord(record.a, record.name, record.b);
+    auto key0 = createCompositeKey0(record.a, record.name);
+    auto key1 = createCompositeKey1(record.b, record.a);
+
+    sqlite3_reset(insert);
+    sqlite3_bind_int64(insert, 1, id++);
+    sqlite3_bind_blob(insert, 2, data.data(), data.size(), SQLITE_TRANSIENT);
+    sqlite3_bind_blob(insert, 3, key0.data(), key0.size(), SQLITE_TRANSIENT);
+    sqlite3_bind_blob(insert, 4, key1.data(), key1.size(), SQLITE_TRANSIENT);
+    ASSERT_EQ(sqlite3_step(insert), SQLITE_DONE);
+  }
+  sqlite3_finalize(insert);
+  sqlite3_close(db);
+
+  {
+    BtrieveDriver driver(new SqliteDatabase());
+    ASSERT_EQ(driver.open(toWideString(dbPath.c_str()).c_str()),
+              BtrieveError::Success);
+
+    verifyCompositeOrdering(driver, 0, COMPOSITE_KEY0_ORDER,
+                            std::size(COMPOSITE_KEY0_ORDER));
+    verifyCompositeOrdering(driver, 1, COMPOSITE_KEY1_ORDER,
+                            std::size(COMPOSITE_KEY1_ORDER));
+
+    // uniqueness and the non-modifiable trigger survive the rebuild
+    auto record = createCompositeRecord(1, "a", 1234);
+    ASSERT_EQ(driver.insertRecord(view(record)),
+              std::make_pair(BtrieveError::DuplicateKeyValue, 0u));
+  }
+
+  ASSERT_EQ(sqlite3_open_v2(dbPath.c_str(), &db, SQLITE_OPEN_READONLY, nullptr),
+            SQLITE_OK);
+  std::vector<std::string> schema;
+  ASSERT_EQ(sqlite_exec(db,
+                        "SELECT sql FROM sqlite_master WHERE tbl_name = "
+                        "'data_t' AND sql IS NOT NULL ORDER BY name",
+                        [&](int numResults, char **data, char **columns) {
+                          schema.push_back(data[0]);
+                        }),
+            SQLITE_OK);
+  ASSERT_EQ(sqlite_exec(db, "SELECT version FROM metadata_t",
+                        [](int numResults, char **data, char **columns) {
+                          ASSERT_STREQ(data[0], "4");
+                        }),
+            SQLITE_OK);
+  sqlite3_close(db);
+
+  EXPECT_EQ(schema,
+            std::vector<std::string>(
+                {"CREATE TABLE \"data_t\"(id INTEGER PRIMARY KEY, data BLOB "
+                 "NOT NULL, key_0_0 INTEGER NOT NULL, key_0_1 TEXT NOT NULL, "
+                 "key_1_0 INTEGER NOT NULL, key_1_1 INTEGER NOT NULL)",
+                 "CREATE UNIQUE INDEX key_0_index on data_t(key_0_0, key_0_1)",
+                 "CREATE INDEX key_1_index on data_t(key_1_0, key_1_1)",
+                 "CREATE TRIGGER non_modifiable BEFORE UPDATE ON data_t BEGIN "
+                 "SELECT CASE WHEN NEW.key_0_0 != OLD.key_0_0 THEN RAISE "
+                 "(ABORT,'You modified a non-modifiable key_0!') WHEN "
+                 "NEW.key_0_1 != OLD.key_0_1 THEN RAISE (ABORT,'You modified a "
+                 "non-modifiable key_0!') END; END"}));
 }

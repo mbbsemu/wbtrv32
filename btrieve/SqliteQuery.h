@@ -7,6 +7,7 @@
 #include "Key.h"
 #include "Query.h"
 #include "SqlitePreparedStatement.h"
+#include "SqliteUtil.h"
 
 namespace btrieve {
 
@@ -33,14 +34,20 @@ class SqliteQuery : public Query {
       return std::pair<bool, Record>(false, Record());
     }
 
+    // columns are id, then one per key segment, then data
+    const unsigned int numKeyColumns = key->getSegments().size();
     position = reader->getInt32(0);
-    lastKey.reset(new BindableValue(std::move(reader->getBindableValue(1))));
+    lastKey.clear();
+    for (unsigned int i = 1; i <= numKeyColumns; ++i) {
+      lastKey.push_back(reader->getBindableValue(i));
+    }
 
-    return std::pair<bool, Record>(true, Record(position, reader->getBlob(2)));
+    return std::pair<bool, Record>(
+        true, Record(position, reader->getBlob(numKeyColumns + 1)));
   }
 
-  void setLastKey(const BindableValue &value) {
-    lastKey.reset(new BindableValue(value));
+  void setLastKey(std::vector<BindableValue> &&values) {
+    lastKey = std::move(values);
   }
 
  private:
@@ -57,24 +64,24 @@ class SqliteQuery : public Query {
   }
 
   void changeDirection(CursorDirection newDirection) {
-    if (!lastKey) {
+    if (lastKey.empty()) {
       return;
     }
 
     std::stringstream sql;
-    sql << "SELECT id, " << key->getSqliteKeyName()
-        << ", data FROM data_t WHERE " << key->getSqliteKeyName() << " ";
+    sql << "SELECT id, " << sqliteKeyColumns(*key)
+        << ", data FROM data_t WHERE ";
     // Duplicate keys are ordered by id (insertion order) so the ordering is
     // stable across queries and independent of SQLite's query plan, which
     // seekTo() below relies on. SqliteDatabase's key queries do the same.
     switch (newDirection) {
       case CursorDirection::Forward:
-        sql << ">= @value ORDER BY " << key->getSqliteKeyName()
-            << " ASC, id ASC";
+        sql << sqliteKeyComparison(*key, ">=") << " ORDER BY "
+            << sqliteKeyColumns(*key, " ASC") << ", id ASC";
         break;
       case CursorDirection::Reverse:
-        sql << "<= @value ORDER BY " << key->getSqliteKeyName()
-            << " DESC, id DESC";
+        sql << sqliteKeyComparison(*key, "<=") << " ORDER BY "
+            << sqliteKeyColumns(*key, " DESC") << ", id DESC";
         break;
       default:
         // could log an error here
@@ -83,8 +90,9 @@ class SqliteQuery : public Query {
 
     SqlitePreparedStatement &command =
         database->getPreparedStatement(sql.str().c_str());
-    BindableValue *value = lastKey.get();
-    command.bindParameter(1, *value);
+    for (unsigned int i = 0; i < lastKey.size(); ++i) {
+      command.bindParameter(i + 1, lastKey[i]);
+    }
     setReader(command.executeReader());
 
     this->cursorDirection = newDirection;
@@ -100,7 +108,8 @@ class SqliteQuery : public Query {
     seekTo(position);
   }
 
-  std::unique_ptr<BindableValue> lastKey;
+  // the current record's key, one value per key column
+  std::vector<BindableValue> lastKey;
   std::unique_ptr<Reader> reader;
   SqliteDatabase *database;
 };
