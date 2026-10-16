@@ -514,7 +514,9 @@ void BtrieveDatabase::loadKeyDefinitions(FILE* f, const uint8_t* firstPage,
                                                : KeyDataType::OldAscii;
     }
 
-    if (attributes & MultipleACS) {
+    // MultipleACS (NUMBERED_ACS) is two bits, and NOCASE_KEY reuses one of
+    // them, so a case insensitive key without an ACS has only that bit set
+    if ((attributes & MultipleACS) == MultipleACS) {
       uint32_t acsLogicalPage = data[0x19] << 16 | toUint16(data + 0x1A);
       if (!loadACS(f, multiAcsName, multiAcs, acsLogicalPage)) {
         throw BtrieveException(BtrieveError::InvalidACS, "Can't load ACS");
