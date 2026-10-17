@@ -87,7 +87,16 @@ void wbtrv32::processDetach() {
 #endif
 }
 
-static BtrieveDriver *getOpenDatabase(LPVOID lpPositioningBlock) {
+// Btrieve transactions span every file the client writes until End or Abort.
+// The Major BBS is a single client on a single thread, so there is at most one.
+static bool _inTransaction = false;
+// The files written during the transaction. Holding them keeps a Close
+// mid-transaction from closing the connection, which would roll back that
+// file's part of it.
+static std::vector<std::shared_ptr<BtrieveDriver>> _transactionFiles;
+
+static std::shared_ptr<BtrieveDriver> findOpenDatabase(
+    LPVOID lpPositioningBlock) {
   wchar_t guidStr[64];
 
   if (lpPositioningBlock == nullptr) {
@@ -101,7 +110,11 @@ static BtrieveDriver *getOpenDatabase(LPVOID lpPositioningBlock) {
   if (iterator == _openFiles.end()) {
     return nullptr;
   }
-  return iterator->second.get();
+  return iterator->second;
+}
+
+static BtrieveDriver *getOpenDatabase(LPVOID lpPositioningBlock) {
+  return findOpenDatabase(lpPositioningBlock).get();
 }
 
 struct BtrieveCommand {
@@ -209,6 +222,14 @@ static BtrieveError Open(BtrieveCommand &command) {
                   fullPathFileName)) {
       // already got one? let's reuse it
       AddToOpenFiles(command, iterator->second);
+      return BtrieveError::Success;
+    }
+  }
+  // or closed during the transaction but still part of it (a second
+  // connection could not write while this one holds the write lock)
+  for (auto &driver : _transactionFiles) {
+    if (!_wcsicmp(driver->getOpenedFilename().c_str(), fullPathFileName)) {
+      AddToOpenFiles(command, driver);
       return BtrieveError::Success;
     }
   }
@@ -570,7 +591,11 @@ static BtrieveError Upsert(
   return ret;
 }
 
+static void AbortActiveTransaction();
+
 static BtrieveError Stop(const BtrieveCommand &command) {
+  // Btrieve aborts an unfinished transaction when the client stops
+  AbortActiveTransaction();
   _openFiles.clear();
 
   return BtrieveError::Success;
@@ -717,6 +742,74 @@ static BtrieveError Create(BtrieveCommand &command) {
   return BtrieveError::Success;
 }
 
+static BtrieveError BeginTransaction() {
+  if (_inTransaction) {
+    return BtrieveError::TransactionIsActive;
+  }
+  _inTransaction = true;
+  return BtrieveError::Success;
+}
+
+// Adds the file a write is about to change to the transaction, if one is
+// active and the file is not in it yet. Files join on their first write, so a
+// file only read during a transaction is never locked by it.
+static void JoinTransaction(const BtrieveCommand &command) {
+  if (!_inTransaction) {
+    return;
+  }
+  std::shared_ptr<BtrieveDriver> driver =
+      findOpenDatabase(command.lpPositionBlock);
+  if (!driver || std::find(_transactionFiles.begin(), _transactionFiles.end(),
+                           driver) != _transactionFiles.end()) {
+    return;
+  }
+  driver->beginTransaction();
+  _transactionFiles.push_back(driver);
+}
+
+// Commits every file in the transaction. They are separate SQLite files, so a
+// crash part way through can leave some committed and others not.
+static BtrieveError EndTransaction() {
+  if (!_inTransaction) {
+    return BtrieveError::TransactionNotActive;
+  }
+
+  BtrieveError error = BtrieveError::Success;
+  for (auto &driver : _transactionFiles) {
+    try {
+      driver->commitTransaction();
+    } catch (const BtrieveException &ex) {
+      if (error == BtrieveError::Success) {
+        error = ex.getError();
+      }
+      driver->rollbackTransaction();
+    }
+  }
+  _transactionFiles.clear();
+  _inTransaction = false;
+  return error;
+}
+
+static void AbortActiveTransaction() {
+  for (auto &driver : _transactionFiles) {
+    try {
+      driver->rollbackTransaction();
+    } catch (const BtrieveException &) {
+      // closing the connection still discards its transaction
+    }
+  }
+  _transactionFiles.clear();
+  _inTransaction = false;
+}
+
+static BtrieveError AbortTransactionOperation() {
+  if (!_inTransaction) {
+    return BtrieveError::TransactionNotActive;
+  }
+  AbortActiveTransaction();
+  return BtrieveError::Success;
+}
+
 #define CASE_WITH_RECORD_LOCK(a)   \
   case a:                          \
   case a##_SingleWaitRecordLock:   \
@@ -734,6 +827,7 @@ static BtrieveError handle(BtrieveCommand &command) {
     case OperationCode::Stat:
       return ::Stat(command);
     case OperationCode::Delete:
+      JoinTransaction(command);
       return ::Delete(command);
     CASE_WITH_RECORD_LOCK(OperationCode::StepFirst):
     CASE_WITH_RECORD_LOCK(OperationCode::StepLast):
@@ -764,12 +858,14 @@ static BtrieveError handle(BtrieveCommand &command) {
     CASE_WITH_RECORD_LOCK(OperationCode::GetDirectChunkOrRecord):
       return ::GetDirectRecord(command);
     case OperationCode::Update:
+      JoinTransaction(command);
       return ::Upsert(command, [](BtrieveDriver *driver,
                                   std::basic_string_view<uint8_t> record) {
         auto position = driver->getPosition();
         return std::make_pair(driver->updateRecord(position, record), position);
       });
     case OperationCode::Insert:
+      JoinTransaction(command);
       return ::Upsert(command, [](BtrieveDriver *driver,
                                   std::basic_string_view<uint8_t> record) {
         return driver->insertRecord(record);
@@ -780,6 +876,12 @@ static BtrieveError handle(BtrieveCommand &command) {
       return ::Create(command);
     case OperationCode::Unlock:
       return ::Unlock(command);
+    CASE_WITH_RECORD_LOCK(OperationCode::BeginTransaction):
+      return ::BeginTransaction();
+    case OperationCode::EndTransaction:
+      return ::EndTransaction();
+    case OperationCode::AbortTransaction:
+      return ::AbortTransactionOperation();
     default:
       return BtrieveError::InvalidOperation;
   }

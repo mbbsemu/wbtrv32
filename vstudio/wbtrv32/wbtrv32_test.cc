@@ -2997,3 +2997,201 @@ TEST_F(wbtrv32Test, BufferTooShortStillPositionsOnRecord) {
             btrieve::BtrieveError::DataBufferLengthOverrun);
   EXPECT_EQ(currentPosition(), 1u);
 }
+
+// Transactions span every file written until End or Abort. Each test closes
+// what it opens and finishes its transaction, since transaction state lives
+// for as long as the DLL is loaded.
+class wbtrv32TransactionTest : public wbtrv32Test {
+ protected:
+  // a second copy of MBBSEMU.DB, for transactions across files; call it
+  // before copying MBBSEMU.DB itself, which it passes through
+  std::basic_string<wchar_t> copyOtherDb() {
+    auto copy = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+    std::filesystem::path other(copy);
+    other.replace_filename("MBBSEMU2.DB");
+    std::filesystem::rename(copy, other);
+    return other.wstring();
+  }
+
+  int open(void *block, const std::basic_string<wchar_t> &path) {
+    std::string name = toStdString(path.c_str());
+    return btrcall(btrieve::OperationCode::Open, block, nullptr, nullptr,
+                   const_cast<char *>(name.c_str()), -1, 0);
+  }
+
+  int close(void *block) {
+    return btrcall(btrieve::OperationCode::Close, block, nullptr, nullptr,
+                   nullptr, 0, 0);
+  }
+
+  int operation(WORD op) {
+    return btrcall(op, nullptr, nullptr, nullptr, nullptr, 0, 0);
+  }
+
+  unsigned int recordCount(void *block) {
+    char buffer[80];
+    DWORD length = sizeof(buffer);
+    EXPECT_EQ(btrcall(btrieve::OperationCode::Stat, block, buffer, &length,
+                      nullptr, 0, 0),
+              btrieve::BtrieveError::Success);
+    return reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount;
+  }
+
+  // the record count as a fresh open sees it
+  unsigned int recordCountOnDisk(const std::basic_string<wchar_t> &path) {
+    uint8_t block[POSBLOCK_LENGTH] = {};
+    EXPECT_EQ(open(block, path), btrieve::BtrieveError::Success);
+    unsigned int count = recordCount(block);
+    EXPECT_EQ(close(block), btrieve::BtrieveError::Success);
+    return count;
+  }
+
+  int deleteFirst(void *block) {
+    RECORD record;
+    DWORD length = sizeof(record);
+    EXPECT_EQ(btrcall(btrieve::OperationCode::StepFirst, block, &record,
+                      &length, nullptr, 0, 0),
+              btrieve::BtrieveError::Success);
+    return btrcall(btrieve::OperationCode::Delete, block, nullptr, nullptr,
+                   nullptr, 0, 0);
+  }
+
+  int insert(void *block, int32_t int1) {
+    RECORD record = {};
+    record.int1 = int1;
+    record.int2 = int1;
+    strcpy(record.string1, "Sysop");
+    snprintf(record.string2, sizeof(record.string2), "%d", int1);
+    DWORD length = sizeof(record);
+    return btrcall(btrieve::OperationCode::Insert, block, &record, &length,
+                   nullptr, 0, -1);
+  }
+};
+
+TEST_F(wbtrv32TransactionTest, AbortDiscardsWritesToEveryFile) {
+  auto second = copyOtherDb();
+  auto first = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  uint8_t block2[POSBLOCK_LENGTH] = {};
+  ASSERT_EQ(open(posBlock, first), btrieve::BtrieveError::Success);
+  ASSERT_EQ(open(block2, second), btrieve::BtrieveError::Success);
+
+  // with a lock bias, as The Major BBS sends it (dfaBegTrans)
+  ASSERT_EQ(operation(btrieve::OperationCode::BeginTransaction + 100),
+            btrieve::BtrieveError::Success);
+  ASSERT_EQ(deleteFirst(posBlock), btrieve::BtrieveError::Success);
+  ASSERT_EQ(insert(block2, 10000), btrieve::BtrieveError::Success);
+  // reads in the transaction see its writes
+  EXPECT_EQ(recordCount(posBlock), 3u);
+  EXPECT_EQ(recordCount(block2), 5u);
+
+  ASSERT_EQ(operation(btrieve::OperationCode::AbortTransaction),
+            btrieve::BtrieveError::Success);
+  EXPECT_EQ(recordCount(posBlock), 4u);
+  EXPECT_EQ(recordCount(block2), 4u);
+
+  ASSERT_EQ(close(block2), btrieve::BtrieveError::Success);
+  ASSERT_EQ(close(posBlock), btrieve::BtrieveError::Success);
+  EXPECT_EQ(recordCountOnDisk(first), 4u);
+  EXPECT_EQ(recordCountOnDisk(second), 4u);
+}
+
+TEST_F(wbtrv32TransactionTest, EndKeepsWritesToEveryFile) {
+  auto second = copyOtherDb();
+  auto first = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  uint8_t block2[POSBLOCK_LENGTH] = {};
+  ASSERT_EQ(open(posBlock, first), btrieve::BtrieveError::Success);
+  ASSERT_EQ(open(block2, second), btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(operation(btrieve::OperationCode::BeginTransaction),
+            btrieve::BtrieveError::Success);
+  ASSERT_EQ(deleteFirst(posBlock), btrieve::BtrieveError::Success);
+  ASSERT_EQ(insert(block2, 10000), btrieve::BtrieveError::Success);
+  ASSERT_EQ(operation(btrieve::OperationCode::EndTransaction),
+            btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(close(block2), btrieve::BtrieveError::Success);
+  ASSERT_EQ(close(posBlock), btrieve::BtrieveError::Success);
+  EXPECT_EQ(recordCountOnDisk(first), 3u);
+  EXPECT_EQ(recordCountOnDisk(second), 5u);
+}
+
+TEST_F(wbtrv32TransactionTest, StatusCodes) {
+  EXPECT_EQ(operation(btrieve::OperationCode::EndTransaction),
+            btrieve::BtrieveError::TransactionNotActive);
+  EXPECT_EQ(operation(btrieve::OperationCode::AbortTransaction),
+            btrieve::BtrieveError::TransactionNotActive);
+
+  ASSERT_EQ(operation(btrieve::OperationCode::BeginTransaction + 200),
+            btrieve::BtrieveError::Success);
+  EXPECT_EQ(operation(btrieve::OperationCode::BeginTransaction),
+            btrieve::BtrieveError::TransactionIsActive);
+  // a transaction with no writes
+  EXPECT_EQ(operation(btrieve::OperationCode::EndTransaction),
+            btrieve::BtrieveError::Success);
+  EXPECT_EQ(operation(btrieve::OperationCode::EndTransaction),
+            btrieve::BtrieveError::TransactionNotActive);
+}
+
+// A write that fails inside a transaction undoes only itself.
+TEST_F(wbtrv32TransactionTest, FailedWriteKeepsTheRestOfTheTransaction) {
+  auto db = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  ASSERT_EQ(open(posBlock, db), btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(operation(btrieve::OperationCode::BeginTransaction),
+            btrieve::BtrieveError::Success);
+  ASSERT_EQ(insert(posBlock, 10000), btrieve::BtrieveError::Success);
+  // 3444 is already in the file under a unique key
+  ASSERT_EQ(insert(posBlock, 3444), btrieve::BtrieveError::DuplicateKeyValue);
+  ASSERT_EQ(insert(posBlock, 10001), btrieve::BtrieveError::Success);
+  ASSERT_EQ(operation(btrieve::OperationCode::EndTransaction),
+            btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(close(posBlock), btrieve::BtrieveError::Success);
+  EXPECT_EQ(recordCountOnDisk(db), 6u);
+}
+
+// Closing a file mid-transaction leaves its writes in the transaction, and
+// reopening it then works with the same connection.
+TEST_F(wbtrv32TransactionTest, CloseAndReopenDuringTransaction) {
+  auto db = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  ASSERT_EQ(open(posBlock, db), btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(operation(btrieve::OperationCode::BeginTransaction),
+            btrieve::BtrieveError::Success);
+  ASSERT_EQ(deleteFirst(posBlock), btrieve::BtrieveError::Success);
+  ASSERT_EQ(close(posBlock), btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(open(posBlock, db), btrieve::BtrieveError::Success);
+  EXPECT_EQ(recordCount(posBlock), 3u);
+  ASSERT_EQ(insert(posBlock, 10000), btrieve::BtrieveError::Success);
+  ASSERT_EQ(close(posBlock), btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(operation(btrieve::OperationCode::AbortTransaction),
+            btrieve::BtrieveError::Success);
+  EXPECT_EQ(recordCountOnDisk(db), 4u);
+
+  ASSERT_EQ(open(posBlock, db), btrieve::BtrieveError::Success);
+  ASSERT_EQ(operation(btrieve::OperationCode::BeginTransaction),
+            btrieve::BtrieveError::Success);
+  ASSERT_EQ(deleteFirst(posBlock), btrieve::BtrieveError::Success);
+  ASSERT_EQ(close(posBlock), btrieve::BtrieveError::Success);
+  ASSERT_EQ(operation(btrieve::OperationCode::EndTransaction),
+            btrieve::BtrieveError::Success);
+  EXPECT_EQ(recordCountOnDisk(db), 3u);
+}
+
+TEST_F(wbtrv32TransactionTest, StopAbortsTransaction) {
+  auto db = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  ASSERT_EQ(open(posBlock, db), btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(operation(btrieve::OperationCode::BeginTransaction),
+            btrieve::BtrieveError::Success);
+  ASSERT_EQ(deleteFirst(posBlock), btrieve::BtrieveError::Success);
+  ASSERT_EQ(operation(btrieve::OperationCode::Stop),
+            btrieve::BtrieveError::Success);
+  memset(posBlock, 0, sizeof(posBlock));
+
+  EXPECT_EQ(recordCountOnDisk(db), 4u);
+  EXPECT_EQ(operation(btrieve::OperationCode::EndTransaction),
+            btrieve::BtrieveError::TransactionNotActive);
+}

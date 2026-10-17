@@ -64,6 +64,12 @@ class SqlDatabase {
 
   virtual void setSourceFingerprint(const SourceFingerprint &fingerprint) = 0;
 
+  // A client transaction: every Insert/Update/Delete until commit or rollback
+  // is kept or discarded together. Closing with one open rolls it back.
+  virtual void beginTransaction() = 0;
+  virtual void commitTransaction() = 0;
+  virtual void rollbackTransaction() = 0;
+
   virtual unsigned int getRecordLength() const { return recordLength; }
 
   virtual bool isVariableLengthRecords() const { return variableLengthRecords; }

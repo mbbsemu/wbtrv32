@@ -565,6 +565,8 @@ void SqliteDatabase::createSqliteTriggers() {
 
 // Closes an opened database.
 void SqliteDatabase::close() {
+  // rolls back an unfinished client transaction
+  clientTransaction.reset();
   preparedStatements.clear();
   transactionStatements.clear();
   database.reset();
@@ -573,6 +575,26 @@ void SqliteDatabase::close() {
   insertSql.clear();
   updateSql.clear();
   cache.clear();
+}
+
+void SqliteDatabase::beginTransaction() {
+  clientTransaction.reset(new SqliteTransaction(database));
+}
+
+void SqliteDatabase::commitTransaction() {
+  std::unique_ptr<SqliteTransaction> transaction = std::move(clientTransaction);
+  if (transaction) {
+    transaction->commit();
+  }
+}
+
+void SqliteDatabase::rollbackTransaction() {
+  std::unique_ptr<SqliteTransaction> transaction = std::move(clientTransaction);
+  // records read during the transaction may be ones it wrote
+  cache.clear();
+  if (transaction) {
+    transaction->rollback();
+  }
 }
 
 // source_t is optional: databases converted before it existed, and those made

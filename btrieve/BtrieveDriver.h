@@ -86,6 +86,15 @@ class BtrieveDriver {
 
   std::basic_string<wchar_t> getOpenedFilename() { return openedFilename; }
 
+  void beginTransaction() { sqlDatabase->beginTransaction(); }
+
+  void commitTransaction() { sqlDatabase->commitTransaction(); }
+
+  void rollbackTransaction() {
+    previousQuery.reset();
+    sqlDatabase->rollbackTransaction();
+  }
+
  private:
   BtrieveError refreshFromChangedSource(const wchar_t *fileName,
                                         const std::filesystem::path &dbPath,

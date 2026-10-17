@@ -119,6 +119,12 @@ enum OperationCode {
   //[QueryOnly]
   WITH_RECORD_LOCK(QueryLast, 0x3F),
 
+  // Transactions span every file the client writes until End or Abort. A
+  // lock bias (+100/+200) on Begin is accepted and ignored.
+  WITH_RECORD_LOCK(BeginTransaction, 0x13),
+  EndTransaction = 0x14,
+  AbortTransaction = 0x15,
+
   Stop = 0x19,
 
   // Releases record locks. Key number -1 releases the single-record lock on
