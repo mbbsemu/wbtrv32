@@ -1,6 +1,7 @@
 #ifndef __BTRIEVE_DRIVER_H_
 #define __BTRIEVE_DRIVER_H_
 
+#include <filesystem>
 #include <memory>
 
 #include "ErrorCode.h"
@@ -15,10 +16,17 @@ namespace btrieve {
 // through records.
 class BtrieveDriver {
  public:
-  BtrieveDriver(SqlDatabase *sqlDatabase_) : sqlDatabase(sqlDatabase_) {}
+  // With trackSourceFile_, a .DB remembers the .DAT it was converted from, and
+  // a different .DAT put in its place later (a module upgrade, a restore) is
+  // converted afresh after the old .DB is moved aside into
+  // "CONVERTED DATABASES". Turn it off when something else keeps writing the
+  // .DAT, as stock Btrieve does under the parity shim.
+  BtrieveDriver(SqlDatabase *sqlDatabase_, bool trackSourceFile_ = true)
+      : sqlDatabase(sqlDatabase_), trackSourceFile(trackSourceFile_) {}
 
   BtrieveDriver(BtrieveDriver &&driver)
-      : sqlDatabase(std::move(driver.sqlDatabase)) {}
+      : sqlDatabase(std::move(driver.sqlDatabase)),
+        trackSourceFile(driver.trackSourceFile) {}
 
   ~BtrieveDriver();
 
@@ -79,7 +87,15 @@ class BtrieveDriver {
   std::basic_string<wchar_t> getOpenedFilename() { return openedFilename; }
 
  private:
+  BtrieveError refreshFromChangedSource(const wchar_t *fileName,
+                                        const std::filesystem::path &dbPath,
+                                        OpenMode openMode);
+
+  BtrieveError convert(const wchar_t *fileName,
+                       const std::filesystem::path &dbPath, OpenMode openMode);
+
   std::unique_ptr<SqlDatabase> sqlDatabase;
+  bool trackSourceFile;
   std::unique_ptr<Query> previousQuery;
   std::basic_string<wchar_t> openedFilename;
 };

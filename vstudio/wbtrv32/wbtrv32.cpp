@@ -213,8 +213,23 @@ static BtrieveError Open(BtrieveCommand &command) {
     }
   }
 
-  std::shared_ptr<BtrieveDriver> driver =
-      std::make_shared<BtrieveDriver>(new SqliteDatabase());
+  // WBTRV32_DAT_TRACKING=0 is set by the parity shim, where stock Btrieve keeps
+  // writing the .DATs
+#ifdef WIN32
+  // the shim sets it with SetEnvironmentVariable, which the CRT's getenv
+  // copy of the environment may not see
+  wchar_t tracking[8];
+  const bool trackSourceFile =
+      GetEnvironmentVariableW(L"WBTRV32_DAT_TRACKING", tracking,
+                              ARRAYSIZE(tracking)) == 0 ||
+      wcscmp(tracking, L"0") != 0;
+#else
+  const char *tracking = getenv("WBTRV32_DAT_TRACKING");
+  const bool trackSourceFile = tracking == nullptr || strcmp(tracking, "0");
+#endif  // WIN32
+
+  std::shared_ptr<BtrieveDriver> driver = std::make_shared<BtrieveDriver>(
+      new SqliteDatabase(), trackSourceFile);
 
   BtrieveError error = driver->open(fullPathFileName, openMode);
   if (error != BtrieveError::Success) {
