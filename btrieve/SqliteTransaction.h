@@ -40,17 +40,28 @@ class SqliteTransaction {
   // don't leave the transaction open on the connection indefinitely.
   ~SqliteTransaction() {
     if (!finished) {
-      sqlite3_exec(database.get(), "ROLLBACK", nullptr, nullptr, nullptr);
+      sqlite3_exec(database.get(),
+                   nested ? "ROLLBACK TO btrieve_op; RELEASE btrieve_op"
+                          : "ROLLBACK",
+                   nullptr, nullptr, nullptr);
     }
   }
 
   void commit() {
-    execute(statements ? &statements->commit : nullptr, "COMMIT");
+    if (nested) {
+      execute(nullptr, "RELEASE btrieve_op");
+    } else {
+      execute(statements ? &statements->commit : nullptr, "COMMIT");
+    }
     finished = true;
   }
 
   void rollback() {
-    execute(statements ? &statements->rollback : nullptr, "ROLLBACK");
+    if (nested) {
+      execute(nullptr, "ROLLBACK TO btrieve_op; RELEASE btrieve_op");
+    } else {
+      execute(statements ? &statements->rollback : nullptr, "ROLLBACK");
+    }
     finished = true;
   }
 
@@ -62,7 +73,17 @@ class SqliteTransaction {
   // A read-only connection (query_only) refuses IMMEDIATE outright, so fall
   // back to a deferred BEGIN there and let the write statement itself fail,
   // which callers already map to the proper Btrieve error (AccessDenied).
+  //
+  // Inside a client transaction (Begin Transaction) the connection already has
+  // one open; a savepoint then makes this operation atomic on its own without
+  // ending or discarding the client's.
   void beginTransaction() {
+    if (!sqlite3_get_autocommit(database.get())) {
+      nested = true;
+      execute(nullptr, "SAVEPOINT btrieve_op");
+      return;
+    }
+
     int errorCode =
         run(statements ? &statements->beginImmediate : nullptr,
             "BEGIN IMMEDIATE");
@@ -100,6 +121,7 @@ class SqliteTransaction {
   std::shared_ptr<sqlite3> database;
   SqliteTransactionStatements *statements;
   bool finished = false;
+  bool nested = false;
 };
 }  // namespace btrieve
 

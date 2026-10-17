@@ -1,4 +1,5 @@
-﻿#ifndef __OPERATION_CODES_H_
+﻿// 26.10.12.1B 02:53PM
+#ifndef __OPERATION_CODES_H_
 #define __OPERATION_CODES_H_
 
 namespace btrieve {
@@ -118,7 +119,18 @@ enum OperationCode {
   //[QueryOnly]
   WITH_RECORD_LOCK(QueryLast, 0x3F),
 
+  // Transactions span every file the client writes until End or Abort. A
+  // lock bias (+100/+200) on Begin is accepted and ignored.
+  WITH_RECORD_LOCK(BeginTransaction, 0x13),
+  EndTransaction = 0x14,
+  AbortTransaction = 0x15,
+
   Stop = 0x19,
+
+  // Releases record locks. Key number -1 releases the single-record lock on
+  // the position passed in the data buffer, -2 releases all multiple-record
+  // locks, and any other key number releases the current single-record lock.
+  Unlock = 0x1B,
 
   None = 0xFFFF,
 };

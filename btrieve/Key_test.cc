@@ -270,6 +270,96 @@ INSTANTIATE_TEST_CASE_P(
         {NullAnySegment, false, true, true},
         {NullAnySegment, true, true, true}}));
 
+// Two-segment key shaped like The Major BBS WGSGEN2.DAT key 0: a 30-byte
+// zstring (often empty) followed by a 25-byte zstring module name.
+static void wgsgen2Key(KeyDefinition (&defs)[2], uint16_t attributes) {
+  defs[0] = KeyDefinition(0, 30, 0, KeyDataType::Zstring,
+                          attributes | SegmentedKey, true, 0, 0, 0, "",
+                          std::vector<char>());
+  defs[1] = KeyDefinition(0, 25, 30, KeyDataType::Zstring, attributes, true, 0,
+                          1, 0, "", std::vector<char>());
+}
+
+static std::vector<BindableValue> wgsgen2KeyValue(const Key &key, const char *first,
+                                     const char *second) {
+  uint8_t record[55];
+  memset(record, 0, sizeof(record));
+  memcpy(record, first, strlen(first));
+  memcpy(record + 30, second, strlen(second));
+  return key.extractKeyInRecordToSqliteObjects(
+      std::basic_string_view<uint8_t>(record, sizeof(record)));
+}
+
+// An empty leading string segment is an ordinary value: the later segments
+// must still take part in the key, so records sort by them as in Btrieve.
+TEST(Key, CompositeKeyWithEmptyLeadingStringIsNotNull) {
+  KeyDefinition defs[2];
+  wgsgen2Key(defs, UseExtendedDataType | Duplicates | Modifiable);
+  Key key(defs, 2);
+
+  auto snmytime = wgsgen2KeyValue(key, "", "SNMYTIME");
+  auto wormsg = wgsgen2KeyValue(key, "", "WORMSG");
+
+  ASSERT_EQ(snmytime.size(), 2);
+  ASSERT_EQ(wormsg.size(), 2);
+  for (const auto &value : snmytime) ASSERT_FALSE(value.isNull());
+  for (const auto &value : wormsg) ASSERT_FALSE(value.isNull());
+  EXPECT_EQ(snmytime[0].getStringValue(), wormsg[0].getStringValue());
+  EXPECT_LT(snmytime[1].getStringValue(), wormsg[1].getStringValue());
+}
+
+// A composite key whose bytes are all zero is a real value unless the key is
+// declared nullable.
+TEST(Key, CompositeKeyAllZeroIsNotNullWithoutNullAttribute) {
+  KeyDefinition defs[2];
+  wgsgen2Key(defs, UseExtendedDataType | Duplicates | Modifiable);
+  Key key(defs, 2);
+
+  EXPECT_FALSE(wgsgen2KeyValue(key, "", "")[1].isNull());
+}
+
+TEST(Key, CompositeKeyAllNullValueIsNullWithNullAttribute) {
+  KeyDefinition defs[2];
+  wgsgen2Key(defs, UseExtendedDataType | Duplicates | NullAllSegments);
+  Key key(defs, 2);
+
+  EXPECT_TRUE(wgsgen2KeyValue(key, "", "")[0].isNull());
+  EXPECT_TRUE(wgsgen2KeyValue(key, "", "")[1].isNull());
+  EXPECT_FALSE(wgsgen2KeyValue(key, "", "WORMSG")[1].isNull());
+}
+
+// Like a composite key, a single string key is null only when declared
+// nullable; otherwise an empty string is an ordinary, indexed value
+// (The Major BBS GALALS2.DAT key 2 holds many).
+TEST(Key, EmptyStringKeyIsNotNullWithoutNullAttribute) {
+  for (auto type : {KeyDataType::Zstring, KeyDataType::Lstring,
+                    KeyDataType::String, KeyDataType::OldAscii}) {
+    KeyDefinition keyDefinition(0, 17, 0, type,
+                                UseExtendedDataType | Duplicates, false, 0, 0,
+                                0, "", std::vector<char>());
+    Key key(&keyDefinition, 1);
+    uint8_t record[17];
+    memset(record, 0, sizeof(record));
+    EXPECT_FALSE(key.extractKeyInRecordToSqliteObjects(
+                        std::basic_string_view<uint8_t>(record, sizeof(record)))
+                     [0]
+                     .isNull())
+        << "type " << type;
+  }
+}
+
+TEST(Key, EmptyStringKeyIsNullWithNullAttribute) {
+  KeyDefinition keyDefinition(0, 17, 0, KeyDataType::Zstring,
+                              UseExtendedDataType | NullAllSegments, false, 0,
+                              0, 0, "", std::vector<char>());
+  Key key(&keyDefinition, 1);
+  uint8_t record[17];
+  memset(record, 0, sizeof(record));
+  EXPECT_TRUE(key.extractKeyInRecordToSqliteObjects(
+                     std::basic_string_view<uint8_t>(record, sizeof(record)))[0]
+                  .isNull());
+}
+
 struct ParameterizedKeyDataType {
   KeyDataType type;
 };

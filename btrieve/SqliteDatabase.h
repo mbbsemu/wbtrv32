@@ -31,6 +31,15 @@ class SqliteDatabase : public SqlDatabase {
 
   virtual void close() override;
 
+  virtual std::optional<SourceFingerprint> getSourceFingerprint() override;
+
+  virtual void setSourceFingerprint(
+      const SourceFingerprint &fingerprint) override;
+
+  virtual void beginTransaction() override;
+  virtual void commitTransaction() override;
+  virtual void rollbackTransaction() override;
+
   virtual BtrieveError stepFirst() override;
   virtual BtrieveError stepLast() override;
   virtual BtrieveError stepNext() override;
@@ -122,6 +131,8 @@ class SqliteDatabase : public SqlDatabase {
   std::string insertSql;
   std::string updateSql;
   std::shared_ptr<sqlite3> database;
+  // the client transaction, if one is open
+  std::unique_ptr<SqliteTransaction> clientTransaction;
 
   friend class SqliteQuery;
 };

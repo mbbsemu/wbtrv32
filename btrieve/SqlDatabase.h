@@ -2,6 +2,7 @@
 #define __SQL_DATABASE_H_
 
 #include <memory>
+#include <optional>
 
 #include "BtrieveDatabase.h"
 #include "ErrorCode.h"
@@ -21,6 +22,14 @@ class RecordLoader {
       std::basic_string_view<uint8_t> record) = 0;
 
   virtual void onRecordsComplete() = 0;
+};
+
+// Identifies the Btrieve file a database was converted from, so a different
+// file put in its place later can be recognized.
+struct SourceFingerprint {
+  int64_t size;
+  int64_t modified;
+  int64_t hash;
 };
 
 // An interface that abstracts a SQL-compatible implementation of
@@ -48,6 +57,18 @@ class SqlDatabase {
 
   // Closes an opened database.
   virtual void close() = 0;
+
+  // The fingerprint of the file this database was converted from, if one was
+  // recorded.
+  virtual std::optional<SourceFingerprint> getSourceFingerprint() = 0;
+
+  virtual void setSourceFingerprint(const SourceFingerprint &fingerprint) = 0;
+
+  // A client transaction: every Insert/Update/Delete until commit or rollback
+  // is kept or discarded together. Closing with one open rolls it back.
+  virtual void beginTransaction() = 0;
+  virtual void commitTransaction() = 0;
+  virtual void rollbackTransaction() = 0;
 
   virtual unsigned int getRecordLength() const { return recordLength; }
 

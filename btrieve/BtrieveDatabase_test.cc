@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 
 #include "Text.h"
 #include "gtest/gtest.h"
@@ -174,6 +175,54 @@ TEST(BtrieveDatabase, LoadsVariableDatV6) {
   ASSERT_EQ(database.getKeys()[0].getPrimarySegment().getLength(), 17u);
 }
 
+// A v6 file can carry stray pages where a PAT pair is expected (seen in a
+// Major BBS add-on's shipped .VIR: four junk pages ahead of PAT 31). Btrieve
+// finds the PAT by its sequence number and every physical page in that PAT's
+// region moves along with it, so loading must give the same records.
+TEST(BtrieveDatabase, LoadsVariableDatV6WithPagesBeforePAT) {
+  std::ifstream in("assets/WGSMENU2.DAT", std::ios::binary);
+  std::vector<char> original((std::istreambuf_iterator<char>(in)),
+                             std::istreambuf_iterator<char>());
+  ASSERT_GT(original.size(), 2u * 4096u);
+
+  const size_t pageLength = 4096;
+  std::vector<char> shifted(original.begin(),
+                            original.begin() + 2 * pageLength);
+  shifted.resize(shifted.size() + 4 * pageLength, static_cast<char>(0xCC));
+  shifted.insert(shifted.end(), original.begin() + 2 * pageLength,
+                 original.end());
+
+  const std::filesystem::path path =
+      std::filesystem::temp_directory_path() / "WGSMENU2-PATGAP.DAT";
+  {
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    out.write(shifted.data(), shifted.size());
+  }
+
+  std::unordered_map<std::string, uint32_t> expectedData;
+  for (size_t i = 0; i < sizeof(variableData) / sizeof(variableData[0]); ++i) {
+    expectedData[variableData[i].key] = variableData[i].recordLength;
+  }
+
+  BtrieveDatabase database;
+  database.parseDatabase(
+      path.wstring().c_str(), []() { return true; },
+      [&expectedData](std::basic_string_view<uint8_t> record) {
+        auto iter =
+            expectedData.find(reinterpret_cast<const char *>(record.data()));
+        EXPECT_TRUE(iter != expectedData.end());
+        if (iter != expectedData.end()) {
+          EXPECT_EQ(iter->second, record.size());
+          expectedData.erase(iter);
+        }
+        return BtrieveDatabase::LoadRecordResult::COUNT;
+      });
+  std::filesystem::remove(path);
+
+  EXPECT_EQ(expectedData.size(), 0u);
+  ASSERT_EQ(database.getKeys().size(), 1u);
+}
+
 TEST(BtrieveDatabase, LoadsFixedDatV6) {
   unsigned int recordCount = 0;
   BtrieveDatabase database;
@@ -267,4 +316,48 @@ TEST(BtrieveDatabase, LoadsCaseInsensitiveKeyWithoutACS) {
   EXPECT_FALSE(key.requiresACS());
   EXPECT_EQ(key.getACS(), nullptr);
   EXPECT_EQ(database.getRecordCount(), 4u);
+}
+
+// A Btrieve v5 key table has one 30-byte entry per segment, not per key, so
+// every key after a multi-segment key starts further along than its number
+// suggests. Expected values are what Btrieve 6.15's Stat reports for this
+// file (an empty data file from a Major BBS add-on).
+TEST(BtrieveDatabase, LoadsV5KeysAfterSegmentedKeys) {
+  BtrieveDatabase database;
+  database.parseDatabase(
+      _TEXT("assets/V5SEGKEY.DAT"), []() { return true; },
+      [](std::basic_string_view<uint8_t> record) {
+        return BtrieveDatabase::LoadRecordResult::COUNT;
+      });
+
+  struct Segment {
+    uint16_t offset;
+    uint16_t length;
+    KeyDataType type;
+  };
+  const std::vector<std::vector<Segment>> expected = {
+      {{0, 4, KeyDataType::UnsignedBinary}},
+      {{4, 30, KeyDataType::Zstring}},
+      {{34, 30, KeyDataType::Zstring}},
+      {{4, 30, KeyDataType::Zstring}, {0, 4, KeyDataType::UnsignedBinary}},
+      {{34, 30, KeyDataType::Zstring}, {0, 4, KeyDataType::UnsignedBinary}},
+      {{34, 30, KeyDataType::Zstring},
+       {64, 1, KeyDataType::String},
+       {0, 4, KeyDataType::UnsignedBinary}},
+  };
+
+  ASSERT_EQ(database.getKeys().size(), expected.size());
+  EXPECT_EQ(database.getRecordLength(), 216u);
+  for (size_t k = 0; k < expected.size(); ++k) {
+    const auto &segments = database.getKeys()[k].getSegments();
+    ASSERT_EQ(segments.size(), expected[k].size()) << "key " << k;
+    for (size_t s = 0; s < segments.size(); ++s) {
+      EXPECT_EQ(segments[s].getOffset(), expected[k][s].offset)
+          << "key " << k << " segment " << s;
+      EXPECT_EQ(segments[s].getLength(), expected[k][s].length)
+          << "key " << k << " segment " << s;
+      EXPECT_EQ(segments[s].getDataType(), expected[k][s].type)
+          << "key " << k << " segment " << s;
+    }
+  }
 }

@@ -1,3 +1,4 @@
+// 26.10.12.1B 02:53PM
 // wbtrv32.cpp : Defines the exported functions for the DLL.
 //
 #include "wbtrv32.h"
@@ -35,17 +36,10 @@ static std::unordered_map<std::basic_string<wchar_t>,
     _openFiles;
 
 #ifdef LOG_TO_FILE
-namespace {
-struct FileCloser {
-  void operator()(FILE *f) const {
-    if (f) {
-      fclose(f);
-    }
-  }
-};
-}  // namespace
-
-static std::unique_ptr<FILE, FileCloser> _logFile(nullptr);
+// A plain pointer, closed only by processDetach(): a static object with a
+// destructor would be destroyed at exit before the Linux .so destructor below
+// runs processDetach(), which would then close the log a second time.
+static FILE *_logFile = nullptr;
 #endif
 
 #ifndef WIN32
@@ -73,20 +67,32 @@ void wbtrv32::processAttach() {
 
 #ifdef LOG_TO_FILE
 #ifdef WIN32
-  _logFile.reset(_wfsopen(L"wbtrv32.log", L"ab", _SH_DENYWR));
+  _logFile = _wfsopen(L"wbtrv32.log", L"ab", _SH_DENYWR);
 #else
-  _logFile.reset(fopen("/tmp/wbtrv32.log", "ab"));
+  _logFile = fopen("/tmp/wbtrv32.log", "ab");
 #endif  // WIN32
 #endif  // LOG_TO_FILE
 }
 
 void wbtrv32::processDetach() {
 #ifdef LOG_TO_FILE
-  _logFile.reset(nullptr);
+  if (_logFile) {
+    fclose(_logFile);
+    _logFile = nullptr;
+  }
 #endif
 }
 
-static BtrieveDriver *getOpenDatabase(LPVOID lpPositioningBlock) {
+// Btrieve transactions span every file the client writes until End or Abort.
+// The Major BBS is a single client on a single thread, so there is at most one.
+static bool _inTransaction = false;
+// The files written during the transaction. Holding them keeps a Close
+// mid-transaction from closing the connection, which would roll back that
+// file's part of it.
+static std::vector<std::shared_ptr<BtrieveDriver>> _transactionFiles;
+
+static std::shared_ptr<BtrieveDriver> findOpenDatabase(
+    LPVOID lpPositioningBlock) {
   wchar_t guidStr[64];
 
   if (lpPositioningBlock == nullptr) {
@@ -100,7 +106,11 @@ static BtrieveDriver *getOpenDatabase(LPVOID lpPositioningBlock) {
   if (iterator == _openFiles.end()) {
     return nullptr;
   }
-  return iterator->second.get();
+  return iterator->second;
+}
+
+static BtrieveDriver *getOpenDatabase(LPVOID lpPositioningBlock) {
+  return findOpenDatabase(lpPositioningBlock).get();
 }
 
 struct BtrieveCommand {
@@ -133,7 +143,7 @@ static void debug(const BtrieveCommand &command, const char *format, ...) {
 
 #ifdef LOG_TO_FILE
     if (_logFile) {
-      fwrite(buf, 1, len, _logFile.get());
+      fwrite(buf, 1, len, _logFile);
     }
 #endif
   }
@@ -153,8 +163,8 @@ static void debug(const BtrieveCommand &command, const char *format, ...) {
 
 #ifdef LOG_TO_FILE
   if (_logFile) {
-    fwrite(buf, 1, len + 2, _logFile.get());
-    fflush(_logFile.get());
+    fwrite(buf, 1, len + 2, _logFile);
+    fflush(_logFile);
   }
 #endif
 }
@@ -188,6 +198,23 @@ static void AddToOpenFiles(BtrieveCommand &command,
   memcpy(command.lpPositionBlock, &guid, sizeof(GUID));
 }
 
+// Whether .DATs are tracked: fingerprinted as the source of their .DB, and
+// written as placeholders by Create. WBTRV32_DAT_TRACKING=0 is set by the
+// parity shim, where stock Btrieve keeps writing the .DATs.
+static bool trackSourceFiles() {
+#ifdef WIN32
+  // the shim sets it with SetEnvironmentVariable, which the CRT's getenv
+  // copy of the environment may not see
+  wchar_t tracking[8];
+  return GetEnvironmentVariableW(L"WBTRV32_DAT_TRACKING", tracking,
+                                 ARRAYSIZE(tracking)) == 0 ||
+         wcscmp(tracking, L"0") != 0;
+#else
+  const char *tracking = getenv("WBTRV32_DAT_TRACKING");
+  return tracking == nullptr || strcmp(tracking, "0");
+#endif  // WIN32
+}
+
 static BtrieveError Open(BtrieveCommand &command) {
   wchar_t fullPathFileName[MAX_PATH];
 
@@ -211,9 +238,17 @@ static BtrieveError Open(BtrieveCommand &command) {
       return BtrieveError::Success;
     }
   }
+  // or closed during the transaction but still part of it (a second
+  // connection could not write while this one holds the write lock)
+  for (auto &driver : _transactionFiles) {
+    if (!_wcsicmp(driver->getOpenedFilename().c_str(), fullPathFileName)) {
+      AddToOpenFiles(command, driver);
+      return BtrieveError::Success;
+    }
+  }
 
-  std::shared_ptr<BtrieveDriver> driver =
-      std::make_shared<BtrieveDriver>(new SqliteDatabase());
+  std::shared_ptr<BtrieveDriver> driver = std::make_shared<BtrieveDriver>(
+      new SqliteDatabase(), trackSourceFiles());
 
   BtrieveError error = driver->open(fullPathFileName, openMode);
   if (error != BtrieveError::Success) {
@@ -339,8 +374,8 @@ static BtrieveError Step(BtrieveCommand &command) {
     return BtrieveError::IOError;
   }
 
+  // Btrieve keeps the record current even when it does not fit
   if (*command.lpdwDataBufferLength < record.second.getData().size()) {
-    btrieveDriver->setPosition(oldPosition);
     return BtrieveError::DataBufferLengthOverrun;
   }
 
@@ -385,6 +420,10 @@ static BtrieveError GetDirectRecord(BtrieveCommand &command) {
   if (!record.first) {
     return BtrieveError::InvalidRecordAddress;
   }
+
+  // the record read becomes the current one (GetPosition, Update, Delete),
+  // even when it does not fit the data buffer
+  btrieveDriver->setPosition(position);
 
   if (*command.lpdwDataBufferLength < record.second.getData().size()) {
     return BtrieveError::DataBufferLengthOverrun;
@@ -521,6 +560,17 @@ static BtrieveError Upsert(
   // on a file that hasn't had one yet -- indistinguishable from failure.
   btrieveDriver->setPosition(insertedPosition.second);
 
+  // Btrieve hands the stored record back on Insert, including any
+  // autoincrement values it assigned
+  if (command.operation == OperationCode::Insert) {
+    auto stored = btrieveDriver->getRecord(insertedPosition.second);
+    if (stored.first &&
+        stored.second.getData().size() <= *command.lpdwDataBufferLength) {
+      memcpy(command.lpDataBuffer, stored.second.getData().data(),
+             stored.second.getData().size());
+    }
+  }
+
   if (command.keyNumber < 0) {
     return BtrieveError::Success;
   }
@@ -539,8 +589,24 @@ static BtrieveError Upsert(
   return ret;
 }
 
+static void AbortActiveTransaction();
+
 static BtrieveError Stop(const BtrieveCommand &command) {
+  // Btrieve aborts an unfinished transaction when the client stops
+  AbortActiveTransaction();
   _openFiles.clear();
+
+  return BtrieveError::Success;
+}
+
+// Record locks are accepted and ignored by every read operation (see the
+// CASE_WITH_RECORD_LOCK dispatch below), so there is never a lock to release.
+// Unlock must still succeed: callers such as The Major BBS treat any non-zero
+// status from an unlock as fatal (DFAAPI.C dfaUnlock -> dfaError -> catastro).
+static BtrieveError Unlock(const BtrieveCommand &command) {
+  if (getOpenDatabase(command.lpPositionBlock) == nullptr) {
+    return BtrieveError::FileNotOpen;
+  }
 
   return BtrieveError::Success;
 }
@@ -569,11 +635,13 @@ static BtrieveError Create(BtrieveCommand &command) {
   std::filesystem::path dbPath = std::filesystem::path(fullPathFileName)
                                      .replace_extension(sql.getFileExtension());
 
-  if (command.keyNumber == -1) {
-    if (FileExists(fullPathFileName) ||
-        FileExists(toWideString(dbPath).c_str())) {
-      return BtrieveError::FileAlreadyExists;
-    }
+  // Key number -1 means fail if the file exists. As with stock Btrieve, that
+  // is decided by the .DAT: a .DB left without one belongs to a file that was
+  // deleted (or created before Create wrote placeholders), and is moved aside
+  // below rather than reused.
+  const bool datExists = !inMemory && FileExists(fullPathFileName);
+  if (command.keyNumber == -1 && datExists) {
+    return BtrieveError::FileAlreadyExists;
   }
 
   std::vector<wbtrv32::LPACSCREATEDATA> clientProvidedAcs;
@@ -654,7 +722,26 @@ static BtrieveError Create(BtrieveCommand &command) {
                            recordType, true, 0);
 
   if (!inMemory) {
+    if (command.keyNumber == -1 && FileExists(toWideString(dbPath).c_str()) &&
+        retireDatabase(fullPathFileName, dbPath,
+                       toStdString(std::filesystem::path(fullPathFileName)
+                                       .filename()) +
+                           " was missing and has been created afresh")
+            .empty()) {
+      return BtrieveError::FileAlreadyExists;
+    }
+
     sql.create(toWideString(dbPath).c_str(), database);
+
+    // under the parity shim stock Btrieve writes the real .DAT
+    if (trackSourceFiles()) {
+      if (!datExists) {
+        writeDatPlaceholder(fullPathFileName, dbPath);
+      }
+      if (auto source = sourceFingerprint(fullPathFileName)) {
+        sql.setSourceFingerprint(*source);
+      }
+    }
     return BtrieveError::Success;
   }
 
@@ -671,6 +758,74 @@ static BtrieveError Create(BtrieveCommand &command) {
   AddToOpenFiles(command,
                  std::make_shared<BtrieveDriver>(sqliteDatabase.release()));
 
+  return BtrieveError::Success;
+}
+
+static BtrieveError BeginTransaction() {
+  if (_inTransaction) {
+    return BtrieveError::TransactionIsActive;
+  }
+  _inTransaction = true;
+  return BtrieveError::Success;
+}
+
+// Adds the file a write is about to change to the transaction, if one is
+// active and the file is not in it yet. Files join on their first write, so a
+// file only read during a transaction is never locked by it.
+static void JoinTransaction(const BtrieveCommand &command) {
+  if (!_inTransaction) {
+    return;
+  }
+  std::shared_ptr<BtrieveDriver> driver =
+      findOpenDatabase(command.lpPositionBlock);
+  if (!driver || std::find(_transactionFiles.begin(), _transactionFiles.end(),
+                           driver) != _transactionFiles.end()) {
+    return;
+  }
+  driver->beginTransaction();
+  _transactionFiles.push_back(driver);
+}
+
+// Commits every file in the transaction. They are separate SQLite files, so a
+// crash part way through can leave some committed and others not.
+static BtrieveError EndTransaction() {
+  if (!_inTransaction) {
+    return BtrieveError::TransactionNotActive;
+  }
+
+  BtrieveError error = BtrieveError::Success;
+  for (auto &driver : _transactionFiles) {
+    try {
+      driver->commitTransaction();
+    } catch (const BtrieveException &ex) {
+      if (error == BtrieveError::Success) {
+        error = ex.getError();
+      }
+      driver->rollbackTransaction();
+    }
+  }
+  _transactionFiles.clear();
+  _inTransaction = false;
+  return error;
+}
+
+static void AbortActiveTransaction() {
+  for (auto &driver : _transactionFiles) {
+    try {
+      driver->rollbackTransaction();
+    } catch (const BtrieveException &) {
+      // closing the connection still discards its transaction
+    }
+  }
+  _transactionFiles.clear();
+  _inTransaction = false;
+}
+
+static BtrieveError AbortTransactionOperation() {
+  if (!_inTransaction) {
+    return BtrieveError::TransactionNotActive;
+  }
+  AbortActiveTransaction();
   return BtrieveError::Success;
 }
 
@@ -691,6 +846,7 @@ static BtrieveError handle(BtrieveCommand &command) {
     case OperationCode::Stat:
       return ::Stat(command);
     case OperationCode::Delete:
+      JoinTransaction(command);
       return ::Delete(command);
     CASE_WITH_RECORD_LOCK(OperationCode::StepFirst):
     CASE_WITH_RECORD_LOCK(OperationCode::StepLast):
@@ -721,12 +877,14 @@ static BtrieveError handle(BtrieveCommand &command) {
     CASE_WITH_RECORD_LOCK(OperationCode::GetDirectChunkOrRecord):
       return ::GetDirectRecord(command);
     case OperationCode::Update:
+      JoinTransaction(command);
       return ::Upsert(command, [](BtrieveDriver *driver,
                                   std::basic_string_view<uint8_t> record) {
         auto position = driver->getPosition();
         return std::make_pair(driver->updateRecord(position, record), position);
       });
     case OperationCode::Insert:
+      JoinTransaction(command);
       return ::Upsert(command, [](BtrieveDriver *driver,
                                   std::basic_string_view<uint8_t> record) {
         return driver->insertRecord(record);
@@ -735,6 +893,14 @@ static BtrieveError handle(BtrieveCommand &command) {
       return ::Stop(command);
     case OperationCode::Create:
       return ::Create(command);
+    case OperationCode::Unlock:
+      return ::Unlock(command);
+    CASE_WITH_RECORD_LOCK(OperationCode::BeginTransaction):
+      return ::BeginTransaction();
+    case OperationCode::EndTransaction:
+      return ::EndTransaction();
+    case OperationCode::AbortTransaction:
+      return ::AbortTransactionOperation();
     default:
       return BtrieveError::InvalidOperation;
   }
@@ -750,6 +916,13 @@ extern "C" WBTRV32_EXPORT int __stdcall BTRCALL(WORD wOperation,
                                                 CHAR sbKeyNumber) {
   BtrieveCommand btrieveCommand;
   BtrieveError error;
+
+  // Btrieve 6.15 uses only the low word of the data length. The Major BBS
+  // relies on this: it passes the address of a 16-bit length as the 32-bit
+  // pointer (DFAAPI.C btvu), so the high word is whatever was next to it.
+  if (lpdwDataBufferLength != nullptr) {
+    *lpdwDataBufferLength &= 0xFFFF;
+  }
 
   btrieveCommand.operation = static_cast<OperationCode>(wOperation);
   btrieveCommand.lpPositionBlock = lpPositionBlock;

@@ -1,3 +1,4 @@
+// 26.10.12.1B 02:53PM
 #include "BtrieveDriver.h"
 
 #include <stdlib.h>
@@ -18,7 +19,9 @@
 #endif
 #include <sys/types.h>
 
+#include <chrono>
 #include <filesystem>
+#include <fstream>
 
 #include "TestBase.h"
 
@@ -470,6 +473,181 @@ TEST_F(BtrieveDriverTest, GetRecordCount) {
   ASSERT_EQ(driver.getRecordCount(), 4u);
 }
 
+// Once a .DAT has been converted, the .DB is the live copy of the data. A
+// .DAT that is later touched, restored from backup, or re-shipped by a module
+// installer must never cause the .DB (and everything written to it) to be
+// thrown away.
+TEST_F(BtrieveDriverTest, NewerDatDoesNotReplaceExistingDb) {
+  auto mbbsEmuDat = tempPath->copyToTempPath("assets/MBBSEMU.DAT");
+
+  {
+    BtrieveDriver driver(new SqliteDatabase());
+    ASSERT_EQ(driver.open(mbbsEmuDat.c_str()), BtrieveError::Success);
+    ASSERT_EQ(driver.getRecordCount(), 4u);
+
+    // Live data now differs from the .DAT.
+    ASSERT_EQ(driver.deleteAll(), BtrieveError::Success);
+    ASSERT_EQ(driver.getRecordCount(), 0u);
+  }
+
+  std::filesystem::last_write_time(
+      mbbsEmuDat, std::filesystem::file_time_type::clock::now() +
+                      std::chrono::hours(1));
+
+  BtrieveDriver driver(new SqliteDatabase());
+  ASSERT_EQ(driver.open(mbbsEmuDat.c_str()), BtrieveError::Success);
+  ASSERT_EQ(driver.getRecordCount(), 0u);
+}
+
+// Puts a different Btrieve file (MBMGEPLT.DAT, 22 records) where dat is, with
+// a newer timestamp, as a module upgrade would.
+static void replaceWithDifferentDat(TempPath *tempPath,
+                                    const std::filesystem::path &dat) {
+  auto other = tempPath->copyToTempPath("assets/MBMGEPLT.DAT");
+  std::filesystem::copy_file(other, dat,
+                             std::filesystem::copy_options::overwrite_existing);
+  std::filesystem::remove(other);
+  std::filesystem::last_write_time(
+      dat, std::filesystem::file_time_type::clock::now() +
+               std::chrono::hours(1));
+}
+
+// Every database moved aside into the archive folder beside dat.
+static std::vector<std::filesystem::path> retiredDatabases(
+    const std::filesystem::path &dat) {
+  std::vector<std::filesystem::path> ret;
+  const auto folder = archiveFolder(dat);
+  if (!std::filesystem::exists(folder)) {
+    return ret;
+  }
+  for (const auto &entry :
+       std::filesystem::recursive_directory_iterator(folder)) {
+    const auto extension = entry.path().extension().string();
+    if (extension == ".DB" || extension == ".db") {
+      ret.push_back(entry.path());
+    }
+  }
+  return ret;
+}
+
+static std::string readConversionLog(const std::filesystem::path &dat) {
+  std::ifstream log(archiveFolder(dat) / "CONVERSIONS.LOG");
+  return std::string(std::istreambuf_iterator<char>(log),
+                     std::istreambuf_iterator<char>());
+}
+
+// A .DAT with different contents from the one the .DB was converted from (a
+// module upgrade, a restore) replaces the data, as it would under stock
+// Btrieve, but the old .DB is kept.
+TEST_F(BtrieveDriverTest, ChangedDatIsConvertedAndOldDbKept) {
+  auto mbbsEmuDat = tempPath->copyToTempPath("assets/MBBSEMU.DAT");
+
+  {
+    BtrieveDriver driver(new SqliteDatabase());
+    ASSERT_EQ(driver.open(mbbsEmuDat.c_str()), BtrieveError::Success);
+    ASSERT_EQ(driver.deleteAll(), BtrieveError::Success);
+  }
+
+  replaceWithDifferentDat(tempPath, mbbsEmuDat);
+
+  {
+    BtrieveDriver driver(new SqliteDatabase());
+    ASSERT_EQ(driver.open(mbbsEmuDat.c_str()), BtrieveError::Success);
+    EXPECT_EQ(driver.getRecordCount(), 22u);
+  }
+
+  auto retired = retiredDatabases(mbbsEmuDat);
+  ASSERT_EQ(retired.size(), 1u);
+  {
+    BtrieveDriver driver(new SqliteDatabase());
+    ASSERT_EQ(driver.open(toWideString(retired[0]).c_str()), BtrieveError::Success);
+    EXPECT_EQ(driver.getRecordCount(), 0u);
+  }
+  EXPECT_NE(readConversionLog(mbbsEmuDat).find(
+                "MBBSEMU.DAT has changed and was converted (22 records)"),
+            std::string::npos);
+
+  // converted once: opening again keeps the live data
+  {
+    BtrieveDriver driver(new SqliteDatabase());
+    ASSERT_EQ(driver.open(mbbsEmuDat.c_str()), BtrieveError::Success);
+    ASSERT_EQ(driver.deleteAll(), BtrieveError::Success);
+  }
+  BtrieveDriver driver(new SqliteDatabase());
+  ASSERT_EQ(driver.open(mbbsEmuDat.c_str()), BtrieveError::Success);
+  EXPECT_EQ(driver.getRecordCount(), 0u);
+  EXPECT_EQ(retiredDatabases(mbbsEmuDat).size(), 1u);
+}
+
+// A .DB from before fingerprints were kept can't say which .DAT it came from,
+// so the .DAT beside it is taken as its source rather than reconverted.
+TEST_F(BtrieveDriverTest, DbWithoutFingerprintAdoptsDat) {
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  auto mbbsEmuDat = tempPath->copyToTempPath("assets/MBBSEMU.DAT");
+  replaceWithDifferentDat(tempPath, mbbsEmuDat);
+
+  {
+    BtrieveDriver driver(new SqliteDatabase());
+    ASSERT_EQ(driver.open(mbbsEmuDat.c_str()), BtrieveError::Success);
+    EXPECT_EQ(driver.getRecordCount(), 4u);
+  }
+  EXPECT_TRUE(retiredDatabases(mbbsEmuDat).empty());
+
+  // adopted, so a later change is recognized
+  // copies over mbbsEmuDat
+  auto original = tempPath->copyToTempPath("assets/MBBSEMU.DAT");
+  std::filesystem::last_write_time(
+      original, std::filesystem::file_time_type::clock::now() +
+                    std::chrono::hours(2));
+  BtrieveDriver driver(new SqliteDatabase());
+  ASSERT_EQ(driver.open(mbbsEmuDat.c_str()), BtrieveError::Success);
+  EXPECT_EQ(driver.getRecordCount(), 4u);
+  EXPECT_EQ(retiredDatabases(mbbsEmuDat).size(), 1u);
+}
+
+// A replacement .DAT that can't be converted leaves the old .DB in use.
+TEST_F(BtrieveDriverTest, UnconvertibleDatKeepsExistingDb) {
+  auto mbbsEmuDat = tempPath->copyToTempPath("assets/MBBSEMU.DAT");
+
+  {
+    BtrieveDriver driver(new SqliteDatabase());
+    ASSERT_EQ(driver.open(mbbsEmuDat.c_str()), BtrieveError::Success);
+    ASSERT_EQ(driver.deleteAll(), BtrieveError::Success);
+  }
+
+  {
+    std::ofstream junk(std::filesystem::path(mbbsEmuDat),
+                       std::ios::binary | std::ios::trunc);
+    junk << std::string(4096, 'x');
+  }
+
+  BtrieveDriver driver(new SqliteDatabase());
+  ASSERT_EQ(driver.open(mbbsEmuDat.c_str()), BtrieveError::Success);
+  EXPECT_EQ(driver.getRecordCount(), 0u);
+  EXPECT_TRUE(retiredDatabases(mbbsEmuDat).empty());
+  EXPECT_NE(readConversionLog(mbbsEmuDat).find("kept the previous MBBSEMU."),
+            std::string::npos);
+}
+
+// With tracking off (the parity shim, where stock Btrieve writes the .DATs),
+// the .DB always wins.
+TEST_F(BtrieveDriverTest, ChangedDatIgnoredWhenTrackingOff) {
+  auto mbbsEmuDat = tempPath->copyToTempPath("assets/MBBSEMU.DAT");
+
+  {
+    BtrieveDriver driver(new SqliteDatabase(), false);
+    ASSERT_EQ(driver.open(mbbsEmuDat.c_str()), BtrieveError::Success);
+    ASSERT_EQ(driver.deleteAll(), BtrieveError::Success);
+  }
+
+  replaceWithDifferentDat(tempPath, mbbsEmuDat);
+
+  BtrieveDriver driver(new SqliteDatabase(), false);
+  ASSERT_EQ(driver.open(mbbsEmuDat.c_str()), BtrieveError::Success);
+  EXPECT_EQ(driver.getRecordCount(), 0u);
+  EXPECT_TRUE(retiredDatabases(mbbsEmuDat).empty());
+}
+
 TEST_F(BtrieveDriverTest, DeleteAll) {
   BtrieveDriver driver(new SqliteDatabase());
 
@@ -768,6 +946,9 @@ TEST_F(BtrieveDriverTest, UpdateConstraintFailedTest) {
 
   MBBSEmuRecordStruct record;
   memset(&record, 0, sizeof(record));
+  // key 0 is not modifiable, so keep it: changing it as well makes Btrieve
+  // (and this driver) report NonModifiableKeyValue instead
+  strcpy(record.key0, "Sysop");
   record.key1 = 7776;
   strcpy(record.key2, "In orbe terrarum, optimus sum");
   record.key3 = 1;

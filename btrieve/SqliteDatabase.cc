@@ -267,48 +267,47 @@ void SqliteDatabase::upgradeDatabaseFrom2To3() {
 
 // Version 3 stored a composite key as one BLOB of its concatenated segment
 // bytes, which memcmp misorders for little endian and signed integers, floats
-// and strings. Version 4 stores each segment in its own column, so data_t is
-// rebuilt with the new columns and every row's keys are recomputed from its
-// data. Row ids are kept since they're the records' positions.
+// and strings, and stored an empty string key as NULL even when the key is
+// not nullable, so range queries skipped it. Version 4 stores each segment in
+// its own column and only declared nullable keys as NULL, so data_t is
+// rebuilt and every row's keys are recomputed from its data. Row ids are kept
+// since they're the records' positions.
 void SqliteDatabase::upgradeDatabaseFrom3To4() {
   SqliteTransaction transaction(database);
   try {
-    if (std::any_of(keys.begin(), keys.end(),
-                    [](const Key &key) { return key.isComposite(); })) {
-      createSqliteDataTable("data_t_v4");
+    createSqliteDataTable("data_t_v4");
 
-      {
-        SqlitePreparedStatement select(database, "SELECT id, data FROM data_t");
-        SqlitePreparedStatement insert(
-            database, buildInsertSql(keys, "data_t_v4", true).c_str());
+    {
+      SqlitePreparedStatement select(database, "SELECT id, data FROM data_t");
+      SqlitePreparedStatement insert(
+          database, buildInsertSql(keys, "data_t_v4", true).c_str());
 
-        auto reader = select.executeReader();
-        while (reader->read()) {
-          std::vector<uint8_t> data = reader->getBlob(1);
-          std::basic_string_view<uint8_t> record(data.data(), data.size());
+      auto reader = select.executeReader();
+      while (reader->read()) {
+        std::vector<uint8_t> data = reader->getBlob(1);
+        std::basic_string_view<uint8_t> record(data.data(), data.size());
 
-          insert.reset();
-          insert.bindParameter(1, BindableValue(reader->getInt64(0)));
-          insert.bindParameter(2, BindableValue(record));
-          bindRecordKeys(insert, 3, keys, record);
-          insert.execute();
-        }
+        insert.reset();
+        insert.bindParameter(1, BindableValue(reader->getInt64(0)));
+        insert.bindParameter(2, BindableValue(record));
+        bindRecordKeys(insert, 3, keys, record);
+        insert.execute();
       }
-
-      // dropping data_t drops its indices and trigger too
-      {
-        SqlitePreparedStatement statement(database, "DROP TABLE data_t");
-        statement.execute();
-      }
-      {
-        SqlitePreparedStatement statement(
-            database, "ALTER TABLE data_t_v4 RENAME TO data_t");
-        statement.execute();
-      }
-
-      createSqliteDataIndices();
-      createSqliteTriggers();
     }
+
+    // dropping data_t drops its indices and trigger too
+    {
+      SqlitePreparedStatement statement(database, "DROP TABLE data_t");
+      statement.execute();
+    }
+    {
+      SqlitePreparedStatement statement(
+          database, "ALTER TABLE data_t_v4 RENAME TO data_t");
+      statement.execute();
+    }
+
+    createSqliteDataIndices();
+    createSqliteTriggers();
 
     {
       SqlitePreparedStatement statement(database,
@@ -566,6 +565,8 @@ void SqliteDatabase::createSqliteTriggers() {
 
 // Closes an opened database.
 void SqliteDatabase::close() {
+  // rolls back an unfinished client transaction
+  clientTransaction.reset();
   preparedStatements.clear();
   transactionStatements.clear();
   database.reset();
@@ -574,6 +575,69 @@ void SqliteDatabase::close() {
   insertSql.clear();
   updateSql.clear();
   cache.clear();
+}
+
+void SqliteDatabase::beginTransaction() {
+  clientTransaction.reset(new SqliteTransaction(database));
+}
+
+void SqliteDatabase::commitTransaction() {
+  std::unique_ptr<SqliteTransaction> transaction = std::move(clientTransaction);
+  if (transaction) {
+    transaction->commit();
+  }
+}
+
+void SqliteDatabase::rollbackTransaction() {
+  std::unique_ptr<SqliteTransaction> transaction = std::move(clientTransaction);
+  // records read during the transaction may be ones it wrote
+  cache.clear();
+  if (transaction) {
+    transaction->rollback();
+  }
+}
+
+// source_t is optional: databases converted before it existed, and those made
+// by Create, have none. Readers that don't know it ignore it, so adding it
+// needs no version change.
+std::optional<SourceFingerprint> SqliteDatabase::getSourceFingerprint() {
+  {
+    SqlitePreparedStatement command(
+        database,
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND "
+        "name = 'source_t'");
+    if (!command.executeReader()->read()) {
+      return std::nullopt;
+    }
+  }
+
+  SqlitePreparedStatement command(database,
+                                  "SELECT size, modified, hash FROM source_t");
+  std::unique_ptr<SqliteReader> reader = command.executeReader();
+  if (!reader->read()) {
+    return std::nullopt;
+  }
+  return SourceFingerprint{reader->getInt64(0), reader->getInt64(1),
+                           reader->getInt64(2)};
+}
+
+void SqliteDatabase::setSourceFingerprint(
+    const SourceFingerprint &fingerprint) {
+  SqlitePreparedStatement(database,
+                          "CREATE TABLE IF NOT EXISTS source_t(size INTEGER "
+                          "NOT NULL, modified INTEGER NOT NULL, hash INTEGER "
+                          "NOT NULL)")
+      .execute();
+  SqlitePreparedStatement(database, "DELETE FROM source_t").execute();
+
+  SqlitePreparedStatement command(
+      database,
+      "INSERT INTO source_t(size, modified, hash) VALUES(@size, @modified, "
+      "@hash)");
+  command.bindParameter(1, BindableValue(fingerprint.size));
+  command.bindParameter(2, BindableValue(fingerprint.modified));
+  command.bindParameter(3, BindableValue(fingerprint.hash));
+  command.execute();
 }
 
 SqlitePreparedStatement &SqliteDatabase::getPreparedStatement(
