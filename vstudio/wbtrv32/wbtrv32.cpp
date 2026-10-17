@@ -391,6 +391,9 @@ static BtrieveError GetDirectRecord(BtrieveCommand &command) {
     return BtrieveError::DataBufferLengthOverrun;
   }
 
+  // the record read becomes the current one (GetPosition, Update, Delete)
+  btrieveDriver->setPosition(position);
+
   if (command.keyNumber >= 0) {
     if (static_cast<uint32_t>(command.keyNumber) >=
         btrieveDriver->getKeys().size()) {

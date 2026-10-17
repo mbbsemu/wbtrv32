@@ -2883,3 +2883,56 @@ TEST_F(wbtrv32Test, UpgradeIndexesEmptyStringKeys) {
             btrieve::BtrieveError::Success);
   EXPECT_STREQ(record, "");
 }
+
+// GetDirect makes the record it reads the current one, so a following
+// GetPosition reports that record (The Major BBS forums: Insert a message,
+// GetDirect an older one, GetPosition, later GetDirect + Update with that
+// position -- a stale position there rewrote the inserted message).
+TEST_F(wbtrv32Test, GetPositionAfterGetDirectReportsRecordRead) {
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  ASSERT_FALSE(mbbsEmuDb.empty());
+
+  DWORD length = 0;
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr, &length,
+                    const_cast<LPVOID>(reinterpret_cast<LPCVOID>(
+                        toStdString(mbbsEmuDb.c_str()).c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
+
+  for (int keyNumber : {0, -1}) {
+    RECORD record;
+    uint8_t key[255];
+    uint32_t first;
+    length = sizeof(record);
+    ASSERT_EQ(btrcall(btrieve::OperationCode::AcquireFirst, posBlock, &record,
+                      &length, key, 255, 1),
+              btrieve::BtrieveError::Success);
+    length = sizeof(first);
+    ASSERT_EQ(btrcall(btrieve::OperationCode::GetPosition, posBlock, &first,
+                      &length, nullptr, 0, 0),
+              btrieve::BtrieveError::Success);
+
+    // an insert moves currency to the new record
+    memset(&record, 0, sizeof(record));
+    strcpy(record.string1, "New");
+    record.int1 = 600000 + keyNumber;
+    length = sizeof(record);
+    ASSERT_EQ(btrcall(btrieve::OperationCode::Insert, posBlock, &record,
+                      &length, key, 255, 0),
+              btrieve::BtrieveError::Success);
+
+    memcpy(&record, &first, sizeof(first));
+    length = sizeof(record);
+    ASSERT_EQ(btrcall(btrieve::OperationCode::GetDirectChunkOrRecord,
+                      posBlock, &record, &length, key, 255,
+                      static_cast<CHAR>(keyNumber)),
+              btrieve::BtrieveError::Success);
+
+    uint32_t after = 0;
+    length = sizeof(after);
+    ASSERT_EQ(btrcall(btrieve::OperationCode::GetPosition, posBlock, &after,
+                      &length, nullptr, 0, 0),
+              btrieve::BtrieveError::Success);
+    EXPECT_EQ(after, first) << "GetDirect with key " << keyNumber;
+  }
+}
