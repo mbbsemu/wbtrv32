@@ -120,8 +120,11 @@ enum OperationCode {
   WITH_RECORD_LOCK(QueryLast, 0x3F),
 
   // Transactions span every file the client writes until End or Abort. A
-  // lock bias (+100/+200) on Begin is accepted and ignored.
+  // lock bias (+100..+400) on Begin is accepted and ignored. A concurrent
+  // transaction (1019) is run as an exclusive one, and may also carry the
+  // +500 no-wait bias (1519..1919).
   WITH_RECORD_LOCK(BeginTransaction, 0x13),
+  WITH_RECORD_LOCK(BeginConcurrentTransaction, 1019),
   EndTransaction = 0x14,
   AbortTransaction = 0x15,
 

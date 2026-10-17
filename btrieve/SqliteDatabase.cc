@@ -661,7 +661,7 @@ BtrieveError SqliteDatabase::stepFirst() {
     return BtrieveError::EndOfFile;
   }
 
-  position = reader->getInt32(0);
+  setPosition(reader->getInt32(0));
   cacheBtrieveRecord(position, *reader, 1);
   return BtrieveError::Success;
 }
@@ -674,7 +674,7 @@ BtrieveError SqliteDatabase::stepLast() {
     return BtrieveError::EndOfFile;
   }
 
-  position = reader->getInt32(0);
+  setPosition(reader->getInt32(0));
   cacheBtrieveRecord(position, *reader, 1);
   return BtrieveError::Success;
 }
@@ -690,7 +690,7 @@ BtrieveError SqliteDatabase::stepNext() {
     return BtrieveError::EndOfFile;
   }
 
-  position = reader->getInt32(0);
+  setPosition(reader->getInt32(0));
   cacheBtrieveRecord(position, *reader, 1);
   return BtrieveError::Success;
 }
@@ -707,7 +707,7 @@ BtrieveError SqliteDatabase::stepPrevious() {
     return BtrieveError::EndOfFile;
   }
 
-  position = reader->getInt32(0);
+  setPosition(reader->getInt32(0));
   cacheBtrieveRecord(position, *reader, 1);
   return BtrieveError::Success;
 }
@@ -720,8 +720,6 @@ const Record &SqliteDatabase::cacheBtrieveRecord(unsigned int position,
 }
 
 std::pair<bool, Record> SqliteDatabase::selectRecord(unsigned int position) {
-  this->position = position;
-
   SqlitePreparedStatement &command =
       getPreparedStatement("SELECT data FROM data_t WHERE id = @offset");
   command.bindParameter(1, position);
@@ -745,12 +743,37 @@ unsigned int SqliteDatabase::getRecordCount() const {
   return reader->getInt32(0);
 }
 
+unsigned int SqliteDatabase::getUniqueKeyCount(const Key &key) const {
+  if (key.isUnique()) {
+    return getRecordCount();
+  }
+
+  std::stringstream sql;
+  sql << "SELECT COUNT(*) FROM (SELECT DISTINCT ";
+  const char *separator = "";
+  for (auto &column : key.getSqliteColumnNames()) {
+    sql << separator << column;
+    separator = ", ";
+  }
+  sql << " FROM data_t)";
+
+  const SqlitePreparedStatement &command =
+      getPreparedStatement(sql.str().c_str());
+  auto reader = command.executeReader();
+  if (!reader->read()) {
+    return 0;
+  }
+
+  return reader->getInt32(0);
+}
+
 BtrieveError SqliteDatabase::deleteAll() {
   bool ret = getPreparedStatement("DELETE FROM data_t").executeNoThrow();
 
   if (ret) {
     cache.clear();
     setPosition(0);
+    clearCurrentRecord();
   }
 
   return ret ? BtrieveError::Success : BtrieveError::IOError;
@@ -768,9 +791,12 @@ BtrieveError SqliteDatabase::deleteRecord() {
     return ex.getError();
   }
 
-  return sqlite3_changes(database.get()) == 1
-             ? BtrieveError::Success
-             : BtrieveError::InvalidPositioning;
+  if (sqlite3_changes(database.get()) != 1) {
+    return BtrieveError::InvalidPositioning;
+  }
+
+  clearCurrentRecord();
+  return BtrieveError::Success;
 }
 
 class SqliteErrorConverter {
@@ -1034,7 +1060,7 @@ BtrieveError SqliteDatabase::nextReader(Query *query,
                : BtrieveError::EndOfFile;
   }
 
-  position = query->getPosition();
+  setPosition(query->getPosition());
   cache.cache(position, record.second);
   return BtrieveError::Success;
 }

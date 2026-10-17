@@ -47,6 +47,7 @@ class SqliteDatabase : public SqlDatabase {
   virtual BtrieveError deleteRecord() override;
 
   virtual unsigned int getRecordCount() const override;
+  virtual unsigned int getUniqueKeyCount(const Key &key) const override;
 
   virtual BtrieveError deleteAll() override;
 

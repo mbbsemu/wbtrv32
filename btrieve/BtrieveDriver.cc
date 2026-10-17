@@ -254,9 +254,12 @@ BtrieveError BtrieveDriver::open(const wchar_t *fileName, OpenMode openMode) {
   }
 
   if (error == BtrieveError::Success) {
-    // Set Position to First Record
+    // Set Position to First Record, so that Delete/Update straight after
+    // Open act on it. Btrieve has no current record after Open, so
+    // GetPosition still fails until a record is read.
     performOperation(0, std::basic_string_view<uint8_t>(),
                      OperationCode::StepFirst);
+    sqlDatabase->clearCurrentRecord();
   }
 
   return error;
@@ -403,12 +406,15 @@ BtrieveError BtrieveDriver::performOperation(
     case OperationCode::StepFirst + 200:
     case OperationCode::StepFirst + 300:
     case OperationCode::StepFirst + 400:
+      // Step First and Step Last destroy logical currency
+      previousQuery.reset();
       return sqlDatabase->stepFirst();
     case OperationCode::StepLast:
     case OperationCode::StepLast + 100:
     case OperationCode::StepLast + 200:
     case OperationCode::StepLast + 300:
     case OperationCode::StepLast + 400:
+      previousQuery.reset();
       return sqlDatabase->stepLast();
     case OperationCode::StepNext:
     case OperationCode::StepNext + 100:
