@@ -39,6 +39,7 @@ class BtrieveDatabase {
   BtrieveDatabase(const BtrieveDatabase &database)
       : keys(database.keys),
         deletedRecordOffsets(database.deletedRecordOffsets),
+        patPages(database.patPages),
         pageLength(database.pageLength),
         pageCount(database.pageCount),
         recordLength(database.recordLength),
@@ -51,6 +52,7 @@ class BtrieveDatabase {
   BtrieveDatabase(BtrieveDatabase &&database)
       : keys(std::move(database.keys)),
         deletedRecordOffsets(std::move(database.deletedRecordOffsets)),
+        patPages(std::move(database.patPages)),
         pageLength(database.pageLength),
         pageCount(database.pageCount),
         recordLength(database.recordLength),
@@ -169,6 +171,15 @@ class BtrieveDatabase {
                              std::basic_string_view<uint8_t> recordData,
                              std::vector<uint8_t> &stream);
 
+  // Finds each v6 PAT pair by its sequence number, normally every
+  // pageLength / 4 pages from page 2 but moved along by any stray pages in the
+  // file, and fills patPages.
+  void locatePATs(FILE *f);
+
+  // Maps a v6 physical page number to its page in the file: a page moves by
+  // as much as the PAT pair heading its region has moved.
+  uint32_t toFilePage(uint32_t physicalPage) const;
+
   int32_t logicalPageToPhysicalOffset(FILE *f, int32_t logicalPage);
   // Reads the PAT once for the given logical page and returns both the physical
   // byte offset and the PAT type byte via outType, avoiding the double PAT read
@@ -181,6 +192,8 @@ class BtrieveDatabase {
   // The list of deleted record pointers inside the Btrieve database.
   // Data that exists on these record pointers will be skipped.
   std::unordered_set<uint32_t> deletedRecordOffsets;
+  // v6 only: the file page of each PAT pair's first page, PAT 1 first.
+  std::vector<uint32_t> patPages;
 
   // The page length of the Btrieve database. Will be a multiple of 512.
   uint16_t pageLength;
