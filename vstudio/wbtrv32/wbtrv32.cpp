@@ -522,6 +522,17 @@ static BtrieveError Upsert(
   // on a file that hasn't had one yet -- indistinguishable from failure.
   btrieveDriver->setPosition(insertedPosition.second);
 
+  // Btrieve hands the stored record back on Insert, including any
+  // autoincrement values it assigned
+  if (command.operation == OperationCode::Insert) {
+    auto stored = btrieveDriver->getRecord(insertedPosition.second);
+    if (stored.first &&
+        stored.second.getData().size() <= *command.lpdwDataBufferLength) {
+      memcpy(command.lpDataBuffer, stored.second.getData().data(),
+             stored.second.getData().size());
+    }
+  }
+
   if (command.keyNumber < 0) {
     return BtrieveError::Success;
   }
@@ -765,6 +776,13 @@ extern "C" WBTRV32_EXPORT int __stdcall BTRCALL(WORD wOperation,
                                                 CHAR sbKeyNumber) {
   BtrieveCommand btrieveCommand;
   BtrieveError error;
+
+  // Btrieve 6.15 uses only the low word of the data length. The Major BBS
+  // relies on this: it passes the address of a 16-bit length as the 32-bit
+  // pointer (DFAAPI.C btvu), so the high word is whatever was next to it.
+  if (lpdwDataBufferLength != nullptr) {
+    *lpdwDataBufferLength &= 0xFFFF;
+  }
 
   btrieveCommand.operation = static_cast<OperationCode>(wOperation);
   btrieveCommand.lpPositionBlock = lpPositionBlock;
