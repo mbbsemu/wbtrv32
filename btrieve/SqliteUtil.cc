@@ -13,3 +13,52 @@ void throwException(int errorCode) {
                          errorCode, sqlite3ErrMsg);
 }
 }  // namespace btrieve
+
+namespace btrieve {
+static std::string join(const std::vector<std::string> &values,
+                        const char *separator) {
+  std::string ret;
+  for (size_t i = 0; i < values.size(); ++i) {
+    if (i > 0) {
+      ret += separator;
+    }
+    ret += values[i];
+  }
+  return ret;
+}
+
+std::string sqliteKeyColumns(const Key &key, const char *suffix) {
+  std::vector<std::string> columns = key.getSqliteColumnNames();
+  for (auto &column : columns) {
+    column += suffix;
+  }
+  return join(columns, ", ");
+}
+
+std::string sqliteKeyComparison(const Key &key, const char *op) {
+  std::vector<std::string> parameters;
+  for (size_t i = 0; i < key.getSegments().size(); ++i) {
+    parameters.push_back("@value" + std::to_string(i));
+  }
+
+  if (!key.isComposite()) {
+    return sqliteKeyColumns(key) + " " + op + " " + parameters[0];
+  }
+
+  return "(" + sqliteKeyColumns(key) + ") " + op + " (" +
+         join(parameters, ", ") + ")";
+}
+
+std::string sqliteKeyEquals(const Key &key,
+                            const std::vector<BindableValue> &values) {
+  std::vector<std::string> columns = key.getSqliteColumnNames();
+  for (size_t i = 0; i < columns.size(); ++i) {
+    if (values[i].isNull()) {
+      columns[i] += " IS NULL";
+    } else {
+      columns[i] += " = @value" + std::to_string(i);
+    }
+  }
+  return join(columns, " AND ");
+}
+}  // namespace btrieve

@@ -1,5 +1,9 @@
 #include "BtrieveDatabase.h"
 
+#include <filesystem>
+#include <fstream>
+
+#include "Text.h"
 #include "gtest/gtest.h"
 
 using namespace btrieve;
@@ -226,4 +230,41 @@ TEST(BtrieveDatabase, LoadsMultiAcsDatV6) {
 
   ASSERT_STREQ(database.getKeys().at(0).getACSName(), "ALLCAPS");
   ASSERT_STREQ(database.getKeys().at(2).getACSName(), "LOWER");
+}
+
+// NOCASE_KEY (0x400) shares a bit with NUMBERED_ACS (0x420), so a case
+// insensitive key without an ACS must not be treated as having one.
+TEST(BtrieveDatabase, LoadsCaseInsensitiveKeyWithoutACS) {
+  std::filesystem::path dat(testing::TempDir());
+  dat /= "NOCASE.DAT";
+  std::filesystem::copy_file("assets/MBBSEMU.DAT", dat,
+                             std::filesystem::copy_options::overwrite_existing);
+
+  // key 0's attributes are at 0x118 in this v5 file, 0x0101 (duplicates and
+  // extended type), so set the high byte to add NOCASE_KEY
+  {
+    std::fstream file(dat, std::ios::in | std::ios::out | std::ios::binary);
+    file.seekg(0x118);
+    char attributes[2];
+    file.read(attributes, sizeof(attributes));
+    ASSERT_EQ(attributes[0], 0x01);
+    ASSERT_EQ(attributes[1], 0x01);
+
+    file.seekp(0x119);
+    file.put(0x05);
+  }
+
+  BtrieveDatabase database;
+  database.parseDatabase(
+      toWideString(dat).c_str(), []() { return true; },
+      [](std::basic_string_view<uint8_t> record) {
+        return BtrieveDatabase::LoadRecordResult::COUNT;
+      });
+
+  ASSERT_EQ(database.getKeys().size(), 4u);
+  const KeyDefinition &key = database.getKeys()[0].getPrimarySegment();
+  EXPECT_EQ(key.getAttributes(), 0x0501);
+  EXPECT_FALSE(key.requiresACS());
+  EXPECT_EQ(key.getACS(), nullptr);
+  EXPECT_EQ(database.getRecordCount(), 4u);
 }

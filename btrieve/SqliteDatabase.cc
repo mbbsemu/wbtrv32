@@ -17,7 +17,7 @@
 
 namespace btrieve {
 
-static const unsigned int CURRENT_VERSION = 3;
+static const unsigned int CURRENT_VERSION = 4;
 
 template <class InputIt, class UnaryPred>
 static std::string commaDelimited(InputIt first, InputIt last, UnaryPred pred) {
@@ -34,6 +34,46 @@ static std::string commaDelimited(InputIt first, InputIt last, UnaryPred pred) {
   return sb.str();
 }
 
+// Builds the INSERT for a row's data and every key column, optionally with an
+// explicit id.
+static std::string buildInsertSql(const std::vector<Key> &keys,
+                                  const char *table, bool includeId) {
+  std::vector<std::string> columns;
+  if (includeId) {
+    columns.push_back("id");
+  }
+  columns.push_back("data");
+  for (auto &key : keys) {
+    for (auto &column : key.getSqliteColumnNames()) {
+      columns.push_back(column);
+    }
+  }
+
+  std::stringstream sb;
+  sb << "INSERT INTO " << table << "(";
+  sb << commaDelimited(columns.begin(), columns.end(),
+                       [](const std::string &column) { return column; });
+  sb << ") VALUES(";
+  sb << commaDelimited(columns.begin(), columns.end(),
+                       [](const std::string &column) { return "@" + column; });
+  sb << ")";
+  return sb.str();
+}
+
+// Binds every key column of record starting at parameterNumber, in the same
+// order as buildInsertSql, and returns the next unused parameter number.
+static unsigned int bindRecordKeys(SqlitePreparedStatement &command,
+                                   unsigned int parameterNumber,
+                                   const std::vector<Key> &keys,
+                                   std::basic_string_view<uint8_t> record) {
+  for (auto &key : keys) {
+    for (auto &value : key.extractKeyInRecordToSqliteObjects(record)) {
+      command.bindParameter(parameterNumber++, value);
+    }
+  }
+  return parameterNumber;
+}
+
 class SqliteCreationRecordLoader : public RecordLoader {
  public:
   SqliteCreationRecordLoader(std::shared_ptr<sqlite3> database_,
@@ -42,22 +82,7 @@ class SqliteCreationRecordLoader : public RecordLoader {
   virtual ~SqliteCreationRecordLoader() {}
 
   void createSqliteInsertionCommand() {
-    std::string insertSql;
-    if (!keys.empty()) {
-      std::stringstream sb;
-      sb << "INSERT INTO data_t(data, ";
-      sb << commaDelimited(keys.begin(), keys.end(), [](const Key &key) {
-        return key.getSqliteKeyName();
-      });
-      sb << ") VALUES(@data, ";
-      sb << commaDelimited(keys.begin(), keys.end(), [](const Key &key) {
-        return "@" + key.getSqliteKeyName();
-      });
-      sb << ");";
-      insertSql = sb.str();
-    } else {
-      insertSql = "INSERT INTO data_t(data) VALUES (@data)";
-    }
+    std::string insertSql = buildInsertSql(keys, "data_t", false);
 
     transaction.reset(new SqliteTransaction(this->database));
     insertionCommand.reset(
@@ -69,14 +94,7 @@ class SqliteCreationRecordLoader : public RecordLoader {
       std::basic_string_view<uint8_t> record) {
     insertionCommand->reset();
     insertionCommand->bindParameter(1, record);
-
-    unsigned int parameterNumber = 2;
-
-    for (auto &key : keys) {
-      auto param = key.extractKeyInRecordToSqliteObject(record);
-
-      insertionCommand->bindParameter(parameterNumber++, param);
-    }
+    bindRecordKeys(*insertionCommand, 2, keys, record);
 
     try {
       insertionCommand->execute();
@@ -119,8 +137,15 @@ BtrieveError SqliteDatabase::open(const wchar_t *filename, OpenMode openMode) {
   this->database = std::shared_ptr<sqlite3>(db, &sqlite3_close);
 
   initializeConnection();
-  loadSqliteMetadata(filename, openFlags);
+  uint32_t version = loadSqliteMetadata();
+  if (version < 3) {
+    upgradeDatabaseFrom2To3();
+  }
+  // the 3 to 4 upgrade needs the keys to rebuild the key columns
   loadSqliteKeys();
+  if (version < 4) {
+    upgradeDatabaseFrom3To4();
+  }
 
   if (openMode == OpenMode::ReadOnly) {
     errorCode = sqlite3_exec(database.get(), "PRAGMA query_only = 1;", nullptr,
@@ -162,37 +187,21 @@ void SqliteDatabase::initializeConnection() {
   }
 }
 
-void SqliteDatabase::loadSqliteMetadata(const wchar_t *filename,
-                                        unsigned int openFlags) {
-  uint32_t version = 0;
-  {  // start a block since command needs to go out of scope before
-     // upgradeDatabaseFromVersion can be called
-    SqlitePreparedStatement command(
-        database,
-        "SELECT record_length, variable_length_records, version "
-        "FROM metadata_t");
-    std::unique_ptr<SqliteReader> reader = command.executeReader();
-    if (!reader->read()) {
-      throw BtrieveException(BtrieveError::IOError, "Can't read metadata_t");
-    }
-
-    recordLength = reader->getInt32(0);
-    variableLengthRecords = reader->getBoolean(1);
-
-    version = reader->getInt32(2);
+// Loads the metadata and returns the database's version.
+uint32_t SqliteDatabase::loadSqliteMetadata() {
+  SqlitePreparedStatement command(
+      database,
+      "SELECT record_length, variable_length_records, version "
+      "FROM metadata_t");
+  std::unique_ptr<SqliteReader> reader = command.executeReader();
+  if (!reader->read()) {
+    throw BtrieveException(BtrieveError::IOError, "Can't read metadata_t");
   }
 
-  if (version != CURRENT_VERSION) {
-    upgradeDatabaseFromVersion(version, filename, openFlags);
-  }
-}
+  recordLength = reader->getInt32(0);
+  variableLengthRecords = reader->getBoolean(1);
 
-void SqliteDatabase::upgradeDatabaseFromVersion(uint32_t currentVersion,
-                                                const wchar_t *filename,
-                                                unsigned int openFlags) {
-  if (currentVersion == 2) {
-    upgradeDatabaseFrom2To3();
-  }
+  return reader->getInt32(2);
 }
 
 void SqliteDatabase::upgradeDatabaseFrom2To3() {
@@ -244,8 +253,66 @@ void SqliteDatabase::upgradeDatabaseFrom2To3() {
     }
     // bump version
     {
-      SqlitePreparedStatement statement(
-          database, "UPDATE metadata_t SET version = %d", CURRENT_VERSION);
+      SqlitePreparedStatement statement(database,
+                                        "UPDATE metadata_t SET version = 3");
+      statement.execute();
+    }
+
+    transaction.commit();
+  } catch (const BtrieveException &ex) {
+    transaction.rollback();
+    throw ex;
+  }
+}
+
+// Version 3 stored a composite key as one BLOB of its concatenated segment
+// bytes, which memcmp misorders for little endian and signed integers, floats
+// and strings. Version 4 stores each segment in its own column, so data_t is
+// rebuilt with the new columns and every row's keys are recomputed from its
+// data. Row ids are kept since they're the records' positions.
+void SqliteDatabase::upgradeDatabaseFrom3To4() {
+  SqliteTransaction transaction(database);
+  try {
+    if (std::any_of(keys.begin(), keys.end(),
+                    [](const Key &key) { return key.isComposite(); })) {
+      createSqliteDataTable("data_t_v4");
+
+      {
+        SqlitePreparedStatement select(database, "SELECT id, data FROM data_t");
+        SqlitePreparedStatement insert(
+            database, buildInsertSql(keys, "data_t_v4", true).c_str());
+
+        auto reader = select.executeReader();
+        while (reader->read()) {
+          std::vector<uint8_t> data = reader->getBlob(1);
+          std::basic_string_view<uint8_t> record(data.data(), data.size());
+
+          insert.reset();
+          insert.bindParameter(1, BindableValue(reader->getInt64(0)));
+          insert.bindParameter(2, BindableValue(record));
+          bindRecordKeys(insert, 3, keys, record);
+          insert.execute();
+        }
+      }
+
+      // dropping data_t drops its indices and trigger too
+      {
+        SqlitePreparedStatement statement(database, "DROP TABLE data_t");
+        statement.execute();
+      }
+      {
+        SqlitePreparedStatement statement(
+            database, "ALTER TABLE data_t_v4 RENAME TO data_t");
+        statement.execute();
+      }
+
+      createSqliteDataIndices();
+      createSqliteTriggers();
+    }
+
+    {
+      SqlitePreparedStatement statement(database,
+                                        "UPDATE metadata_t SET version = 4");
       statement.execute();
     }
 
@@ -350,9 +417,9 @@ std::unique_ptr<RecordLoader> SqliteDatabase::create(
 
   createSqliteMetadataTable(database);
   createSqliteKeysTable(database);
-  createSqliteDataTable(database);
-  createSqliteDataIndices(database);
-  createSqliteTriggers(database);
+  createSqliteDataTable("data_t");
+  createSqliteDataIndices();
+  createSqliteTriggers();
 
   auto recordLoader = std::unique_ptr<SqliteCreationRecordLoader>(
       new SqliteCreationRecordLoader(this->database, database));
@@ -441,11 +508,14 @@ void SqliteDatabase::createSqliteKeysTable(const BtrieveDatabase &database) {
   }
 }
 
-void SqliteDatabase::createSqliteDataTable(const BtrieveDatabase &database) {
+void SqliteDatabase::createSqliteDataTable(const char *table) {
   std::stringstream sb;
-  sb << "CREATE TABLE data_t(id INTEGER PRIMARY KEY, data BLOB NOT NULL";
-  for (auto &key : database.getKeys()) {
-    sb << ", " << key.getSqliteKeyName() << " " << key.getSqliteColumnSql();
+  sb << "CREATE TABLE " << table
+     << "(id INTEGER PRIMARY KEY, data BLOB NOT NULL";
+  for (auto &key : keys) {
+    for (auto &definition : key.getSqliteColumnDefinitions()) {
+      sb << ", " << definition;
+    }
   }
 
   sb << ");";
@@ -455,21 +525,20 @@ void SqliteDatabase::createSqliteDataTable(const BtrieveDatabase &database) {
   createTableStatement.execute();
 }
 
-void SqliteDatabase::createSqliteDataIndices(const BtrieveDatabase &database) {
-  for (auto &key : database.getKeys()) {
+void SqliteDatabase::createSqliteDataIndices() {
+  for (auto &key : keys) {
     const char *possiblyUnique = key.isUnique() ? "UNIQUE" : "";
-    auto sqliteKeyName = key.getSqliteKeyName();
     SqlitePreparedStatement command(
         this->database, "CREATE %s INDEX %s_index on data_t(%s)",
-        possiblyUnique, sqliteKeyName.c_str(), sqliteKeyName.c_str());
+        possiblyUnique, key.getSqliteKeyName().c_str(),
+        sqliteKeyColumns(key).c_str());
     command.execute();
   }
 }
 
-void SqliteDatabase::createSqliteTriggers(const BtrieveDatabase &database) {
+void SqliteDatabase::createSqliteTriggers() {
   std::vector<Key> nonModifiableKeys;
-  std::copy_if(database.getKeys().begin(), database.getKeys().end(),
-               std::back_inserter(nonModifiableKeys),
+  std::copy_if(keys.begin(), keys.end(), std::back_inserter(nonModifiableKeys),
                [](const Key &key) { return !key.isModifiable(); });
 
   if (nonModifiableKeys.empty()) {
@@ -481,11 +550,12 @@ void SqliteDatabase::createSqliteTriggers(const BtrieveDatabase &database) {
              "SELECT CASE ";
 
   for (auto &key : nonModifiableKeys) {
-    builder << "WHEN NEW." << key.getSqliteKeyName() << " != OLD."
-            << key.getSqliteKeyName()
-            << " THEN "
-               "RAISE (ABORT,'You modified a non-modifiable "
-            << key.getSqliteKeyName() << "!') ";
+    for (auto &column : key.getSqliteColumnNames()) {
+      builder << "WHEN NEW." << column << " != OLD." << column
+              << " THEN "
+                 "RAISE (ABORT,'You modified a non-modifiable "
+              << key.getSqliteKeyName() << "!') ";
+    }
   }
 
   builder << "END; END;";
@@ -692,12 +762,7 @@ std::pair<BtrieveError, unsigned int> SqliteDatabase::insertRecord(
   SqlitePreparedStatement &insertCmd =
       getPreparedStatement(getInsertSql().c_str());
   insertCmd.bindParameter(1, BindableValue(record));
-
-  unsigned int parameterNumber = 2;
-  for (auto &key : keys) {
-    insertCmd.bindParameter(parameterNumber++,
-                            key.extractKeyInRecordToSqliteObject(record));
-  }
+  bindRecordKeys(insertCmd, 2, keys, record);
 
   if (!insertCmd.executeNoThrow()) {
     SqliteErrorConverter errorConverter(database.get());
@@ -737,7 +802,9 @@ BtrieveError SqliteDatabase::insertAutoincrementValues(
   std::list<std::string> zeroedKeyAutoincrementedClauses;
   std::list<const Key *> autoincrementedKeys;
   for (const Key &key : keys) {
-    if (key.getPrimarySegment().getDataType() == KeyDataType::AutoInc &&
+    // autoincrement keys can't be segmented
+    if (!key.isComposite() &&
+        key.getPrimarySegment().getDataType() == KeyDataType::AutoInc &&
         key.isNullKeyInRecord(
             std::basic_string_view<uint8_t>(record.data(), record.size()))) {
       std::stringstream maxWhere;
@@ -812,20 +879,7 @@ const std::string &SqliteDatabase::getInsertSql() {
     return insertSql;
   }
 
-  if (!keys.empty()) {
-    std::stringstream sb;
-    sb << "INSERT INTO data_t(data, ";
-    sb << commaDelimited(keys.begin(), keys.end(),
-                         [](const Key &key) { return key.getSqliteKeyName(); });
-    sb << ") VALUES(@data, ";
-    sb << commaDelimited(keys.begin(), keys.end(), [](const Key &key) {
-      return "@" + key.getSqliteKeyName();
-    });
-    sb << ");";
-    insertSql = sb.str();
-  } else {
-    insertSql = "INSERT INTO data_t(data) VALUES (@data)";
-  }
+  insertSql = buildInsertSql(keys, "data_t", false);
   return insertSql;
 }
 
@@ -834,22 +888,15 @@ const std::string &SqliteDatabase::getUpdateSql() {
     return updateSql;
   }
 
-  if (!keys.empty()) {
-    std::stringstream sb;
-    sb << "UPDATE data_t SET data=@data, ";
-    sb << commaDelimited(keys.begin(), keys.end(), [](const Key &key) {
-      char buf[128];
-      snprintf(buf, sizeof(buf), "%s=@%s", key.getSqliteKeyName().c_str(),
-               key.getSqliteKeyName().c_str());
-      buf[sizeof(buf) - 1] = 0;
-
-      return std::string(buf);
-    });
-    sb << " WHERE id=@id;";
-    updateSql = sb.str();
-  } else {
-    updateSql = "UPDATE data_t SET data=@data WHERE id=@id";
+  std::stringstream sb;
+  sb << "UPDATE data_t SET data=@data";
+  for (auto &key : keys) {
+    for (auto &column : key.getSqliteColumnNames()) {
+      sb << ", " << column << "=@" << column;
+    }
   }
+  sb << " WHERE id=@id";
+  updateSql = sb.str();
   return updateSql;
 }
 
@@ -878,12 +925,7 @@ BtrieveError SqliteDatabase::updateRecord(
   SqlitePreparedStatement &updateCmd =
       getPreparedStatement(getUpdateSql().c_str());
   updateCmd.bindParameter(1, BindableValue(record));
-
-  unsigned int parameterNumber = 2;
-  for (auto &key : keys) {
-    updateCmd.bindParameter(parameterNumber++,
-                            key.extractKeyInRecordToSqliteObject(record));
-  }
+  unsigned int parameterNumber = bindRecordKeys(updateCmd, 2, keys, record);
   updateCmd.bindParameter(parameterNumber, id);
 
   if (!updateCmd.executeNoThrow()) {
@@ -934,23 +976,20 @@ BtrieveError SqliteDatabase::nextReader(Query *query,
 }
 
 BtrieveError SqliteDatabase::getByKeyEqual(Query *query) {
+  const Key &key = *query->getKey();
+  auto values = key.keyDataToSqliteObjects(query->getKeyData());
+
   std::stringstream sql;
-
-  auto sqliteObject =
-      query->getKey()->keyDataToSqliteObject(query->getKeyData());
-
-  sql << "SELECT id, " << query->getKey()->getSqliteKeyName()
-      << ", data FROM data_t WHERE " << query->getKey()->getSqliteKeyName();
-  if (sqliteObject.isNull()) {
-    sql << " IS NULL";
-  } else {
-    sql << " = @value";
-  }
-  sql << " ORDER BY " << query->getKey()->getSqliteKeyName() << " ASC, id ASC";
+  sql << "SELECT id, " << sqliteKeyColumns(key) << ", data FROM data_t WHERE "
+      << sqliteKeyEquals(key, values) << " ORDER BY "
+      << sqliteKeyColumns(key, " ASC") << ", id ASC";
 
   SqlitePreparedStatement &command = getPreparedStatement(sql.str().c_str());
-  if (!sqliteObject.isNull()) {
-    command.bindParameter(1, sqliteObject);
+  unsigned int parameterNumber = 1;
+  for (auto &value : values) {
+    if (!value.isNull()) {
+      command.bindParameter(parameterNumber++, value);
+    }
   }
 
   static_cast<SqliteQuery *>(query)->setReader(command.executeReader());
@@ -969,9 +1008,9 @@ BtrieveError SqliteDatabase::getByKeyPrevious(Query *query) {
 BtrieveError SqliteDatabase::getByKeyFirst(Query *query) {
   std::stringstream sql;
 
-  sql << "SELECT id, " << query->getKey()->getSqliteKeyName()
-      << ", data FROM data_t ORDER BY " << query->getKey()->getSqliteKeyName()
-      << " ASC, id ASC";
+  sql << "SELECT id, " << sqliteKeyColumns(*query->getKey())
+      << ", data FROM data_t ORDER BY "
+      << sqliteKeyColumns(*query->getKey(), " ASC") << ", id ASC";
   SqlitePreparedStatement &command = getPreparedStatement(sql.str().c_str());
 
   static_cast<SqliteQuery *>(query)->setReader(command.executeReader());
@@ -982,9 +1021,9 @@ BtrieveError SqliteDatabase::getByKeyFirst(Query *query) {
 BtrieveError SqliteDatabase::getByKeyLast(Query *query) {
   std::stringstream sql;
 
-  sql << "SELECT id, " << query->getKey()->getSqliteKeyName()
-      << ", data FROM data_t ORDER BY " << query->getKey()->getSqliteKeyName()
-      << " DESC, id DESC";
+  sql << "SELECT id, " << sqliteKeyColumns(*query->getKey())
+      << ", data FROM data_t ORDER BY "
+      << sqliteKeyColumns(*query->getKey(), " DESC") << ", id DESC";
   SqlitePreparedStatement &command = getPreparedStatement(sql.str().c_str());
 
   static_cast<SqliteQuery *>(query)->setReader(command.executeReader());
@@ -998,53 +1037,41 @@ static bool shouldConvertSqliteObjectToEmptyStringForComparison(
          key->getPrimarySegment().isString();
 }
 
-BtrieveError SqliteDatabase::getByKeyGreater(Query *query,
-                                             const char *opurator) {
+// Runs a range query comparing the key against the query's key data with
+// opurator, ordered by direction (" ASC" or " DESC").
+BtrieveError SqliteDatabase::getByKeyRange(Query *query, const char *opurator,
+                                           const char *direction,
+                                           CursorDirection cursorDirection) {
+  const Key &key = *query->getKey();
   std::stringstream sql;
 
-  sql << "SELECT id, " << query->getKey()->getSqliteKeyName()
-      << ", data FROM data_t WHERE " << query->getKey()->getSqliteKeyName()
-      << " " << opurator << " @value ORDER BY "
-      << query->getKey()->getSqliteKeyName() << " ASC, id ASC";
+  sql << "SELECT id, " << sqliteKeyColumns(key) << ", data FROM data_t WHERE "
+      << sqliteKeyComparison(key, opurator) << " ORDER BY "
+      << sqliteKeyColumns(key, direction) << ", id" << direction;
 
-  auto sqliteObject =
-      query->getKey()->keyDataToSqliteObject(query->getKeyData());
+  auto values = key.keyDataToSqliteObjects(query->getKeyData());
 
-  if (shouldConvertSqliteObjectToEmptyStringForComparison(sqliteObject,
-                                                          query->getKey())) {
-    sqliteObject = BindableValue("");
+  if (shouldConvertSqliteObjectToEmptyStringForComparison(values[0], &key)) {
+    values[0] = BindableValue("");
   }
 
   SqlitePreparedStatement &command = getPreparedStatement(sql.str().c_str());
-  command.bindParameter(1, sqliteObject);
+  for (unsigned int i = 0; i < values.size(); ++i) {
+    command.bindParameter(i + 1, values[i]);
+  }
 
   static_cast<SqliteQuery *>(query)->setReader(command.executeReader());
-  query->setCursorDirection(CursorDirection::Forward);
-  return nextReader(query, CursorDirection::Forward);
+  query->setCursorDirection(cursorDirection);
+  return nextReader(query, cursorDirection);
+}
+
+BtrieveError SqliteDatabase::getByKeyGreater(Query *query,
+                                             const char *opurator) {
+  return getByKeyRange(query, opurator, " ASC", CursorDirection::Forward);
 }
 
 BtrieveError SqliteDatabase::getByKeyLess(Query *query, const char *opurator) {
-  std::stringstream sql;
-
-  sql << "SELECT id, " << query->getKey()->getSqliteKeyName()
-      << ", data FROM data_t WHERE " << query->getKey()->getSqliteKeyName()
-      << " " << opurator << " @value ORDER BY "
-      << query->getKey()->getSqliteKeyName() << " DESC, id DESC";
-
-  auto sqliteObject =
-      query->getKey()->keyDataToSqliteObject(query->getKeyData());
-
-  if (shouldConvertSqliteObjectToEmptyStringForComparison(sqliteObject,
-                                                          query->getKey())) {
-    sqliteObject = BindableValue("");
-  }
-
-  SqlitePreparedStatement &command = getPreparedStatement(sql.str().c_str());
-  command.bindParameter(1, sqliteObject);
-
-  static_cast<SqliteQuery *>(query)->setReader(command.executeReader());
-  query->setCursorDirection(CursorDirection::Reverse);
-  return nextReader(query, CursorDirection::Reverse);
+  return getByKeyRange(query, opurator, " DESC", CursorDirection::Reverse);
 }
 
 std::unique_ptr<Query> SqliteDatabase::logicalCurrencySeek(
@@ -1069,7 +1096,7 @@ std::unique_ptr<Query> SqliteDatabase::logicalCurrencySeek(
   auto ret = newQuery(position, &keys.at(keyNumber), keyView);
 
   static_cast<SqliteQuery *>(ret.get())->setLastKey(
-      keys.at(keyNumber).keyDataToSqliteObject(keyView));
+      keys.at(keyNumber).keyDataToSqliteObjects(keyView));
 
   error = BtrieveError::Success;
   return ret;

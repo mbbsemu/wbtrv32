@@ -6,40 +6,61 @@
 
 namespace btrieve {
 
-std::string Key::getSqliteColumnSql() const {
-  std::stringstream sql;
+static const char *getSqliteType(const KeyDefinition &segment) {
+  auto type = segment.getDataType();
 
-  if (isComposite()) {
-    sql << "BLOB";
-  } else {
-    auto type = getPrimarySegment().getDataType();
+  if ((type == KeyDataType::AutoInc || type == KeyDataType::Integer ||
+       type == KeyDataType::Unsigned || type == KeyDataType::UnsignedBinary ||
+       type == KeyDataType::OldBinary) &&
+      segment.getLength() <= 8) {
+    return "INTEGER";
+  } else if (type == KeyDataType::Lstring || type == KeyDataType::Zstring ||
+             type == KeyDataType::OldAscii) {
+    return "TEXT";
+  } else if (type == KeyDataType::Float) {
+    return "REAL";
+  }
+  return "BLOB";
+}
 
-    if (type == KeyDataType::AutoInc) {
-      return "INTEGER NOT NULL UNIQUE";
-    } else if ((type == KeyDataType::Integer || type == KeyDataType::Unsigned ||
-                type == KeyDataType::UnsignedBinary ||
-                type == KeyDataType::OldBinary) &&
-               getPrimarySegment().getLength() <= 8) {
-      sql << "INTEGER";
-    } else if (type == KeyDataType::Lstring || type == KeyDataType::Zstring ||
-               type == KeyDataType::OldAscii) {
-      sql << "TEXT";
-    } else if (type == KeyDataType::Float) {
-      sql << "REAL";
-    } else {
-      sql << "BLOB";
+std::vector<std::string> Key::getSqliteColumnNames() const {
+  if (!isComposite()) {
+    return {getSqliteKeyName()};
+  }
+
+  std::vector<std::string> names;
+  for (size_t i = 0; i < segments.size(); ++i) {
+    names.push_back(getSqliteKeyName() + "_" + std::to_string(i));
+  }
+  return names;
+}
+
+std::vector<std::string> Key::getSqliteColumnDefinitions() const {
+  auto names = getSqliteColumnNames();
+
+  if (!isComposite() &&
+      getPrimarySegment().getDataType() == KeyDataType::AutoInc) {
+    return {names[0] + " INTEGER NOT NULL UNIQUE"};
+  }
+
+  std::vector<std::string> definitions;
+  for (size_t i = 0; i < segments.size(); ++i) {
+    std::stringstream sql;
+    sql << names[i] << " " << getSqliteType(segments[i]);
+
+    if (!isNullable()) {
+      sql << " NOT NULL";
     }
-  }
 
-  if (!isNullable()) {
-    sql << " NOT NULL";
-  }
+    // a composite key's uniqueness spans all its columns, so it's enforced by
+    // its index instead
+    if (!isComposite() && isUnique()) {
+      sql << " UNIQUE";
+    }
 
-  if (isUnique()) {
-    sql << " UNIQUE";
+    definitions.push_back(sql.str());
   }
-
-  return sql.str();
+  return definitions;
 }
 
 std::vector<uint8_t> Key::extractKeyDataFromRecord(
@@ -113,7 +134,7 @@ std::vector<uint8_t> Key::applyACS(
 }
 
 static std::string extractPrefixedLengthString(
-    const std::vector<uint8_t> &keyData) {
+    std::basic_string_view<uint8_t> keyData) {
   size_t strlen = keyData.at(0);
   if (strlen >= keyData.size()) {
     strlen = keyData.size() - 1;
@@ -124,13 +145,10 @@ static std::string extractPrefixedLengthString(
 }
 
 static std::string extractNullTerminatedString(
-    const std::vector<uint8_t> &keyData) {
-  auto found = std::find(keyData.begin(), keyData.end(), 0);
-  size_t strlen;
-  if (found == keyData.end()) {
+    std::basic_string_view<uint8_t> keyData) {
+  size_t strlen = keyData.find(static_cast<uint8_t>(0));
+  if (strlen == std::basic_string_view<uint8_t>::npos) {
     strlen = keyData.size();
-  } else {
-    strlen = found - keyData.begin();
   }
 
   return std::string(reinterpret_cast<const char *>(keyData.data()), strlen);
@@ -154,7 +172,80 @@ static bool isBigEndian() {
 
 static bool bigEndian = isBigEndian();
 
-BindableValue Key::keyDataToSqliteObject(
+// Converts one segment's (already ACS mapped) bytes to its SQLite value. data
+// can be shorter than the segment when searching with a truncated key, in
+// which case the missing bytes read as zero.
+static BindableValue segmentDataToSqliteObject(
+    const KeyDefinition &segment, std::basic_string_view<uint8_t> data) {
+  const uint16_t length = segment.getLength();
+  auto byteAt = [&](size_t i) -> uint8_t {
+    return i < data.size() ? data[i] : 0;
+  };
+
+  uint64_t value = 0;
+  uint8_t *subValue = reinterpret_cast<uint8_t *>(&value);
+
+  switch (segment.getDataType()) {
+    case KeyDataType::AutoInc:
+    case KeyDataType::Integer:
+      // extend sign bit
+      if (length > 0 && (byteAt(length - 1) & 0x80)) {
+        value = -1;
+      }
+      // fall through on purpose
+    case KeyDataType::Unsigned:
+    case KeyDataType::UnsignedBinary:
+    case KeyDataType::OldBinary:
+      if (length > 0 && length <= 8) {
+        for (int i = 0; i < length; ++i) {
+          if (bigEndian) {
+            subValue[7 - i] = byteAt(i);
+          } else {
+            subValue[i] = byteAt(i);
+          }
+        }
+        return BindableValue(value);
+      } else {
+        // integers with size > 8 are unsupported on sqlite, so we have to
+        // convert to blobs. data is LSB, sqlite blobs compare msb (using
+        // memcmp), so swap bytes prior to insert
+        std::vector<uint8_t> copy(data.data(), data.data() + data.size());
+        std::reverse(copy.begin(), copy.end());
+        return BindableValue(copy);
+      }
+    case KeyDataType::Lstring:
+      return BindableValue(extractPrefixedLengthString(data));
+    case KeyDataType::Zstring:
+    case KeyDataType::OldAscii:
+      return BindableValue(extractNullTerminatedString(data));
+    case KeyDataType::Float: {
+      uint8_t buffer[8] = {0};
+      memcpy(buffer, data.data(),
+             std::min<size_t>(data.size(), sizeof(buffer)));
+      switch (length) {
+        case 4: {
+          float f;
+          memcpy(&f, buffer, sizeof(f));
+          return BindableValue(static_cast<double>(f));
+        }
+        case 8: {
+          double d;
+          memcpy(&d, buffer, sizeof(d));
+          return BindableValue(d);
+        }
+        default:
+          // should never happen since we verify on db creation
+          throw BtrieveException(BtrieveError::BadKeyLength,
+                                 "Float key not 4/8 bytes");
+      }
+    }
+    case KeyDataType::String:
+    default:
+      return BindableValue(data);
+  }
+}
+
+BindableValue Key::singleKeyDataToSqliteObject(
     std::basic_string_view<uint8_t> keyData) const {
   if (isNullable() &&
       (isAllSameByteValue(
@@ -167,71 +258,67 @@ BindableValue Key::keyDataToSqliteObject(
   }
 
   std::vector<uint8_t> modifiedKeyData = applyACS(keyData);
+  return segmentDataToSqliteObject(
+      getPrimarySegment(), std::basic_string_view<uint8_t>(
+                               modifiedKeyData.data(), modifiedKeyData.size()));
+}
 
-  if (isComposite()) {
-    return BindableValue(modifiedKeyData);
+// NullAllSegments makes the key null when every segment is entirely its null
+// value, NullAnySegment when any one is.
+bool Key::isNullCompositeKeyData(
+    std::basic_string_view<uint8_t> keyData) const {
+  if (!isNullable()) {
+    return false;
   }
 
-  const uint8_t *data = modifiedKeyData.data();
-  uint64_t value = 0;
-  uint8_t *subValue = reinterpret_cast<uint8_t *>(&value);
-
-  switch (getPrimarySegment().getDataType()) {
-    case KeyDataType::AutoInc:
-    case KeyDataType::Integer:
-      // extend sign bit
-      if (data[getPrimarySegment().getLength() - 1] & 0x80) {
-        value = -1;
-      }
-      // fall through on purpose
-    case KeyDataType::Unsigned:
-    case KeyDataType::UnsignedBinary:
-    case KeyDataType::OldBinary:
-      if (getPrimarySegment().getLength() > 0 &&
-          getPrimarySegment().getLength() <= 8) {
-        for (int i = 0; i < getPrimarySegment().getLength(); ++i) {
-          if (bigEndian) {
-            subValue[7 - i] = data[i];
-          } else {
-            subValue[i] = data[i];
-          }
-        }
-        return BindableValue(value);
-      } else {
-        // integers with size > 8 are unsupported on sqlite, so we have to
-        // convert to blobs. data is LSB, sqlite blobs compare msb (using
-        // memcmp), so swap bytes prior to insert
-        std::vector<uint8_t> copy(data, data + modifiedKeyData.size());
-        std::reverse(copy.begin(), copy.end());
-        return BindableValue(copy);
-      }
-      break;
-    case KeyDataType::Lstring:
-      return BindableValue(extractPrefixedLengthString(modifiedKeyData));
-    case KeyDataType::Zstring:
-    case KeyDataType::OldAscii:
-      return BindableValue(extractNullTerminatedString(modifiedKeyData));
-    case KeyDataType::Float:
-      switch (getPrimarySegment().getLength()) {
-        case 4:
-          return BindableValue(static_cast<double>(
-              *reinterpret_cast<float *>(modifiedKeyData.data())));
-        case 8:
-          return BindableValue(
-              *reinterpret_cast<double *>(modifiedKeyData.data()));
-        default:
-          // should never happen since we verify on db creation
-          throw BtrieveException(BtrieveError::BadKeyLength,
-                                 "Float key not 4/8 bytes");
-          break;
-      }
-      break;
-    case KeyDataType::String:
-    default:
-      return BindableValue(modifiedKeyData);
+  size_t nullSegments = 0;
+  size_t offset = 0;
+  for (auto &segment : segments) {
+    if (isAllSameByteValue(keyData.substr(offset, segment.getLength()),
+                           segment.getNullValue())) {
+      ++nullSegments;
+    }
+    offset += segment.getLength();
   }
 
-  return BindableValue();
+  if (getPrimarySegment().getAttributes() & NullAnySegment) {
+    return nullSegments > 0;
+  }
+  return nullSegments == segments.size();
+}
+
+std::vector<BindableValue> Key::keyDataToSqliteObjects(
+    std::basic_string_view<uint8_t> keyData) const {
+  std::vector<BindableValue> values;
+
+  if (!isComposite()) {
+    values.push_back(singleKeyDataToSqliteObject(keyData));
+    return values;
+  }
+
+  // search keys may be truncated, so treat missing bytes as zero
+  std::vector<uint8_t> paddedKeyData(keyData.data(),
+                                     keyData.data() + keyData.size());
+  paddedKeyData.resize(getLength(), 0);
+  std::basic_string_view<uint8_t> paddedKeyDataView(paddedKeyData.data(),
+                                                    paddedKeyData.size());
+
+  if (isNullCompositeKeyData(paddedKeyDataView)) {
+    values.resize(segments.size());
+    return values;
+  }
+
+  std::vector<uint8_t> modifiedKeyData = applyACS(paddedKeyDataView);
+  std::basic_string_view<uint8_t> modifiedKeyDataView(modifiedKeyData.data(),
+                                                      modifiedKeyData.size());
+  size_t offset = 0;
+  for (auto &segment : segments) {
+    values.push_back(segmentDataToSqliteObject(
+        segment, modifiedKeyDataView.substr(offset, segment.getLength())));
+    offset += segment.getLength();
+  }
+
+  return values;
 }
 
 }  // namespace btrieve

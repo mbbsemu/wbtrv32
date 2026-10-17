@@ -35,7 +35,15 @@ class Key {
 
   bool isUnique() const { return getPrimarySegment().isUnique(); }
 
-  bool isNullable() const { return getPrimarySegment().isNullable(); }
+  // Composite keys are only null when they opt in through the null attributes,
+  // since a composite with e.g. an empty string segment is still a real key.
+  bool isNullable() const {
+    if (isComposite()) {
+      return getPrimarySegment().getAttributes() &
+             (NullAllSegments | NullAnySegment);
+    }
+    return getPrimarySegment().isNullable();
+  }
 
   bool requiresACS() const {
     auto requiresACS = [&](const KeyDefinition &key) {
@@ -64,18 +72,27 @@ class Key {
     return buf;
   }
 
-  std::string getSqliteColumnSql() const;
+  // A single segment key is stored in one column named key_N. A composite key
+  // stores each segment in its own typed column named key_N_S, so SQLite
+  // compares segment by segment rather than memcmp'ing raw bytes, which
+  // misorders little endian integers, signed values, floats and strings.
+  std::vector<std::string> getSqliteColumnNames() const;
+
+  // Column definitions for CREATE TABLE, parallel to getSqliteColumnNames().
+  std::vector<std::string> getSqliteColumnDefinitions() const;
 
   std::vector<uint8_t> extractKeyDataFromRecord(
       std::basic_string_view<uint8_t> record) const;
 
-  BindableValue keyDataToSqliteObject(
+  // Converts key data to one value per column, parallel to
+  // getSqliteColumnNames(). A null key is all nulls.
+  std::vector<BindableValue> keyDataToSqliteObjects(
       std::basic_string_view<uint8_t> keyData) const;
 
-  BindableValue extractKeyInRecordToSqliteObject(
+  std::vector<BindableValue> extractKeyInRecordToSqliteObjects(
       std::basic_string_view<uint8_t> record) const {
     auto keyData = extractKeyDataFromRecord(record);
-    return keyDataToSqliteObject(
+    return keyDataToSqliteObjects(
         std::basic_string_view<uint8_t>(keyData.data(), keyData.size()));
   }
 
@@ -94,6 +111,11 @@ class Key {
 
  private:
   std::vector<uint8_t> applyACS(std::basic_string_view<uint8_t> keyData) const;
+
+  BindableValue singleKeyDataToSqliteObject(
+      std::basic_string_view<uint8_t> keyData) const;
+
+  bool isNullCompositeKeyData(std::basic_string_view<uint8_t> keyData) const;
 
   std::vector<KeyDefinition> segments;
 };

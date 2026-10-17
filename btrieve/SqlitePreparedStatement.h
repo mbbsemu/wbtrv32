@@ -1,7 +1,9 @@
 #ifndef __SQLITE_PREPARED_STATEMENT_H_
 #define __SQLITE_PREPARED_STATEMENT_H_
 
+#include <cstdarg>
 #include <memory>
+#include <vector>
 
 #include "SqliteReader.h"
 #include "SqliteUtil.h"
@@ -13,21 +15,24 @@ class SqlitePreparedStatement {
   SqlitePreparedStatement(std::shared_ptr<sqlite3> database_,
                           const char *sqlFormat, ...)
       : database(database_), statement(nullptr, &sqlite3_finalize) {
-    char sql[512];
-    int len;
     int errorCode;
     va_list args;
+    va_list argsCopy;
     sqlite3_stmt *statement;
 
+    // size the buffer first, since statements built from every key column
+    // can be arbitrarily long
     va_start(args, sqlFormat);
-    len = vsnprintf(sql, sizeof(sql), sqlFormat, args);
+    va_copy(argsCopy, args);
+    int len = vsnprintf(nullptr, 0, sqlFormat, argsCopy);
+    va_end(argsCopy);
+
+    std::vector<char> sql(len + 1);
+    vsnprintf(sql.data(), sql.size(), sqlFormat, args);
     va_end(args);
 
-    // just in case
-    sql[sizeof(sql) - 1] = 0;
-
-    errorCode =
-        sqlite3_prepare_v2(database.get(), sql, len, &statement, nullptr);
+    errorCode = sqlite3_prepare_v2(database.get(), sql.data(), len, &statement,
+                                   nullptr);
     if (errorCode != SQLITE_OK) {
       throwException(errorCode);
     }

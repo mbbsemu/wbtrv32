@@ -49,8 +49,8 @@ TEST_P(ParameterizedFixture, IntegerTypeConversions) {
   Key key(&keyDefinition, 1);
 
   auto actual = static_cast<uint64_t>(
-      key.keyDataToSqliteObject(
-             std::basic_string_view<uint8_t>(view.data, view.length))
+      key.keyDataToSqliteObjects(
+             std::basic_string_view<uint8_t>(view.data, view.length))[0]
           .getIntegerValue());
 
   EXPECT_EQ(actual, view.expected);
@@ -126,11 +126,10 @@ TEST_P(ParameterizedStringFixture, StringTypeConversions) {
 
   Key key(&keyDefinition, 1);
 
-  auto actual = key
-                    .keyDataToSqliteObject(std::basic_string_view<uint8_t>(
-                        reinterpret_cast<const uint8_t *>(STRING_DATA) +
-                            (view.type == KeyDataType::Lstring ? 0 : 1),
-                        view.length))
+  auto actual = key.keyDataToSqliteObjects(std::basic_string_view<uint8_t>(
+      reinterpret_cast<const uint8_t *>(STRING_DATA) +
+          (view.type == KeyDataType::Lstring ? 0 : 1),
+      view.length))[0]
                     .getStringValue();
 
   EXPECT_EQ(actual, view.expected);
@@ -166,7 +165,7 @@ TEST(Key, SegmentIndices) {
   EXPECT_EQ(key.getSegments()[1].getSegmentIndex(), 1);
 }
 
-TEST(Key, CompositeKeyConcatentation) {
+TEST(Key, CompositeKeySegmentValues) {
   KeyDefinition keyDefinitions[2] = {
       KeyDefinition(0, 8, 2, KeyDataType::Integer, UseExtendedDataType, true, 0,
                     0, 0, "", std::vector<char>()),
@@ -182,16 +181,94 @@ TEST(Key, CompositeKeyConcatentation) {
 
   Key key(keyDefinitions, 2);
 
-  auto actual = key.extractKeyInRecordToSqliteObject(
-                       std::basic_string_view<uint8_t>(record, sizeof(record)))
-                    .getBlobValue();
+  auto actual = key.extractKeyInRecordToSqliteObjects(
+      std::basic_string_view<uint8_t>(record, sizeof(record)));
 
-  uint8_t expected[] = {0x5, 0x5, 0x5, 0x5, 0x5, 0x5,
-                        0x5, 0x5, 'T', 'T', 'T', 'T'};
-
-  EXPECT_EQ(actual,
-            std::vector<uint8_t>(expected, expected + sizeof(expected)));
+  ASSERT_EQ(actual.size(), 2u);
+  EXPECT_EQ(actual[0].getIntegerValue(), 0x0505050505050505);
+  EXPECT_EQ(actual[1].getStringValue(), "TTTT");
 }
+
+TEST(Key, CompositeKeyColumns) {
+  KeyDefinition keyDefinitions[2] = {
+      KeyDefinition(3, 2, 0, KeyDataType::Integer, UseExtendedDataType, true, 0,
+                    0, 0, "", std::vector<char>()),
+      KeyDefinition(3, 8, 2, KeyDataType::Zstring, UseExtendedDataType, false,
+                    1, 0, 0, "", std::vector<char>())};
+
+  Key key(keyDefinitions, 2);
+
+  EXPECT_EQ(key.getSqliteColumnNames(),
+            std::vector<std::string>({"key_3_0", "key_3_1"}));
+  // uniqueness is enforced by the composite index, not per column
+  EXPECT_EQ(key.getSqliteColumnDefinitions(),
+            std::vector<std::string>(
+                {"key_3_0 INTEGER NOT NULL", "key_3_1 TEXT NOT NULL"}));
+}
+
+TEST(Key, CompositeKeyTruncatedKeyDataIsZeroPadded) {
+  KeyDefinition keyDefinitions[2] = {
+      KeyDefinition(0, 2, 0, KeyDataType::Integer, UseExtendedDataType, true, 0,
+                    0, 0, "", std::vector<char>()),
+      KeyDefinition(0, 4, 2, KeyDataType::Integer, UseExtendedDataType, false,
+                    1, 0, 0, "", std::vector<char>())};
+
+  Key key(keyDefinitions, 2);
+
+  uint8_t keyData[] = {0x01, 0x02, 0x03};
+  auto actual = key.keyDataToSqliteObjects(
+      std::basic_string_view<uint8_t>(keyData, sizeof(keyData)));
+
+  ASSERT_EQ(actual.size(), 2u);
+  EXPECT_EQ(actual[0].getIntegerValue(), 0x0201);
+  EXPECT_EQ(actual[1].getIntegerValue(), 0x03);
+}
+
+struct CompositeNullFixtureType {
+  uint16_t nullAttribute;
+  bool firstSegmentNull;
+  bool secondSegmentNull;
+  bool expectedNull;
+};
+
+class CompositeNullFixture
+    : public testing::TestWithParam<CompositeNullFixtureType> {};
+
+TEST_P(CompositeNullFixture, CompositeKeyNullValues) {
+  const CompositeNullFixtureType &view = GetParam();
+
+  KeyDefinition keyDefinitions[2] = {
+      KeyDefinition(0, 2, 0, KeyDataType::Integer,
+                    UseExtendedDataType | view.nullAttribute, true, 0, 0, ' ',
+                    "", std::vector<char>()),
+      KeyDefinition(0, 4, 2, KeyDataType::Zstring,
+                    UseExtendedDataType | view.nullAttribute, false, 1, 0, ' ',
+                    "", std::vector<char>())};
+
+  Key key(keyDefinitions, 2);
+
+  uint8_t keyData[6];
+  memset(keyData, view.firstSegmentNull ? ' ' : 1, 2);
+  memset(keyData + 2, view.secondSegmentNull ? ' ' : 'a', 4);
+
+  auto actual = key.keyDataToSqliteObjects(
+      std::basic_string_view<uint8_t>(keyData, sizeof(keyData)));
+
+  ASSERT_EQ(actual.size(), 2u);
+  EXPECT_EQ(actual[0].isNull(), view.expectedNull);
+  EXPECT_EQ(actual[1].isNull(), view.expectedNull);
+}
+
+INSTANTIATE_TEST_CASE_P(
+    Key, CompositeNullFixture,
+    ::testing::ValuesIn(std::vector<CompositeNullFixtureType>{
+        {0, true, true, false},
+        {NullAllSegments, false, false, false},
+        {NullAllSegments, true, false, false},
+        {NullAllSegments, true, true, true},
+        {NullAnySegment, false, false, false},
+        {NullAnySegment, false, true, true},
+        {NullAnySegment, true, true, true}}));
 
 struct ParameterizedKeyDataType {
   KeyDataType type;
@@ -214,8 +291,8 @@ TEST_P(ParameterizedKeyDataTypeFixture, NullValues) {
   // first segment is all spaces i.e. null
   memset(record + 2, ' ', 8);
 
-  auto actual = key.extractKeyInRecordToSqliteObject(
-      std::basic_string_view<uint8_t>(record, sizeof(record)));
+  auto actual = key.extractKeyInRecordToSqliteObjects(
+      std::basic_string_view<uint8_t>(record, sizeof(record)))[0];
 
   EXPECT_TRUE(actual.isNull());
 }
@@ -266,9 +343,10 @@ TEST(Key, ACSReplacementSingleKey_Zstring) {
   record[6] = (uint8_t)'%';
   record[7] = 0;
 
-  auto actual = key.extractKeyInRecordToSqliteObject(
-                       std::basic_string_view<uint8_t>(record, sizeof(record)))
-                    .getStringValue();
+  auto actual =
+      key.extractKeyInRecordToSqliteObjects(
+             std::basic_string_view<uint8_t>(record, sizeof(record)))[0]
+          .getStringValue();
 
   EXPECT_EQ(actual, "ABTZ%");
 }
@@ -297,9 +375,10 @@ TEST(Key, ACSReplacementSingleKey_String) {
   record[11] = (uint8_t)'t';
   record[12] = 0;
 
-  auto actual = key.extractKeyInRecordToSqliteObject(
-                       std::basic_string_view<uint8_t>(record, sizeof(record)))
-                    .getBlobValue();
+  auto actual =
+      key.extractKeyInRecordToSqliteObjects(
+             std::basic_string_view<uint8_t>(record, sizeof(record)))[0]
+          .getBlobValue();
 
   EXPECT_TRUE(memcmp(actual.data(), "ABTZ%\0\0ABT", 10) == 0);
 }
@@ -333,12 +412,11 @@ TEST_P(ParameterizedACSReplacementMultipleKeyFixture,
   memset(record, 0, sizeof(record));
   memcpy(record + 2, view.input, strlen(view.input));
 
-  auto actual = key.extractKeyInRecordToSqliteObject(
-                       std::basic_string_view<uint8_t>(record, sizeof(record)))
-                    .getBlobValue();
+  auto actual = key.extractKeyInRecordToSqliteObjects(
+      std::basic_string_view<uint8_t>(record, sizeof(record)));
 
-  auto keyChars = reinterpret_cast<const char *>(actual.data());
-  EXPECT_EQ(std::string(keyChars, std::min(actual.size(), strlen(keyChars))),
+  ASSERT_EQ(actual.size(), 2u);
+  EXPECT_EQ(actual[0].getStringValue() + actual[1].getStringValue(),
             view.expected);
 }
 
@@ -367,9 +445,8 @@ TEST(Key, FloatKeys) {
 
   float value = 2.435f;
 
-  auto actual = key
-                    .keyDataToSqliteObject(std::basic_string_view<uint8_t>(
-                        reinterpret_cast<uint8_t *>(&value), sizeof(value)))
+  auto actual = key.keyDataToSqliteObjects(std::basic_string_view<uint8_t>(
+      reinterpret_cast<uint8_t *>(&value), sizeof(value)))[0]
                     .getDoubleValue();
 
   EXPECT_EQ(actual, value);
@@ -384,9 +461,8 @@ TEST(Key, DoubleKeys) {
 
   double value = 2.435f;
 
-  auto actual = key
-                    .keyDataToSqliteObject(std::basic_string_view<uint8_t>(
-                        reinterpret_cast<uint8_t *>(&value), sizeof(value)))
+  auto actual = key.keyDataToSqliteObjects(std::basic_string_view<uint8_t>(
+      reinterpret_cast<uint8_t *>(&value), sizeof(value)))[0]
                     .getDoubleValue();
 
   EXPECT_EQ(actual, value);
