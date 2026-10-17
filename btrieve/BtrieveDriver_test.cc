@@ -796,6 +796,9 @@ TEST_F(BtrieveDriverTest, UpdateConstraintFailedTest) {
 
   MBBSEmuRecordStruct record;
   memset(&record, 0, sizeof(record));
+  // key 0 is not modifiable, so keep it: changing it as well makes Btrieve
+  // (and this driver) report NonModifiableKeyValue instead
+  strcpy(record.key0, "Sysop");
   record.key1 = 7776;
   strcpy(record.key2, "In orbe terrarum, optimus sum");
   record.key3 = 1;

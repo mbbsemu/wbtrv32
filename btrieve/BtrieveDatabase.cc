@@ -546,7 +546,11 @@ void BtrieveDatabase::loadKeyDefinitions(FILE* f, const uint8_t* firstPage,
     // If it's a segmented key, don't increment so the next key gets added to
     // the same ordinal as an additional segment
     if (!keyDefinition.isSegment()) {
-      keyOffset = keyOffsets[++currentKeyNumber];
+      ++currentKeyNumber;
+      // v6 has a table of key offsets; v5 has one entry per segment, back to
+      // back, so the next key follows this entry
+      keyOffset = v6 ? keyOffsets[currentKeyNumber]
+                     : keyOffset + keyDefinitionLength;
     } else {
       keyOffset += keyDefinitionLength;
     }

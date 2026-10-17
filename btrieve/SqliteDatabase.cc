@@ -267,48 +267,47 @@ void SqliteDatabase::upgradeDatabaseFrom2To3() {
 
 // Version 3 stored a composite key as one BLOB of its concatenated segment
 // bytes, which memcmp misorders for little endian and signed integers, floats
-// and strings. Version 4 stores each segment in its own column, so data_t is
-// rebuilt with the new columns and every row's keys are recomputed from its
-// data. Row ids are kept since they're the records' positions.
+// and strings, and stored an empty string key as NULL even when the key is
+// not nullable, so range queries skipped it. Version 4 stores each segment in
+// its own column and only declared nullable keys as NULL, so data_t is
+// rebuilt and every row's keys are recomputed from its data. Row ids are kept
+// since they're the records' positions.
 void SqliteDatabase::upgradeDatabaseFrom3To4() {
   SqliteTransaction transaction(database);
   try {
-    if (std::any_of(keys.begin(), keys.end(),
-                    [](const Key &key) { return key.isComposite(); })) {
-      createSqliteDataTable("data_t_v4");
+    createSqliteDataTable("data_t_v4");
 
-      {
-        SqlitePreparedStatement select(database, "SELECT id, data FROM data_t");
-        SqlitePreparedStatement insert(
-            database, buildInsertSql(keys, "data_t_v4", true).c_str());
+    {
+      SqlitePreparedStatement select(database, "SELECT id, data FROM data_t");
+      SqlitePreparedStatement insert(
+          database, buildInsertSql(keys, "data_t_v4", true).c_str());
 
-        auto reader = select.executeReader();
-        while (reader->read()) {
-          std::vector<uint8_t> data = reader->getBlob(1);
-          std::basic_string_view<uint8_t> record(data.data(), data.size());
+      auto reader = select.executeReader();
+      while (reader->read()) {
+        std::vector<uint8_t> data = reader->getBlob(1);
+        std::basic_string_view<uint8_t> record(data.data(), data.size());
 
-          insert.reset();
-          insert.bindParameter(1, BindableValue(reader->getInt64(0)));
-          insert.bindParameter(2, BindableValue(record));
-          bindRecordKeys(insert, 3, keys, record);
-          insert.execute();
-        }
+        insert.reset();
+        insert.bindParameter(1, BindableValue(reader->getInt64(0)));
+        insert.bindParameter(2, BindableValue(record));
+        bindRecordKeys(insert, 3, keys, record);
+        insert.execute();
       }
-
-      // dropping data_t drops its indices and trigger too
-      {
-        SqlitePreparedStatement statement(database, "DROP TABLE data_t");
-        statement.execute();
-      }
-      {
-        SqlitePreparedStatement statement(
-            database, "ALTER TABLE data_t_v4 RENAME TO data_t");
-        statement.execute();
-      }
-
-      createSqliteDataIndices();
-      createSqliteTriggers();
     }
+
+    // dropping data_t drops its indices and trigger too
+    {
+      SqlitePreparedStatement statement(database, "DROP TABLE data_t");
+      statement.execute();
+    }
+    {
+      SqlitePreparedStatement statement(
+          database, "ALTER TABLE data_t_v4 RENAME TO data_t");
+      statement.execute();
+    }
+
+    createSqliteDataIndices();
+    createSqliteTriggers();
 
     {
       SqlitePreparedStatement statement(database,
