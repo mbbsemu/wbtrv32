@@ -1,4 +1,3 @@
-// 26.10.12.1B 02:53PM
 #include "OperationCode.h"
 
 #include <cstdio>

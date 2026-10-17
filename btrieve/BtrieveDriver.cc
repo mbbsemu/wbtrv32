@@ -1,4 +1,3 @@
-// 26.10.13.1B 03:38PM
 #include "BtrieveDriver.h"
 
 #include <sys/stat.h>
