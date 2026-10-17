@@ -3257,10 +3257,10 @@ class wbtrv32CreateTest : public wbtrv32Test {
     return reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount;
   }
 
-  // the databases moved aside into "CONVERTED DATABASES"
+  // the databases moved aside into the archive folder
   std::vector<std::filesystem::path> retired() {
     std::vector<std::filesystem::path> ret;
-    auto folder = datPath().parent_path() / "CONVERTED DATABASES";
+    auto folder = btrieve::archiveFolder(datPath());
     if (std::filesystem::exists(folder)) {
       for (const auto &entry :
            std::filesystem::recursive_directory_iterator(folder)) {

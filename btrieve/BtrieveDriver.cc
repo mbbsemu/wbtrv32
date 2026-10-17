@@ -95,14 +95,22 @@ static std::string formatLocalTime(const char *format) {
   return buf;
 }
 
+#ifdef _WIN32
 static const wchar_t kArchiveFolder[] = _TEXT("CONVERTED DATABASES");
+#else
+static const wchar_t kArchiveFolder[] = _TEXT(".converted");
+#endif
+
+std::filesystem::path archiveFolder(const std::filesystem::path &datPath) {
+  return datPath.parent_path() / kArchiveFolder;
+}
 
 // Appends a line to "CONVERTED DATABASES\CONVERSIONS.LOG" beside the .DAT, so
 // the sysop can see what was converted, when, and where old copies went.
 static void logConversion(const std::filesystem::path &datPath,
                           const std::string &line) {
   std::error_code ec;
-  const std::filesystem::path folder = datPath.parent_path() / kArchiveFolder;
+  const std::filesystem::path folder = archiveFolder(datPath);
   std::filesystem::create_directories(folder, ec);
   std::ofstream log(folder / "CONVERSIONS.LOG", std::ios::app);
   log << formatLocalTime("%Y-%m-%d %H:%M:%S") << "  " << line << "\n";
@@ -129,9 +137,8 @@ static void moveWalFiles(const std::filesystem::path &database,
 // case it is left untouched.
 static std::filesystem::path retireDb(const std::filesystem::path &datPath,
                                       const std::filesystem::path &dbPath) {
-  const std::filesystem::path folder = datPath.parent_path() /
-                                       kArchiveFolder /
-                                       formatLocalTime("%Y%m%d-%H%M%S");
+  const std::filesystem::path folder =
+      archiveFolder(datPath) / formatLocalTime("%Y%m%d-%H%M%S");
   std::error_code ec;
   std::filesystem::create_directories(folder, ec);
   if (ec) {

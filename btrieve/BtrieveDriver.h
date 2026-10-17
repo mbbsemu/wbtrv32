@@ -12,6 +12,11 @@
 #include "Text.h"
 
 namespace btrieve {
+// The folder beside datPath that converted databases are moved into and
+// conversions are logged in: "CONVERTED DATABASES" on Windows, ".converted"
+// elsewhere.
+std::filesystem::path archiveFolder(const std::filesystem::path &datPath);
+
 // Moves dbPath (with its WAL files) into a dated folder under
 // "CONVERTED DATABASES" beside datPath and logs it with reason. Returns where
 // it went, or an empty path if it could not be moved (it is then left alone).

@@ -512,11 +512,11 @@ static void replaceWithDifferentDat(TempPath *tempPath,
                std::chrono::hours(1));
 }
 
-// Every database moved aside into "CONVERTED DATABASES" beside dat.
+// Every database moved aside into the archive folder beside dat.
 static std::vector<std::filesystem::path> retiredDatabases(
     const std::filesystem::path &dat) {
   std::vector<std::filesystem::path> ret;
-  const auto folder = dat.parent_path() / "CONVERTED DATABASES";
+  const auto folder = archiveFolder(dat);
   if (!std::filesystem::exists(folder)) {
     return ret;
   }
@@ -531,8 +531,7 @@ static std::vector<std::filesystem::path> retiredDatabases(
 }
 
 static std::string readConversionLog(const std::filesystem::path &dat) {
-  std::ifstream log(dat.parent_path() / "CONVERTED DATABASES" /
-                    "CONVERSIONS.LOG");
+  std::ifstream log(archiveFolder(dat) / "CONVERSIONS.LOG");
   return std::string(std::istreambuf_iterator<char>(log),
                      std::istreambuf_iterator<char>());
 }
