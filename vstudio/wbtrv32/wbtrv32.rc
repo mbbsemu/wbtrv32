@@ -1,19 +1,17 @@
-// 26.10.13.1B 03:38PM
 // wbtrv32.rc : Windows version information embedded in WBTRV32.DLL, so a
 // sysop can see exactly which build is installed (Explorer > Properties >
-// Details). Bump the version on every build that leaves this machine.
+// Details). The version itself lives in //nuget:BUILD; see wbtrv32_version.h.
 #pragma code_page(65001)
 
 #include <winver.h>
 
-#define WBTRV32_VERSION_BIN 26,10,13,1
-#define WBTRV32_VERSION_STR "26.10.13.1B"
+#include "wbtrv32_version.h"
 
 VS_VERSION_INFO VERSIONINFO
  FILEVERSION WBTRV32_VERSION_BIN
  PRODUCTVERSION WBTRV32_VERSION_BIN
  FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
- FILEFLAGS VS_FF_PRERELEASE
+ FILEFLAGS 0
  FILEOS VOS_NT_WINDOWS32
  FILETYPE VFT_DLL
  FILESUBTYPE VFT2_UNKNOWN

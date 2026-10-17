@@ -1,4 +1,7 @@
 load("@rules_cc//cc:defs.bzl", "cc_library", "cc_shared_library", "cc_test")
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load("//tools:version.bzl", "windows_resource")
 
 TEST_SRCS = glob(["*_test.cc"])
 
@@ -19,6 +22,10 @@ cc_shared_library(
   # graph for staleness tracking; see nuget/nuget_package.bzl.
   visibility = ["//nuget:__pkg__"],
   deps = [":libwbtrv32"],
+  additional_linker_inputs = select({
+    "@platforms//os:windows": [":wbtrv32_res"],
+    "//conditions:default": [],
+  }),
   shared_lib_name = select({
     "@platforms//os:windows": "wbtrv32.dll",
     "@platforms//os:macos": "wbtrv32.dylib",
@@ -38,10 +45,35 @@ cc_shared_library(
     # CoCreateGuid/StringFromGUID2 (framework.cc) live in ole32.dll; MSVC
     # pulls in ole32.lib implicitly via $(CoreLibraryDependencies), which
     # Bazel has no equivalent of, so link it explicitly.
-    "@platforms//os:windows": ["-lole32"],
+    # zig's linker takes the compiled .res directly, like MSVC's link.exe.
+    "@platforms//os:windows": ["-lole32", "$(location :wbtrv32_res)"],
     "@platforms//os:macos": [],
     "//conditions:default": ["-lstdc++"],
   }),
+)
+
+# The DLL's version resource, built from the version in //nuget:BUILD.
+windows_resource(
+  name = "wbtrv32_res",
+  src = "wbtrv32.rc",
+  hdrs = ["//nuget:wbtrv32_version"],
+)
+
+# The Visual Studio build can't read //nuget:BUILD, so it compiles wbtrv32.rc
+# against a checked-in copy of the generated header. Refresh it with
+#   bazel run //vstudio/wbtrv32:update_version
+sh_binary(
+  name = "update_version",
+  srcs = ["//tools:update_version.sh"],
+  args = ["$(rootpath //nuget:wbtrv32_version)", "vstudio/wbtrv32/wbtrv32_version.h"],
+  data = ["//nuget:wbtrv32_version"],
+)
+
+sh_test(
+  name = "version_test",
+  srcs = ["//tools:version_test.sh"],
+  args = ["$(rootpath //nuget:wbtrv32_version)", "$(rootpath wbtrv32_version.h)"],
+  data = ["//nuget:wbtrv32_version", "wbtrv32_version.h"],
 )
 
 cc_test(

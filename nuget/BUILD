@@ -1,9 +1,22 @@
+load("//tools:version.bzl", "version_header")
 load(":nuget_package.bzl", "nuget_package")
 
-# Bump this to publish a new NuGet package version. Passed to
+# The single version for both the NuGet package and WBTRV32.DLL (shown in
+# Explorer > Properties > Details), as MAJOR.MINOR.POINT_RELEASE. Passed to
 # `nuget pack -Version`, overriding whatever <version> is baked into
-# wbtrv32.nuspec.
-NUGET_PACKAGE_VERSION = "1.0.5"
+# wbtrv32.nuspec. After bumping it, run
+#   bazel run //vstudio/wbtrv32:update_version
+# to refresh the checked-in header the Visual Studio build reads; Bazel
+# builds use this value directly, and //vstudio/wbtrv32:version_test fails
+# if the checked-in copy is stale.
+VERSION = "1.0.6"
+
+version_header(
+    name = "wbtrv32_version",
+    out = "wbtrv32_version.h",
+    version = VERSION,
+    visibility = ["//vstudio/wbtrv32:__pkg__"],
+)
 
 # bazel build //nuget:package
 # Output lands in bazel-bin/nuget/package/<id>.<version>.nupkg
@@ -11,7 +24,7 @@ NUGET_PACKAGE_VERSION = "1.0.5"
 # slow nested cross-build; it only builds when named explicitly.
 nuget_package(
     name = "package",
-    version = NUGET_PACKAGE_VERSION,
+    version = VERSION,
     tags = ["manual"],
 )
 
