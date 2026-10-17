@@ -36,17 +36,10 @@ static std::unordered_map<std::basic_string<wchar_t>,
     _openFiles;
 
 #ifdef LOG_TO_FILE
-namespace {
-struct FileCloser {
-  void operator()(FILE *f) const {
-    if (f) {
-      fclose(f);
-    }
-  }
-};
-}  // namespace
-
-static std::unique_ptr<FILE, FileCloser> _logFile(nullptr);
+// A plain pointer, closed only by processDetach(): a static object with a
+// destructor would be destroyed at exit before the Linux .so destructor below
+// runs processDetach(), which would then close the log a second time.
+static FILE *_logFile = nullptr;
 #endif
 
 #ifndef WIN32
@@ -74,16 +67,19 @@ void wbtrv32::processAttach() {
 
 #ifdef LOG_TO_FILE
 #ifdef WIN32
-  _logFile.reset(_wfsopen(L"wbtrv32.log", L"ab", _SH_DENYWR));
+  _logFile = _wfsopen(L"wbtrv32.log", L"ab", _SH_DENYWR);
 #else
-  _logFile.reset(fopen("/tmp/wbtrv32.log", "ab"));
+  _logFile = fopen("/tmp/wbtrv32.log", "ab");
 #endif  // WIN32
 #endif  // LOG_TO_FILE
 }
 
 void wbtrv32::processDetach() {
 #ifdef LOG_TO_FILE
-  _logFile.reset(nullptr);
+  if (_logFile) {
+    fclose(_logFile);
+    _logFile = nullptr;
+  }
 #endif
 }
 
@@ -147,7 +143,7 @@ static void debug(const BtrieveCommand &command, const char *format, ...) {
 
 #ifdef LOG_TO_FILE
     if (_logFile) {
-      fwrite(buf, 1, len, _logFile.get());
+      fwrite(buf, 1, len, _logFile);
     }
 #endif
   }
@@ -167,8 +163,8 @@ static void debug(const BtrieveCommand &command, const char *format, ...) {
 
 #ifdef LOG_TO_FILE
   if (_logFile) {
-    fwrite(buf, 1, len + 2, _logFile.get());
-    fflush(_logFile.get());
+    fwrite(buf, 1, len + 2, _logFile);
+    fflush(_logFile);
   }
 #endif
 }
