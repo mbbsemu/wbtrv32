@@ -254,11 +254,10 @@ BtrieveError BtrieveDriver::open(const wchar_t *fileName, OpenMode openMode) {
   }
 
   if (error == BtrieveError::Success) {
-    // Set Position to First Record, so that Delete/Update straight after
-    // Open act on it. Btrieve has no current record after Open, so
-    // GetPosition still fails until a record is read.
-    performOperation(0, std::basic_string_view<uint8_t>(),
-                     OperationCode::StepFirst);
+    // No record is current after Open, and the physical next record is the
+    // first one, so Step Next returns it. Update, Delete and Get Position
+    // fail until a record is read.
+    sqlDatabase->setPosition(0);
     sqlDatabase->clearCurrentRecord();
   }
 

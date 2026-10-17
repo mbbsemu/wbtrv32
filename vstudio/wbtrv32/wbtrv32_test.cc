@@ -492,6 +492,16 @@ TEST_F(wbtrv32Test, Delete) {
       reinterpret_cast<wbtrv32::LPFILESPEC>(buffer);
   ASSERT_EQ(lpFileSpec->recordCount, 4u);
 
+  // nothing is current straight after Open
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Delete, posBlock, nullptr, nullptr,
+                    nullptr, 0, 0),
+            btrieve::BtrieveError::InvalidPositioning);
+
+  dwDataBufferLength = sizeof(buffer);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::StepFirst, posBlock, buffer,
+                    &dwDataBufferLength, nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
+
   ASSERT_EQ(btrcall(btrieve::OperationCode::Delete, posBlock, nullptr, nullptr,
                     nullptr, 0, 0),
             btrieve::BtrieveError::Success);
@@ -576,6 +586,42 @@ TEST_F(wbtrv32Test, StepFirst) {
             btrieve::BtrieveError::Success);
 
   ASSERT_EQ(position, 2u);
+}
+
+// Open makes the first record the physical next one, so Step Next returns it,
+// and there is nothing before it.
+TEST_F(wbtrv32Test, StepAfterOpen) {
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  ASSERT_FALSE(mbbsEmuDb.empty());
+
+  RECORD record;
+  DWORD dwDataBufferLength = sizeof(record);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr, nullptr,
+                    const_cast<LPVOID>(reinterpret_cast<LPCVOID>(
+                        toStdString(mbbsEmuDb.c_str()).c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::StepNext, posBlock, &record,
+                    &dwDataBufferLength, nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
+  EXPECT_EQ(record.int1, 3444);
+  EXPECT_EQ(record.int2, 1);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Close, posBlock, nullptr, nullptr,
+                    nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr, nullptr,
+                    const_cast<LPVOID>(reinterpret_cast<LPCVOID>(
+                        toStdString(mbbsEmuDb.c_str()).c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
+
+  dwDataBufferLength = sizeof(record);
+  EXPECT_EQ(btrcall(btrieve::OperationCode::StepPrevious, posBlock, &record,
+                    &dwDataBufferLength, nullptr, 0, 0),
+            btrieve::BtrieveError::EndOfFile);
 }
 
 TEST_F(wbtrv32Test, StepDataUnderrun) {
