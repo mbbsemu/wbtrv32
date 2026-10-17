@@ -2473,3 +2473,102 @@ TEST_F(wbtrv32Test, RecordLockBiasIsIgnoredByKeyedOperations) {
     }
   }
 }
+
+// A two-segment key shaped like The Major BBS WGSGEN2.DAT key 0: a 30-byte
+// zstring that is often empty, then a 25-byte zstring module name.
+class CompositeEmptyLeadingStringTest : public wbtrv32Test {
+ protected:
+  static const int RECORD_LENGTH = 60;
+
+  BtrieveError create(const std::filesystem::path &path, bool inMemory) {
+    unsigned char buffer[256];
+    memset(buffer, 0, sizeof(buffer));
+
+    auto lpFileSpec = reinterpret_cast<wbtrv32::LPFILESPEC>(buffer);
+    lpFileSpec->pageSize = 4096;
+    lpFileSpec->numberOfKeys = 1;
+    lpFileSpec->logicalFixedRecordLength = RECORD_LENGTH;
+    lpFileSpec->fileVersion = 0x60;
+    lpFileSpec->physicalPageSize = inMemory ? 0xFF : 0;
+
+    auto lpKeySpec = reinterpret_cast<wbtrv32::LPKEYSPEC>(lpFileSpec + 1);
+    lpKeySpec[0].position = 1;
+    lpKeySpec[0].length = 30;
+    lpKeySpec[0].attributes =
+        UseExtendedDataType | Duplicates | Modifiable | SegmentedKey;
+    lpKeySpec[0].extendedDataType = btrieve::KeyDataType::Zstring;
+    lpKeySpec[1].position = 31;
+    lpKeySpec[1].length = 25;
+    lpKeySpec[1].attributes = UseExtendedDataType | Duplicates | Modifiable;
+    lpKeySpec[1].extendedDataType = btrieve::KeyDataType::Zstring;
+
+    DWORD length = reinterpret_cast<unsigned char *>(lpKeySpec + 2) - buffer;
+    return static_cast<BtrieveError>(
+        btrcall(btrieve::OperationCode::Create, posBlock, buffer, &length,
+                const_cast<char *>(toStdString(path).c_str()), -1, 0));
+  }
+
+  BtrieveError open(const std::filesystem::path &path) {
+    DWORD length = 0;
+    return static_cast<BtrieveError>(
+        btrcall(btrieve::OperationCode::Open, posBlock, nullptr, &length,
+                const_cast<char *>(toStdString(path).c_str()), -1, 0));
+  }
+
+  BtrieveError insert(const char *module) {
+    unsigned char record[RECORD_LENGTH];
+    memset(record, 0, sizeof(record));
+    strcpy(reinterpret_cast<char *>(record + 30), module);
+    DWORD length = sizeof(record);
+    return static_cast<BtrieveError>(btrcall(btrieve::OperationCode::Insert,
+                                             posBlock, record, &length,
+                                             nullptr, 0, -1));
+  }
+
+  // runs a keyed operation on key 0 and returns the record's module name
+  std::string get(WORD operation, const char *module, BtrieveError expected) {
+    unsigned char record[RECORD_LENGTH];
+    unsigned char key[255];
+    memset(key, 0, sizeof(key));
+    strcpy(reinterpret_cast<char *>(key + 30), module);
+    DWORD length = sizeof(record);
+    EXPECT_EQ(btrcall(operation, posBlock, record, &length, key, 255, 0),
+              expected)
+        << "op " << operation;
+    return expected == BtrieveError::Success
+               ? std::string(reinterpret_cast<char *>(record + 30))
+               : std::string();
+  }
+
+  // An empty leading string must not hide the second segment: records sort
+  // by it, and range queries starting below it find them.
+  void expectOrderedBySecondSegment() {
+    EXPECT_EQ(get(btrieve::OperationCode::AcquireFirst, "",
+                  BtrieveError::Success),
+              "SNMYTIME");
+    EXPECT_EQ(
+        get(btrieve::OperationCode::AcquireNext, "", BtrieveError::Success),
+        "WORMSG");
+    EXPECT_EQ(get(btrieve::OperationCode::AcquireGreater, "A",
+                  BtrieveError::Success),
+              "SNMYTIME");
+    EXPECT_EQ(get(btrieve::OperationCode::AcquireEqual, "WORMSG",
+                  BtrieveError::Success),
+              "WORMSG");
+    EXPECT_EQ(
+        get(btrieve::OperationCode::AcquireLast, "", BtrieveError::Success),
+        "WORMSG");
+  }
+};
+
+TEST_F(CompositeEmptyLeadingStringTest, OrdersBySecondSegment) {
+  std::filesystem::path path(tempPath->getTempPath());
+  path /= L"gen.dat";
+
+  ASSERT_EQ(create(path, true), BtrieveError::Success);
+  // inserted out of key order on purpose
+  ASSERT_EQ(insert("WORMSG"), BtrieveError::Success);
+  ASSERT_EQ(insert("SNMYTIME"), BtrieveError::Success);
+
+  expectOrderedBySecondSegment();
+}
