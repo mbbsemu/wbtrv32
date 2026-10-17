@@ -65,6 +65,10 @@ class BtrieveDriver {
 
   unsigned int getRecordCount() const { return sqlDatabase->getRecordCount(); }
 
+  unsigned int getUniqueKeyCount(const Key &key) const {
+    return sqlDatabase->getUniqueKeyCount(key);
+  }
+
   bool isVariableLengthRecords() const {
     return sqlDatabase->isVariableLengthRecords();
   }
@@ -76,6 +80,8 @@ class BtrieveDriver {
   void setPosition(unsigned int position) {
     return sqlDatabase->setPosition(position);
   }
+
+  bool hasCurrentRecord() const { return sqlDatabase->hasCurrentRecord(); }
 
   std::pair<bool, Record> getRecord() { return getRecord(getPosition()); }
 
@@ -106,6 +112,10 @@ class BtrieveDriver {
 
     return ret;
   }
+
+  // Forgets the logical position, so Get Next/Previous fail until a Get
+  // establishes a new one.
+  void clearLogicalCurrency() { previousQuery.reset(); }
 
   std::basic_string<wchar_t> getOpenedFilename() { return openedFilename; }
 

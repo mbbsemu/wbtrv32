@@ -39,6 +39,7 @@ class SqlDatabase {
   SqlDatabase(unsigned int maxCacheSize)
       : recordLength(0),
         position(0),
+        currentRecord(false),
         variableLengthRecords(false),
         cache(maxCacheSize) {}
 
@@ -78,7 +79,19 @@ class SqlDatabase {
 
   unsigned int getPosition() const { return position; }
 
-  void setPosition(unsigned int position_) { position = position_; }
+  // Makes the record at position_ the current one.
+  void setPosition(unsigned int position_) {
+    position = position_;
+    currentRecord = true;
+  }
+
+  // Whether position is a record read or written since the file was opened
+  // (Btrieve's physical currency). Delete leaves position at the deleted
+  // record, so Step Next/Previous still continue from it, but no record is
+  // current.
+  bool hasCurrentRecord() const { return currentRecord; }
+
+  void clearCurrentRecord() { currentRecord = false; }
 
   std::pair<bool, Record> getRecord(unsigned int position) {
     std::shared_ptr<Record> data = cache.get(position);
@@ -98,6 +111,8 @@ class SqlDatabase {
   virtual BtrieveError stepPrevious() = 0;
   virtual BtrieveError stepNext() = 0;
   virtual unsigned int getRecordCount() const = 0;
+  // The number of distinct values of key among the records.
+  virtual unsigned int getUniqueKeyCount(const Key &key) const = 0;
   virtual BtrieveError deleteAll() = 0;
   virtual BtrieveError deleteRecord() = 0;
   virtual std::pair<BtrieveError, unsigned int> insertRecord(
@@ -128,6 +143,7 @@ class SqlDatabase {
 
   unsigned int recordLength;
   unsigned int position;
+  bool currentRecord;
   bool variableLengthRecords;
   std::vector<Key> keys;
   LRUCache<unsigned int, Record> cache;

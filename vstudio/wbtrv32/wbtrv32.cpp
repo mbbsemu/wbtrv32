@@ -274,6 +274,19 @@ static BtrieveError Close(BtrieveCommand &command) {
   return BtrieveError::Success;
 }
 
+// The index of segment's ACS in acsDefinitions, or acsDefinitions.size() if
+// it is not there.
+static size_t acsNumber(const std::vector<const KeyDefinition *> &acsDefinitions,
+                        const KeyDefinition &segment) {
+  for (size_t i = 0; i < acsDefinitions.size(); ++i) {
+    if (!strcmp(acsDefinitions[i]->getACSName(), segment.getACSName()) &&
+        !memcmp(acsDefinitions[i]->getACS(), segment.getACS(), ACS_LENGTH)) {
+      return i;
+    }
+  }
+  return acsDefinitions.size();
+}
+
 static BtrieveError Stat(BtrieveCommand &command) {
   auto btrieveDriver = getOpenDatabase(command.lpPositionBlock);
   if (btrieveDriver == nullptr) {
@@ -289,13 +302,23 @@ static BtrieveError Stat(BtrieveCommand &command) {
   }
 
   size_t totalKeysIncludingSegmentedKeys = 0;
+  // the distinct ACS tables, which follow the key specs, numbered in the
+  // order the keys first use them
+  std::vector<const KeyDefinition *> acsDefinitions;
   for (const auto &key : btrieveDriver->getKeys()) {
     totalKeysIncludingSegmentedKeys += key.getSegments().size();
+    for (const auto &segment : key.getSegments()) {
+      if (segment.requiresACS() &&
+          acsNumber(acsDefinitions, segment) == acsDefinitions.size()) {
+        acsDefinitions.push_back(&segment);
+      }
+    }
   }
 
   const unsigned int requiredSize = static_cast<unsigned int>(
       sizeof(wbtrv32::FILESPEC) +
-      (totalKeysIncludingSegmentedKeys * sizeof(wbtrv32::KEYSPEC)));
+      (totalKeysIncludingSegmentedKeys * sizeof(wbtrv32::KEYSPEC)) +
+      (acsDefinitions.size() * sizeof(wbtrv32::ACSCREATEDATA)));
   if (*command.lpdwDataBufferLength < requiredSize) {
     return BtrieveError::DataBufferLengthOverrun;
   }
@@ -326,20 +349,35 @@ static BtrieveError Stat(BtrieveCommand &command) {
       reinterpret_cast<wbtrv32::LPKEYSPEC>(lpFileSpec + 1);
   uint8_t keyNumber = 0;
   for (const auto &key : btrieveDriver->getKeys()) {
+    const unsigned int uniqueKeys = btrieveDriver->getUniqueKeyCount(key);
     for (const auto &segment : key.getSegments()) {
       lpKeySpec->position = segment.getPosition();
       lpKeySpec->length = segment.getLength();
       lpKeySpec->attributes = segment.getAttributes();
-      lpKeySpec->uniqueKeys = btrieveDriver->getRecordCount();
+      lpKeySpec->uniqueKeys = uniqueKeys;
       lpKeySpec->extendedDataType = segment.getDataType();
       lpKeySpec->nullValue = segment.getNullValue();
       lpKeySpec->reserved = 0;
       lpKeySpec->number = keyNumber;
-      lpKeySpec->acsNumber = 0;
+      lpKeySpec->acsNumber =
+          segment.requiresACS()
+              ? static_cast<uint8_t>(acsNumber(acsDefinitions, segment))
+              : 0;
       ++lpKeySpec;
     }
 
     ++keyNumber;
+  }
+
+  wbtrv32::LPACSCREATEDATA lpAcsData =
+      reinterpret_cast<wbtrv32::LPACSCREATEDATA>(lpKeySpec);
+  for (const KeyDefinition *definition : acsDefinitions) {
+    lpAcsData->header = 0xAC;
+    memset(lpAcsData->name, 0, sizeof(lpAcsData->name));
+    memcpy(lpAcsData->name, definition->getACSName(),
+           std::min(strlen(definition->getACSName()), sizeof(lpAcsData->name)));
+    memcpy(lpAcsData->acs, definition->getACS(), ACS_LENGTH);
+    ++lpAcsData;
   }
 
   return BtrieveError::Success;
@@ -393,6 +431,11 @@ static BtrieveError GetPosition(BtrieveCommand &command) {
     return BtrieveError::FileNotOpen;
   }
 
+  // no record read since Open, or the current one was deleted
+  if (!btrieveDriver->hasCurrentRecord()) {
+    return BtrieveError::InvalidPositioning;
+  }
+
   if (*command.lpdwDataBufferLength < sizeof(uint32_t)) {
     return BtrieveError::DataBufferLengthOverrun;
   }
@@ -410,6 +453,10 @@ static BtrieveError GetDirectRecord(BtrieveCommand &command) {
     return BtrieveError::FileNotOpen;
   }
 
+  // Get Direct replaces any logical currency with that of the key number
+  // passed; key number -1 leaves none
+  btrieveDriver->clearLogicalCurrency();
+
   if (*command.lpdwDataBufferLength < 4) {
     return BtrieveError::DataBufferLengthOverrun;
   }
@@ -421,25 +468,23 @@ static BtrieveError GetDirectRecord(BtrieveCommand &command) {
     return BtrieveError::InvalidRecordAddress;
   }
 
-  // the record read becomes the current one (GetPosition, Update, Delete),
-  // even when it does not fit the data buffer
-  btrieveDriver->setPosition(position);
-
-  if (*command.lpdwDataBufferLength < record.second.getData().size()) {
-    return BtrieveError::DataBufferLengthOverrun;
-  }
-
   if (command.keyNumber >= 0) {
     if (static_cast<uint32_t>(command.keyNumber) >=
         btrieveDriver->getKeys().size()) {
-      return BtrieveError::InvalidKeyNumber;
+      return BtrieveError::InvalidKeyPath;
     }
 
     const auto &key = btrieveDriver->getKeys().at(command.keyNumber);
     if (command.lpKeyBufferLength < key.getLength()) {
       return BtrieveError::KeyBufferTooShort;
     }
+  }
 
+  // the record read becomes the current one (GetPosition, Update, Delete),
+  // even when it does not fit the data buffer
+  btrieveDriver->setPosition(position);
+
+  if (command.keyNumber >= 0) {
     auto error =
         btrieveDriver->logicalCurrencySeek(command.keyNumber, position);
     if (error != BtrieveError::Success) {
@@ -454,6 +499,11 @@ static BtrieveError GetDirectRecord(BtrieveCommand &command) {
                 record.second.getData().size()));
 
     memcpy(command.lpKeyBuffer, keyBytes.data(), keyBytes.size());
+  }
+
+  // logical currency stays established when the record does not fit
+  if (*command.lpdwDataBufferLength < record.second.getData().size()) {
+    return BtrieveError::DataBufferLengthOverrun;
   }
 
   memcpy(command.lpDataBuffer, record.second.getData().data(),
@@ -896,6 +946,13 @@ static BtrieveError handle(BtrieveCommand &command) {
     case OperationCode::Unlock:
       return ::Unlock(command);
     CASE_WITH_RECORD_LOCK(OperationCode::BeginTransaction):
+    CASE_WITH_RECORD_LOCK(OperationCode::BeginConcurrentTransaction):
+    // concurrent with the +500 no-wait bias, alone or with a lock bias
+    case OperationCode::BeginConcurrentTransaction + 500:
+    case OperationCode::BeginConcurrentTransaction + 600:
+    case OperationCode::BeginConcurrentTransaction + 700:
+    case OperationCode::BeginConcurrentTransaction + 800:
+    case OperationCode::BeginConcurrentTransaction + 900:
       return ::BeginTransaction();
     case OperationCode::EndTransaction:
       return ::EndTransaction();
