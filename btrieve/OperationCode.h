@@ -1,5 +1,4 @@
-﻿// 26.10.12.1B 02:53PM
-#ifndef __OPERATION_CODES_H_
+﻿#ifndef __OPERATION_CODES_H_
 #define __OPERATION_CODES_H_
 
 namespace btrieve {

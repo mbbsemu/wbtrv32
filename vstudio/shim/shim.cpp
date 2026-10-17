@@ -1,4 +1,3 @@
-// 26.10.13.4B 06:53PM
 // Parity shim: installed as WBTRV32.DLL, it forwards every BTRCALL to two
 // real implementations and reports where they disagree.
 //

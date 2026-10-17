@@ -1,4 +1,3 @@
-// 26.10.13.1B 03:38PM
 #include "wbtrv32.h"
 
 #include <cstdint>

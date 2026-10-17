@@ -1,4 +1,3 @@
-// 26.10.12.1B 02:53PM
 // wbtrv32.cpp : Defines the exported functions for the DLL.
 //
 #include "wbtrv32.h"

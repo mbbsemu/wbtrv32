@@ -124,6 +124,12 @@ bazel build //nuget:package
 5. **Windows via Visual Studio** (alternative to Bazel on Windows):
     - Open `vstudio/vstudio.sln` in Visual Studio 2022 or newer and build the `wbtrv32` project. This is the same solution used by the project's CI.
 
+6. **Bumping the DLL version**: the version shown in the DLL's Properties > Details lives in `nuget/BUILD`, alongside the NuGet package version it shares. Bazel builds stamp it into the DLL directly; the Visual Studio build reads the checked-in `vstudio/wbtrv32/wbtrv32_version.h`, so after editing it refresh that copy with:
+```
+bazel run //vstudio/wbtrv32:update_version
+```
+    `bazel test //...` fails if you forget.
+
 ### Unit Tests
 Comprehensive unit tests are included to verify functionality across various Btrieve data scenarios.
 
