@@ -7,9 +7,12 @@ NUGET_PACKAGE_VERSION = "1.0.5"
 
 # bazel build //nuget:package
 # Output lands in bazel-bin/nuget/package/<id>.<version>.nupkg
+# Tagged manual so wildcard builds/tests (e.g. `bazel test //...`) skip this
+# slow nested cross-build; it only builds when named explicitly.
 nuget_package(
     name = "package",
     version = NUGET_PACKAGE_VERSION,
+    tags = ["manual"],
 )
 
 exports_files([
