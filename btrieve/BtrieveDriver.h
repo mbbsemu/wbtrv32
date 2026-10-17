@@ -12,6 +12,24 @@
 #include "Text.h"
 
 namespace btrieve {
+// Moves dbPath (with its WAL files) into a dated folder under
+// "CONVERTED DATABASES" beside datPath and logs it with reason. Returns where
+// it went, or an empty path if it could not be moved (it is then left alone).
+std::filesystem::path retireDatabase(const std::filesystem::path &datPath,
+                                     const std::filesystem::path &dbPath,
+                                     const std::string &reason);
+
+// Puts a small text file at datPath for a database made by Create. Modules
+// commonly decide whether a Btrieve file exists by looking for its .DAT, so
+// without one they would create it again on every start.
+void writeDatPlaceholder(const std::filesystem::path &datPath,
+                         const std::filesystem::path &dbPath);
+
+// Size, last write time and contents hash of a file, for
+// SqlDatabase::setSourceFingerprint.
+std::optional<SourceFingerprint> sourceFingerprint(
+    const std::filesystem::path &datPath);
+
 // Implements the Btrieve Driver functionality, e.g. querying and iterating
 // through records.
 class BtrieveDriver {

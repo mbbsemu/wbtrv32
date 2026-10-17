@@ -3195,3 +3195,132 @@ TEST_F(wbtrv32TransactionTest, StopAbortsTransaction) {
   EXPECT_EQ(operation(btrieve::OperationCode::EndTransaction),
             btrieve::BtrieveError::TransactionNotActive);
 }
+
+// Modules decide whether a Btrieve file exists by looking for its .DAT
+// (SysOpMUD SNSFRONT.C: GetFileAttributesA, then dfaCreateSpec with
+// overwrite FALSE, i.e. Create key -1). Create therefore leaves a .DAT.
+class wbtrv32CreateTest : public wbtrv32Test {
+ protected:
+  std::filesystem::path datPath() {
+    return std::filesystem::path(tempPath->getTempPath()) / L"realm.dat";
+  }
+
+  std::filesystem::path dbPath() {
+    return std::filesystem::path(tempPath->getTempPath()) / L"realm.db";
+  }
+
+  int create(int8_t keyNumber) {
+    unsigned char buffer[256] = {};
+    auto lpFileSpec = reinterpret_cast<wbtrv32::LPFILESPEC>(buffer);
+    lpFileSpec->pageSize = 4096;
+    lpFileSpec->numberOfKeys = 1;
+    lpFileSpec->logicalFixedRecordLength = 20;
+    lpFileSpec->fileVersion = 0x60;
+    auto lpKeySpec = reinterpret_cast<wbtrv32::LPKEYSPEC>(lpFileSpec + 1);
+    lpKeySpec->position = 1;
+    lpKeySpec->length = 17;
+    lpKeySpec->attributes = UseExtendedDataType | Duplicates | Modifiable;
+    lpKeySpec->extendedDataType = btrieve::KeyDataType::Zstring;
+    DWORD length = reinterpret_cast<unsigned char *>(lpKeySpec + 1) - buffer;
+    std::string name = toStdString(datPath());
+    return btrcall(btrieve::OperationCode::Create, posBlock, buffer, &length,
+                   const_cast<char *>(name.c_str()), -1, keyNumber);
+  }
+
+  int open() {
+    std::string name = toStdString(datPath());
+    DWORD length = 0;
+    return btrcall(btrieve::OperationCode::Open, posBlock, nullptr, &length,
+                   const_cast<char *>(name.c_str()), -1, 0);
+  }
+
+  int close() {
+    DWORD length = 0;
+    return btrcall(btrieve::OperationCode::Close, posBlock, nullptr, &length,
+                   nullptr, 0, 0);
+  }
+
+  int insert(const char *value) {
+    char record[20] = {0};
+    strcpy(record, value);
+    DWORD length = sizeof(record);
+    return btrcall(btrieve::OperationCode::Insert, posBlock, record, &length,
+                   nullptr, 0, -1);
+  }
+
+  unsigned int recordCount() {
+    char buffer[80];
+    DWORD length = sizeof(buffer);
+    EXPECT_EQ(btrcall(btrieve::OperationCode::Stat, posBlock, buffer, &length,
+                      nullptr, 0, 0),
+              btrieve::BtrieveError::Success);
+    return reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount;
+  }
+
+  // the databases moved aside into "CONVERTED DATABASES"
+  std::vector<std::filesystem::path> retired() {
+    std::vector<std::filesystem::path> ret;
+    auto folder = datPath().parent_path() / "CONVERTED DATABASES";
+    if (std::filesystem::exists(folder)) {
+      for (const auto &entry :
+           std::filesystem::recursive_directory_iterator(folder)) {
+        if (entry.path().extension() == ".db") {
+          ret.push_back(entry.path());
+        }
+      }
+    }
+    return ret;
+  }
+};
+
+TEST_F(wbtrv32CreateTest, CreateLeavesDatSoTheFileExists) {
+  ASSERT_EQ(create(-1), btrieve::BtrieveError::Success);
+  EXPECT_TRUE(std::filesystem::exists(datPath()));
+  EXPECT_TRUE(std::filesystem::exists(dbPath()));
+
+  ASSERT_EQ(open(), btrieve::BtrieveError::Success);
+  ASSERT_EQ(insert("realm 0"), btrieve::BtrieveError::Success);
+  ASSERT_EQ(close(), btrieve::BtrieveError::Success);
+
+  // the module's next start: the .DAT is there, so it just opens the file
+  EXPECT_EQ(create(-1), btrieve::BtrieveError::FileAlreadyExists);
+  ASSERT_EQ(open(), btrieve::BtrieveError::Success);
+  EXPECT_EQ(recordCount(), 1u);
+  EXPECT_TRUE(retired().empty());
+}
+
+// A .DB whose .DAT is gone (deleted, or made before Create left one) is a
+// deleted file to Create key -1, as it would be to stock Btrieve; the old
+// .DB is kept.
+TEST_F(wbtrv32CreateTest, CreateWithoutDatMovesOldDbAside) {
+  ASSERT_EQ(create(-1), btrieve::BtrieveError::Success);
+  ASSERT_EQ(open(), btrieve::BtrieveError::Success);
+  ASSERT_EQ(insert("realm 0"), btrieve::BtrieveError::Success);
+  ASSERT_EQ(close(), btrieve::BtrieveError::Success);
+  std::filesystem::remove(datPath());
+
+  ASSERT_EQ(create(-1), btrieve::BtrieveError::Success);
+  EXPECT_TRUE(std::filesystem::exists(datPath()));
+  ASSERT_EQ(open(), btrieve::BtrieveError::Success);
+  EXPECT_EQ(recordCount(), 0u);
+  ASSERT_EQ(close(), btrieve::BtrieveError::Success);
+
+  auto old = retired();
+  ASSERT_EQ(old.size(), 1u);
+  BtrieveDriver driver(new SqliteDatabase());
+  ASSERT_EQ(driver.open(toWideString(old[0]).c_str()),
+            btrieve::BtrieveError::Success);
+  EXPECT_EQ(driver.getRecordCount(), 1u);
+}
+
+// Create over a real .DAT (overwrite) never writes the .DAT.
+TEST_F(wbtrv32CreateTest, CreateOverwriteLeavesRealDatAlone) {
+  auto dat = tempPath->copyToTempPath("assets/MBBSEMU.DAT");
+  std::filesystem::rename(dat, datPath());
+  const auto before = std::filesystem::file_size(datPath());
+
+  ASSERT_EQ(create(0), btrieve::BtrieveError::Success);
+  EXPECT_EQ(std::filesystem::file_size(datPath()), before);
+  ASSERT_EQ(open(), btrieve::BtrieveError::Success);
+  EXPECT_EQ(recordCount(), 0u);
+}
