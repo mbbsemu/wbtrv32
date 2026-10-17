@@ -585,6 +585,14 @@ TEST_F(wbtrv32Test, StepDataUnderrun) {
   };
 
   for (size_t i = 0; i < ARRAYSIZE(codesToTest); ++i) {
+    // a short buffer still moves to the record (as in Btrieve), so start each
+    // StepNext from the first record rather than wherever the last step left
+    if (codesToTest[i] % 100 == btrieve::OperationCode::StepNext) {
+      DWORD fullLength = sizeof(record);
+      ASSERT_EQ(btrcall(btrieve::OperationCode::StepFirst, posBlock, &record,
+                        &fullLength, nullptr, 0, 0),
+                btrieve::BtrieveError::Success);
+    }
     DWORD dwDataBufferLength = sizeof(record) - 1;
     ASSERT_EQ(btrcall(codesToTest[i], posBlock, &record, &dwDataBufferLength,
                       nullptr, 0, 0),
@@ -2935,4 +2943,57 @@ TEST_F(wbtrv32Test, GetPositionAfterGetDirectReportsRecordRead) {
               btrieve::BtrieveError::Success);
     EXPECT_EQ(after, first) << "GetDirect with key " << keyNumber;
   }
+}
+
+// When the data buffer is too short (status 22), Btrieve 6.15 still makes the
+// record current for Step and GetDirect, so GetPosition reports it and a
+// following StepNext continues after it. The Major BBS relies on this when
+// it walks WGSGEN2.DAT, whose first record can exceed its 8192-byte buffer.
+TEST_F(wbtrv32Test, BufferTooShortStillPositionsOnRecord) {
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  ASSERT_FALSE(mbbsEmuDb.empty());
+
+  DWORD length = 0;
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr, &length,
+                    const_cast<LPVOID>(reinterpret_cast<LPCVOID>(
+                        toStdString(mbbsEmuDb.c_str()).c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
+
+  RECORD record;
+  uint32_t position;
+  auto currentPosition = [&]() {
+    uint32_t p = 0;
+    DWORD l = sizeof(p);
+    EXPECT_EQ(btrcall(btrieve::OperationCode::GetPosition, posBlock, &p, &l,
+                      nullptr, 0, 0),
+              btrieve::BtrieveError::Success);
+    return p;
+  };
+
+  length = 10;
+  EXPECT_EQ(btrcall(btrieve::OperationCode::StepFirst, posBlock, &record,
+                    &length, nullptr, 0, 0),
+            btrieve::BtrieveError::DataBufferLengthOverrun);
+  EXPECT_EQ(currentPosition(), 1u);
+
+  length = sizeof(record);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::StepNext, posBlock, &record,
+                    &length, nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
+  EXPECT_EQ(currentPosition(), 2u);
+
+  length = 10;
+  EXPECT_EQ(btrcall(btrieve::OperationCode::StepNext, posBlock, &record,
+                    &length, nullptr, 0, 0),
+            btrieve::BtrieveError::DataBufferLengthOverrun);
+  EXPECT_EQ(currentPosition(), 3u);
+
+  position = 1;
+  memcpy(&record, &position, sizeof(position));
+  length = 10;
+  EXPECT_EQ(btrcall(btrieve::OperationCode::GetDirectChunkOrRecord, posBlock,
+                    &record, &length, nullptr, 0, -1),
+            btrieve::BtrieveError::DataBufferLengthOverrun);
+  EXPECT_EQ(currentPosition(), 1u);
 }
