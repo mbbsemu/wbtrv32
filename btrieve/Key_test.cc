@@ -771,6 +771,118 @@ TEST(Key, CompositeACSLstringKeepsLengthByte) {
   EXPECT_EQ(actual[1].getStringValue(), "ABC");
 }
 
+// A case insensitive string segment without an ACS sorts by its upper case
+// letters. Only a to z change, so '_' still sorts after 'Z', as with an
+// upper casing ACS.
+class CaseInsensitiveFixture : public testing::TestWithParam<KeyDataType> {};
+
+TEST_P(CaseInsensitiveFixture, FoldsToUpperCase) {
+  KeyDefinition keyDefinition(0, 8, 0, GetParam(),
+                              UseExtendedDataType | CaseInsensitiveKey, false,
+                              0, 0, 0, "", std::vector<char>());
+  ASSERT_TRUE(keyDefinition.isCaseInsensitive());
+  Key key(&keyDefinition, 1);
+
+  const bool lstring = GetParam() == KeyDataType::Lstring;
+  uint8_t keyData[8] = {0};
+  memcpy(keyData + lstring, "aZ_z\xE9", 5);
+  if (lstring) {
+    keyData[0] = 5;
+  }
+
+  auto actual = key.keyDataToSqliteObjects(
+      std::basic_string_view<uint8_t>(keyData, sizeof(keyData)))[0];
+
+  if (GetParam() == KeyDataType::String) {
+    auto blob = actual.getBlobValue();
+    EXPECT_EQ(std::string(blob.begin(), blob.end()),
+              std::string("AZ_Z\xE9\0\0\0", 8));
+  } else {
+    EXPECT_EQ(actual.getStringValue(), "AZ_Z\xE9");
+  }
+}
+
+INSTANTIATE_TEST_CASE_P(Key, CaseInsensitiveFixture,
+                        ::testing::Values(KeyDataType::String,
+                                          KeyDataType::Lstring,
+                                          KeyDataType::Zstring,
+                                          KeyDataType::OldAscii));
+
+// NOCASE_KEY has no effect on a segment that isn't a string.
+TEST(Key, CaseInsensitiveIntegerSegmentIsUnchanged) {
+  KeyDefinition keyDefinition(0, 2, 0, KeyDataType::Integer,
+                              UseExtendedDataType | CaseInsensitiveKey, false,
+                              0, 0, 0, "", std::vector<char>());
+  EXPECT_FALSE(keyDefinition.isCaseInsensitive());
+  Key key(&keyDefinition, 1);
+
+  uint8_t keyData[2] = {'a', 'a'};
+  EXPECT_EQ(key.keyDataToSqliteObjects(
+                   std::basic_string_view<uint8_t>(keyData, sizeof(keyData)))[0]
+                .getIntegerValue(),
+            0x6161);
+}
+
+// With an ACS the case flag is part of MultipleACS, and the ACS governs the
+// order: here one that lower cases.
+TEST(Key, ACSOverridesCaseInsensitivity) {
+  std::vector<char> acs(ACS_LENGTH);
+  for (int i = 0; i < ACS_LENGTH; ++i) {
+    acs[i] = static_cast<char>(tolower(i));
+  }
+
+  KeyDefinition keyDefinition(0, 8, 0, KeyDataType::Zstring,
+                              UseExtendedDataType | MultipleACS, false, 0, 0,
+                              0, "lower", acs);
+  EXPECT_FALSE(keyDefinition.isCaseInsensitive());
+  Key key(&keyDefinition, 1);
+
+  uint8_t keyData[8] = {'A', 'b', 'C', 0};
+  EXPECT_EQ(key.keyDataToSqliteObjects(
+                   std::basic_string_view<uint8_t>(keyData, sizeof(keyData)))[0]
+                .getStringValue(),
+            "abc");
+}
+
+// Case insensitivity is per segment.
+TEST(Key, CompositeCaseInsensitiveSegment) {
+  KeyDefinition keyDefinitions[2] = {
+      KeyDefinition(0, 4, 0, KeyDataType::Zstring,
+                    UseExtendedDataType | CaseInsensitiveKey, true, 0, 0, 0,
+                    "", std::vector<char>()),
+      KeyDefinition(0, 4, 4, KeyDataType::Zstring, UseExtendedDataType, false,
+                    0, 1, 0, "", std::vector<char>())};
+  Key key(keyDefinitions, 2);
+
+  uint8_t keyData[8] = {'a', 'B', 'c', 0, 'a', 'B', 'c', 0};
+  auto actual = key.keyDataToSqliteObjects(
+      std::basic_string_view<uint8_t>(keyData, sizeof(keyData)));
+  ASSERT_EQ(actual.size(), 2u);
+  EXPECT_EQ(actual[0].getStringValue(), "ABC");
+  EXPECT_EQ(actual[1].getStringValue(), "aBc");
+}
+
+// A search key truncated before or at an LSTRING's length byte converts to an
+// empty string rather than reading past the key data.
+TEST(Key, TruncatedCollatedLstringSearchKey) {
+  for (uint16_t attributes : {CaseInsensitiveKey, NumberedACS}) {
+    KeyDefinition keyDefinition(
+        0, 8, 0, KeyDataType::Lstring, UseExtendedDataType | attributes, false,
+        0, 0, 0, attributes == NumberedACS ? "upper" : "",
+        attributes == NumberedACS ? upperACS() : std::vector<char>());
+    Key key(&keyDefinition, 1);
+
+    uint8_t keyData[1] = {5};
+    for (size_t length : {0, 1}) {
+      EXPECT_EQ(key.searchKeyDataToSqliteObjects(
+                       std::basic_string_view<uint8_t>(keyData, length))[0]
+                    .getStringValue(),
+                "")
+          << "attributes " << attributes << " length " << length;
+    }
+  }
+}
+
 TEST(Key, FloatKeys) {
   KeyDefinition keyDefinition(0, sizeof(float), 0, KeyDataType::Float,
                               UseExtendedDataType, false, 0, 0, 0, "",

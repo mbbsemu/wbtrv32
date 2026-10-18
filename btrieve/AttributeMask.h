@@ -11,6 +11,9 @@
 #define RepeatingDuplicatesKey (1 << 7)
 #define UseExtendedDataType (1 << 8)
 #define NullAnySegment (1 << 9)
-#define MultipleACS ((1 << 10) | NumberedACS)
+// NOCASE_KEY, which only applies without NumberedACS: with it, it's
+// MultipleACS
+#define CaseInsensitiveKey (1 << 10)
+#define MultipleACS (CaseInsensitiveKey | NumberedACS)
 
 #endif

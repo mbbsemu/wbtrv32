@@ -54,7 +54,7 @@ test both bits: `(attributes & MultipleACS) == MultipleACS`.
 | A non-modifiable key can't change, including to or from null | The trigger compares columns with `IS NOT`, since `!=` is never true against NULL (the version 3 to 4 upgrade recreates it) |
 | A record whose key is null isn't put into the key's index | Its key columns are NULL, and First, Last and Equal skip them (`sqliteKeyIndexedWhere`), as do range comparisons since comparing with NULL is false. Get Direct, Insert or Update onto such a record leaves no logical position, so Get Next/Previous return 8. Stat doesn't count them as unique values. Only keys with a null flag store NULL; a single string key without one stores its empty string as a value |
 | DESC_KEY (0x40) is per segment, and Get Greater/Less and Next/Previous follow the key's order, so on a descending segment Greater means a lower value | Descending columns are indexed and ordered `DESC` (`sqliteKeyOrder`, `sqliteKeyIndexColumns`). `sqliteKeyComparison` flips the operator when every segment is descending, and compares a mixed key segment by segment, with a bound on the leading column so SQLite can still seek the index |
-| Case insensitive key without an ACS (0x400 alone) loads | Fixed: the loader used to treat it as NUMBERED_ACS and threw "Can't load ACS" (`BtrieveDatabase_test.cc` `LoadsCaseInsensitiveKeyWithoutACS`) |
+| A case insensitive key (0x400 without 0x20) sorts without regard to case; it has no effect with an ACS | String segments (STRING, LSTRING, ZSTRING, legacy ASCII) fold a to z to upper case during conversion, as an upper casing ACS would (`KeyDefinition::isCaseInsensitive`, `Key::applyCollation`). The docs don't say which case Btrieve folds to; it only matters for ``[ \ ] ^ _ ` `` between `Z` and `a`. The loader used to treat the flag as NUMBERED_ACS and threw "Can't load ACS" (`BtrieveDatabase_test.cc` `LoadsCaseInsensitiveKeyWithoutACS`) |
 
 ## Outstanding fixes
 
@@ -62,18 +62,7 @@ These apply to single segment keys too, not only composite ones. None appear
 in the 11 local `.DAT` files (test assets, MBBSEmu, one module), which use
 only ZSTRING, INTEGER, FLOAT, UNSIGNED BINARY and AUTOINCREMENT, plus ACS.
 
-### 1. Case insensitive keys don't fold case
-
-The loader now accepts NOCASE_KEY (0x400 without 0x20), but nothing applies
-it, so such keys still compare case sensitively. Fold string segments
-(STRING, LSTRING, ZSTRING) to upper case during conversion when 0x400 is set
-and the segment has no ACS, the same way an upper casing ACS would. The docs
-say case sensitivity has no effect on keys that use an ACS.
-
-`AttributeMask.h` has no NOCASE constant yet, so add one (`1 << 10`) rather
-than testing against `MultipleACS`.
-
-### 2. Types stored as raw bytes sort incorrectly
+### 1. Types stored as raw bytes sort incorrectly
 
 `segmentDataToSqliteObject` in `Key.cc` falls through to a BLOB of the raw
 bytes for these, which `memcmp` misorders:
@@ -93,7 +82,7 @@ Changing how an existing type is stored needs a database version bump and an
 upgrade that recomputes the key columns. `upgradeDatabaseFrom3To4` already
 rebuilds `data_t` from the stored records and can be generalised.
 
-### 3. True nulls (null indicator segments) aren't supported
+### 2. True nulls (null indicator segments) aren't supported
 
 Type 255 is a one byte null indicator segment before a nullable field. Nulls
 group together for sorting but aren't equal for uniqueness, so a unique key

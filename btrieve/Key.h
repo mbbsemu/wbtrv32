@@ -127,7 +127,10 @@ class Key {
   }
 
  private:
-  std::vector<uint8_t> applyACS(std::basic_string_view<uint8_t> keyData) const;
+  // Maps each segment's bytes through its ACS, or to upper case when it's
+  // case insensitive, so they compare in the segment's collating order.
+  std::vector<uint8_t> applyCollation(
+      std::basic_string_view<uint8_t> keyData) const;
 
   std::vector<BindableValue> keyDataToSqliteObjects(
       std::basic_string_view<uint8_t> keyData, bool allowNull) const;

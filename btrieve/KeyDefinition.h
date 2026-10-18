@@ -62,6 +62,16 @@ class KeyDefinition {
 
   bool requiresACS() const { return attributes & NumberedACS; }
 
+  // A string segment that sorts without regard to case. It has no effect
+  // with an ACS, which then governs the order.
+  bool isCaseInsensitive() const {
+    return (attributes & CaseInsensitiveKey) && !requiresACS() &&
+           (dataType == KeyDataType::String ||
+            dataType == KeyDataType::Lstring ||
+            dataType == KeyDataType::Zstring ||
+            dataType == KeyDataType::OldAscii);
+  }
+
   bool isModifiable() const { return attributes & Modifiable; }
 
   // Each segment sorts in its own direction.

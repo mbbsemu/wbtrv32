@@ -3668,3 +3668,66 @@ TEST_F(BtrieveDriverTest, DescendingSegmentIndex) {
             "CREATE INDEX key_0_index on data_t(key_0_0, key_0_1 DESC)");
   EXPECT_EQ(plan.find("TEMP B-TREE"), std::string::npos) << plan;
 }
+
+// A case insensitive segment orders by upper case, so '_' sorts after every
+// letter rather than between the upper and lower case ones, and letters that
+// differ only in case are duplicates, in insertion order.
+TEST_F(BtrieveDriverTest, CaseInsensitiveCompositeKey) {
+  auto driver = createIntStringDriverWithKey(
+      {intSegment(SegmentedKey), stringSegment(CaseInsensitiveKey)});
+  for (auto &record :
+       {createIntStringRecord(1, "b"), createIntStringRecord(1, "A"),
+        createIntStringRecord(1, "_"), createIntStringRecord(1, "a"),
+        createIntStringRecord(-1, "Z"), createIntStringRecord(1, "B")}) {
+    ASSERT_EQ(driver->insertRecord(view(record)).first, BtrieveError::Success);
+  }
+
+  // (-1, "Z")5 (1, "A")2 (1, "a")4 (1, "b")1 (1, "B")6 (1, "_")3
+  static const unsigned int EXPECTED[] = {5, 2, 4, 1, 6, 3};
+  verifyCompositeOrdering(*driver, 0, EXPECTED, std::size(EXPECTED));
+
+  expectKeyOperation(*driver, createIntStringRecord(1, "B"),
+                     OperationCode::QueryEqual, 1);
+  expectKeyOperation(*driver, createIntStringRecord(1, "a"),
+                     OperationCode::QueryGreater, 1);
+  expectKeyOperation(*driver, createIntStringRecord(1, "Z"),
+                     OperationCode::QueryGreater, 3);
+  expectKeyOperation(*driver, createIntStringRecord(1, "c"),
+                     OperationCode::QueryLess, 6);
+}
+
+TEST_F(BtrieveDriverTest, CaseInsensitiveUniqueKey) {
+  auto driver = createIntStringDriverWithKey({KeyDefinition(
+      0, 8, 2, KeyDataType::Zstring, UseExtendedDataType | CaseInsensitiveKey,
+      false, 0, 0, 0, "", std::vector<char>())});
+
+  ASSERT_EQ(driver->insertRecord(view(createIntStringRecord(1, "Sysop"))),
+            std::make_pair(BtrieveError::Success, 1u));
+  ASSERT_EQ(driver->insertRecord(view(createIntStringRecord(2, "SYSOP"))),
+            std::make_pair(BtrieveError::DuplicateKeyValue, 0u));
+  ASSERT_EQ(driver->insertRecord(view(createIntStringRecord(2, "Sysop2"))),
+            std::make_pair(BtrieveError::Success, 2u));
+}
+
+// A .DAT key with NOCASE_KEY converts to a case insensitive key: MBBSEMU.DAT
+// key 0 holds "Sysop" in every record.
+TEST_F(BtrieveDriverTest, ConvertsCaseInsensitiveKey) {
+  auto dat = tempPath->copyToTempPath("assets/MBBSEMU.DAT");
+  {
+    // key 0's attributes are at 0x118, see
+    // BtrieveDatabase.LoadsCaseInsensitiveKeyWithoutACS
+    std::fstream file(std::filesystem::path(dat),
+                      std::ios::in | std::ios::out | std::ios::binary);
+    file.seekp(0x119);
+    file.put(0x05);
+  }
+
+  BtrieveDriver driver(new SqliteDatabase());
+  ASSERT_EQ(driver.open(dat.c_str()), BtrieveError::Success);
+
+  std::vector<uint8_t> key(32, 0);
+  memcpy(key.data(), "SYSOP", 5);
+  ASSERT_EQ(driver.performOperation(0, view(key), OperationCode::QueryEqual),
+            BtrieveError::Success);
+  ASSERT_EQ(driver.getPosition(), 1u);
+}

@@ -89,45 +89,48 @@ static bool isAllSameByteValue(std::basic_string_view<uint8_t> data,
   return found == std::string::npos;
 }
 
-static const char *createDefaultACS() {
-  static uint8_t INTERNAL_DEFAULT_ACS[ACS_LENGTH];
+static const uint8_t *createUpperCaseCollation() {
+  static uint8_t UPPER_CASE[ACS_LENGTH];
   for (unsigned int i = 0; i < ACS_LENGTH; ++i) {
-    INTERNAL_DEFAULT_ACS[i] = i;
+    UPPER_CASE[i] = (i >= 'a' && i <= 'z') ? i - 'a' + 'A' : i;
   }
-  return reinterpret_cast<const char *>(INTERNAL_DEFAULT_ACS);
+  return UPPER_CASE;
 }
 
-std::vector<uint8_t> Key::applyACS(
-    std::basic_string_view<uint8_t> keyData) const {
-  static const char *DEFAULT_ACS = createDefaultACS();
+// The table mapping a segment's bytes to the ones it sorts by: its ACS, upper
+// case for a case insensitive segment, or nullptr when it sorts by its bytes.
+static const uint8_t *getCollation(const KeyDefinition &segment) {
+  static const uint8_t *UPPER_CASE = createUpperCaseCollation();
 
-  if (!requiresACS()) {
-    return std::vector(keyData.data(), keyData.data() + keyData.size());
+  if (segment.requiresACS()) {
+    return reinterpret_cast<const uint8_t *>(segment.getACS());
+  } else if (segment.isCaseInsensitive()) {
+    return UPPER_CASE;
   }
+  return nullptr;
+}
 
-  std::vector<uint8_t> ret(keyData.size());
-  const uint8_t *src = keyData.data();
-  const uint8_t *end = src + keyData.size();
-  uint8_t *dst = ret.data();
+std::vector<uint8_t> Key::applyCollation(
+    std::basic_string_view<uint8_t> keyData) const {
+  std::vector<uint8_t> ret(keyData.data(), keyData.data() + keyData.size());
 
+  size_t offset = 0;
   for (auto &segment : segments) {
-    const auto *acs = segment.requiresACS() ? segment.getACS() : DEFAULT_ACS;
-    int i;
-
-    if (segment.getDataType() == KeyDataType::Lstring) {
-      // skip the first length byte in the Lstring, so just copy verbatim
-      *(dst++) = *(src++);
-      i = 1;
-    } else {
-      i = 0;
+    if (offset >= ret.size()) {
+      break;
     }
 
-    for (; i < segment.getLength(); ++i) {
-      *(dst++) = acs[*(src++)];
-      if (src >= end) {
-        return ret;
+    const uint8_t *collation = getCollation(segment);
+    if (collation != nullptr) {
+      const size_t end =
+          std::min<size_t>(offset + segment.getLength(), ret.size());
+      // an LSTRING's first byte is its length, which isn't collated
+      size_t i = offset + (segment.getDataType() == KeyDataType::Lstring);
+      for (; i < end; ++i) {
+        ret[i] = collation[ret[i]];
       }
     }
+    offset += segment.getLength();
   }
 
   return ret;
@@ -135,7 +138,12 @@ std::vector<uint8_t> Key::applyACS(
 
 static std::string extractPrefixedLengthString(
     std::basic_string_view<uint8_t> keyData) {
-  size_t strlen = keyData.at(0);
+  // a truncated search key can stop before the length
+  if (keyData.empty()) {
+    return "";
+  }
+
+  size_t strlen = keyData[0];
   if (strlen >= keyData.size()) {
     strlen = keyData.size() - 1;
   }
@@ -256,7 +264,7 @@ BindableValue Key::singleKeyDataToSqliteObject(
     return BindableValue();
   }
 
-  std::vector<uint8_t> modifiedKeyData = applyACS(keyData);
+  std::vector<uint8_t> modifiedKeyData = applyCollation(keyData);
   return segmentDataToSqliteObject(
       getPrimarySegment(),
       std::basic_string_view<uint8_t>(modifiedKeyData.data(),
@@ -313,7 +321,7 @@ std::vector<BindableValue> Key::keyDataToSqliteObjects(
     return values;
   }
 
-  std::vector<uint8_t> modifiedKeyData = applyACS(paddedKeyDataView);
+  std::vector<uint8_t> modifiedKeyData = applyCollation(paddedKeyDataView);
   std::basic_string_view<uint8_t> modifiedKeyDataView(modifiedKeyData.data(),
                                                       modifiedKeyData.size());
   size_t offset = 0;
