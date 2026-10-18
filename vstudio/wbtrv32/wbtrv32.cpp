@@ -946,12 +946,7 @@ static BtrieveError handle(BtrieveCommand &command) {
       return ::Unlock(command);
     CASE_WITH_RECORD_LOCK(OperationCode::BeginTransaction):
     CASE_WITH_RECORD_LOCK(OperationCode::BeginConcurrentTransaction):
-    // concurrent with the +500 no-wait bias, alone or with a lock bias
-    case OperationCode::BeginConcurrentTransaction + 500:
-    case OperationCode::BeginConcurrentTransaction + 600:
-    case OperationCode::BeginConcurrentTransaction + 700:
-    case OperationCode::BeginConcurrentTransaction + 800:
-    case OperationCode::BeginConcurrentTransaction + 900:
+    CASE_WITH_RECORD_LOCK(OperationCode::BeginConcurrentNoWaitTransaction):
       return ::BeginTransaction();
     case OperationCode::EndTransaction:
       return ::EndTransaction();
