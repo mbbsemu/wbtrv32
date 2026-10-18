@@ -6,13 +6,56 @@
 
 namespace btrieve {
 
+// Types stored as a little endian integer. DATE (day, month, 2 byte year) and
+// TIME (hundredths, seconds, minutes, hours) are too: read that way, their
+// most significant field is in the high bytes, so they compare field by field.
+static bool isSignedInteger(KeyDataType type) {
+  return type == KeyDataType::Integer || type == KeyDataType::AutoInc ||
+         type == KeyDataType::Currency;
+}
+
+static bool isBinaryInteger(KeyDataType type) {
+  return isSignedInteger(type) || type == KeyDataType::Unsigned ||
+         type == KeyDataType::UnsignedBinary ||
+         type == KeyDataType::OldBinary || type == KeyDataType::Date ||
+         type == KeyDataType::Time || type == KeyDataType::Timestamp;
+}
+
+// The number of decimal digits, excluding the sign, in a DECIMAL, MONEY or
+// NUMERIC family segment, or 0 for other types.
+static size_t getDecimalDigits(const KeyDefinition &segment) {
+  const size_t length = segment.getLength();
+  switch (segment.getDataType()) {
+    case KeyDataType::Decimal:
+    case KeyDataType::Money:
+      // two digits per byte, less the sign nibble
+      return length > 0 ? length * 2 - 1 : 0;
+    case KeyDataType::Numeric:
+    case KeyDataType::NumericSA:
+      // the sign is overpunched on the last digit
+      return length;
+    case KeyDataType::NumericSTS:
+      // the sign is its own last byte
+      return length > 0 ? length - 1 : 0;
+    default:
+      return 0;
+  }
+}
+
+// Decimal values with up to this many digits fit in an INTEGER.
+static const size_t MAX_INTEGER_DIGITS = 18;
+
+static bool isBfloat(const KeyDefinition &segment) {
+  return segment.getDataType() == KeyDataType::Bfloat &&
+         (segment.getLength() == 4 || segment.getLength() == 8);
+}
+
 static const char *getSqliteType(const KeyDefinition &segment) {
   auto type = segment.getDataType();
+  const size_t digits = getDecimalDigits(segment);
 
-  if ((type == KeyDataType::AutoInc || type == KeyDataType::Integer ||
-       type == KeyDataType::Unsigned || type == KeyDataType::UnsignedBinary ||
-       type == KeyDataType::OldBinary) &&
-      segment.getLength() <= 8) {
+  if ((isBinaryInteger(type) && segment.getLength() <= 8) ||
+      isBfloat(segment) || (digits > 0 && digits <= MAX_INTEGER_DIGITS)) {
     return "INTEGER";
   } else if (type == KeyDataType::Lstring || type == KeyDataType::Zstring ||
              type == KeyDataType::OldAscii) {
@@ -169,6 +212,132 @@ bool Key::isNullKeyInRecord(std::basic_string_view<uint8_t> record) const {
       getPrimarySegment().getNullValue());
 }
 
+// A BFLOAT (Microsoft Binary Format) value as an INTEGER that sorts the same.
+// The last byte is the exponent, 0 for zero, and the rest is the mantissa with
+// the sign in its top bit. With the sign removed, exponent then mantissa
+// orders the magnitude exactly, unlike a conversion to double, which rounds
+// an 8 byte BFLOAT's 55 bit mantissa.
+static int64_t bfloatToInteger(const std::vector<uint8_t> &bytes) {
+  const size_t mantissaBytes = bytes.size() - 1;
+  const uint8_t exponent = bytes[mantissaBytes];
+  if (exponent == 0) {
+    return 0;
+  }
+
+  const unsigned int mantissaBits = mantissaBytes * 8 - 1;
+  uint64_t mantissa = 0;
+  for (size_t i = 0; i < mantissaBytes; ++i) {
+    mantissa |= static_cast<uint64_t>(bytes[i]) << (i * 8);
+  }
+  const bool negative = (mantissa >> mantissaBits) & 1;
+  mantissa &= (static_cast<uint64_t>(1) << mantissaBits) - 1;
+
+  const int64_t magnitude = static_cast<int64_t>(
+      (static_cast<uint64_t>(exponent) << mantissaBits) | mantissa);
+  return negative ? -magnitude : magnitude;
+}
+
+static uint8_t asciiDigit(uint8_t c) {
+  return (c >= '0' && c <= '9') ? c - '0' : 0;
+}
+
+// Decodes a DECIMAL, MONEY or NUMERIC family value into its digits, most
+// significant first, and returns whether it's negative. Bytes that aren't
+// digits, such as leading spaces, read as 0, and negative zero is zero.
+static bool decodeDecimal(KeyDataType type, const std::vector<uint8_t> &bytes,
+                          std::vector<uint8_t> &digits) {
+  bool negative = false;
+  const size_t last = bytes.size() - 1;
+
+  switch (type) {
+    case KeyDataType::Decimal:
+    case KeyDataType::Money:
+      // packed BCD, two digits per byte, and a final sign nibble: 0xD is
+      // negative, 0xF and 0xC positive
+      for (size_t i = 0; i < bytes.size(); ++i) {
+        digits.push_back(bytes[i] >> 4);
+        if (i < last) {
+          digits.push_back(bytes[i] & 0xF);
+        }
+      }
+      negative = (bytes[last] & 0xF) == 0xD;
+      break;
+    case KeyDataType::Numeric:
+    case KeyDataType::NumericSA: {
+      // ASCII digits, the last one overpunched with the sign
+      for (size_t i = 0; i < last; ++i) {
+        digits.push_back(asciiDigit(bytes[i]));
+      }
+      const uint8_t c = bytes[last];
+      uint8_t digit = asciiDigit(c);
+      if (type == KeyDataType::Numeric) {
+        // EBCDIC: 0 to 9 are '{' and 'A' to 'I' positive, '}' and 'J' to 'R'
+        // negative, or plain digits positive
+        if (c >= 'A' && c <= 'I') {
+          digit = c - 'A' + 1;
+        } else if (c >= 'J' && c <= 'R') {
+          digit = c - 'J' + 1;
+          negative = true;
+        } else if (c == '}') {
+          negative = true;
+        }
+      } else {
+        // ASCII: 0 to 9 are 'P' to 'Y' positive, 'p' to 'y' negative, or
+        // plain digits positive
+        if (c >= 'P' && c <= 'Y') {
+          digit = c - 'P';
+        } else if (c >= 'p' && c <= 'y') {
+          digit = c - 'p';
+          negative = true;
+        }
+      }
+      digits.push_back(digit);
+      break;
+    }
+    case KeyDataType::NumericSTS:
+      // ASCII digits, then a '+' or '-'
+      for (size_t i = 0; i < last; ++i) {
+        digits.push_back(asciiDigit(bytes[i]));
+      }
+      negative = bytes[last] == '-';
+      break;
+    default:
+      break;
+  }
+
+  if (std::all_of(digits.begin(), digits.end(),
+                  [](uint8_t digit) { return digit == 0; })) {
+    negative = false;
+  }
+  return negative;
+}
+
+// A DECIMAL, MONEY or NUMERIC family value as a signed INTEGER of its digits
+// when they fit, ignoring the implied decimal point, which is the same for
+// every value of the segment. Otherwise a BLOB that memcmp orders: a sign
+// byte, 0 for negative, then a byte per digit, inverted when negative so
+// larger magnitudes sort first.
+static BindableValue decimalToSqliteObject(const KeyDefinition &segment,
+                                           const std::vector<uint8_t> &bytes) {
+  std::vector<uint8_t> digits;
+  const bool negative = decodeDecimal(segment.getDataType(), bytes, digits);
+
+  if (digits.size() <= MAX_INTEGER_DIGITS) {
+    int64_t value = 0;
+    for (uint8_t digit : digits) {
+      value = value * 10 + digit;
+    }
+    return BindableValue(negative ? -value : value);
+  }
+
+  std::vector<uint8_t> blob;
+  blob.push_back(negative ? 0 : 1);
+  for (uint8_t digit : digits) {
+    blob.push_back(negative ? 0xFF - digit : digit);
+  }
+  return BindableValue(blob);
+}
+
 static bool isBigEndian() {
   union {
     uint32_t i;
@@ -198,9 +367,25 @@ static BindableValue segmentDataToSqliteObject(
   uint64_t value = 0;
   uint8_t *subValue = reinterpret_cast<uint8_t *>(&value);
 
+  // the segment's bytes, with any missing ones zero
+  auto segmentBytes = [&]() {
+    std::vector<uint8_t> bytes(length);
+    for (size_t i = 0; i < length; ++i) {
+      bytes[i] = byteAt(i);
+    }
+    return bytes;
+  };
+
+  if (isBfloat(segment)) {
+    return BindableValue(bfloatToInteger(segmentBytes()));
+  } else if (getDecimalDigits(segment) > 0) {
+    return decimalToSqliteObject(segment, segmentBytes());
+  }
+
   switch (segment.getDataType()) {
     case KeyDataType::AutoInc:
     case KeyDataType::Integer:
+    case KeyDataType::Currency:
       // extend sign bit
       if (supplied > 0 && (byteAt(supplied - 1) & 0x80)) {
         value = -1;
@@ -209,6 +394,9 @@ static BindableValue segmentDataToSqliteObject(
     case KeyDataType::Unsigned:
     case KeyDataType::UnsignedBinary:
     case KeyDataType::OldBinary:
+    case KeyDataType::Date:
+    case KeyDataType::Time:
+    case KeyDataType::Timestamp:
       if (length > 0 && length <= 8) {
         for (size_t i = 0; i < supplied; ++i) {
           if (bigEndian) {
@@ -216,6 +404,11 @@ static BindableValue segmentDataToSqliteObject(
           } else {
             subValue[i] = byteAt(i);
           }
+        }
+        // SQLite's INTEGER is signed, so flip an 8 byte unsigned value's top
+        // bit to keep the values from 2^63 up above the rest
+        if (length == 8 && !isSignedInteger(segment.getDataType())) {
+          value ^= static_cast<uint64_t>(1) << 63;
         }
         return BindableValue(value);
       } else {

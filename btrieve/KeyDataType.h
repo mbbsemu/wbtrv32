@@ -18,6 +18,10 @@ enum KeyDataType {
   Unsigned = 0xD,
   UnsignedBinary = 0xE,
   AutoInc = 0xF,
+  NumericSTS = 0x11,  // NUMERIC with a trailing '+' or '-' sign byte
+  NumericSA = 0x12,   // NUMERIC with an ASCII rather than EBCDIC sign
+  Currency = 0x13,
+  Timestamp = 0x14,
   OldAscii = 0x20,
   OldBinary = 0x21,  // essentially an unsigned int, like Unsigned
 };

@@ -19,6 +19,7 @@
 #include <sys/types.h>
 
 #include <chrono>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 
@@ -3730,4 +3731,234 @@ TEST_F(BtrieveDriverTest, ConvertsCaseInsensitiveKey) {
   ASSERT_EQ(driver.performOperation(0, view(key), OperationCode::QueryEqual),
             BtrieveError::Success);
   ASSERT_EQ(driver.getPosition(), 1u);
+}
+
+typedef std::vector<std::vector<uint8_t>> KeyValues;
+
+static const size_t TYPED_RECORD_LENGTH = 16;
+
+// Creates a database of 16 byte records keyed by their first length bytes, a
+// unique key of type, and inserts values, which are in Btrieve's order for
+// type, in reverse. Expects key traversal and every range search to follow
+// that order.
+static std::unique_ptr<BtrieveDriver> verifyKeyTypeOrder(
+    KeyDataType type, uint16_t length, const KeyValues &ordered) {
+  KeyDefinition keyDefinition(0, length, 0, type, UseExtendedDataType, false,
+                              0, 0, 0, "", std::vector<char>());
+  auto *database = new SqliteDatabase(SQLITE_OPEN_MEMORY);
+  std::unique_ptr<BtrieveDriver> driver(new BtrieveDriver(database));
+  database
+      ->create(_TEXT("unused.db"),
+               BtrieveDatabase({Key(&keyDefinition, 1)}, 512, 1,
+                               TYPED_RECORD_LENGTH, TYPED_RECORD_LENGTH, 0, 512,
+                               RecordType::Fixed, false, 0))
+      ->onRecordsComplete();
+
+  // ordered[i] is at position n - i
+  const unsigned int n = ordered.size();
+  for (unsigned int i = n; i-- > 0;) {
+    std::vector<uint8_t> record(TYPED_RECORD_LENGTH, 0);
+    std::copy(ordered[i].begin(), ordered[i].end(), record.begin());
+    EXPECT_EQ(driver->insertRecord(view(record)),
+              std::make_pair(BtrieveError::Success, n - i))
+        << "type " << type << " value " << i;
+  }
+
+  std::vector<unsigned int> expected;
+  for (unsigned int i = 0; i < n; ++i) {
+    expected.push_back(n - i);
+  }
+  verifyCompositeOrdering(*driver, 0, expected.data(), expected.size());
+
+  for (unsigned int i = 0; i < n; ++i) {
+    SCOPED_TRACE("type " + std::to_string(type) + " value " +
+                 std::to_string(i));
+    expectKeyOperation(*driver, ordered[i], OperationCode::QueryEqual, n - i);
+    expectKeyOperation(*driver, ordered[i], OperationCode::QueryGreater,
+                       i + 1 < n ? n - i - 1 : 0);
+    expectKeyOperation(*driver, ordered[i], OperationCode::QueryLess,
+                       i > 0 ? n - i + 1 : 0);
+  }
+  return driver;
+}
+
+// Expects key, a different encoding of an inserted value, to find the record
+// at position.
+static void expectSameKey(BtrieveDriver &driver,
+                          const std::vector<uint8_t> &key,
+                          unsigned int position) {
+  expectKeyOperation(driver, key, OperationCode::QueryEqual, position);
+}
+
+static std::vector<uint8_t> date(uint16_t year, uint8_t month, uint8_t day) {
+  return {day, month, static_cast<uint8_t>(year),
+          static_cast<uint8_t>(year >> 8)};
+}
+
+static std::vector<uint8_t> timeOfDay(uint8_t hours, uint8_t minutes,
+                                      uint8_t seconds, uint8_t hundredths) {
+  return {hundredths, seconds, minutes, hours};
+}
+
+// Packs digits, then a sign nibble, as DECIMAL BCD, left padded with zeros to
+// length bytes.
+static std::vector<uint8_t> packedDecimal(const char *digits, uint8_t sign,
+                                          size_t length) {
+  std::string nibbles(length * 2 - 1 - strlen(digits), '0');
+  nibbles += digits;
+  std::vector<uint8_t> bytes;
+  for (size_t i = 0; i < nibbles.size(); i += 2) {
+    const uint8_t high = nibbles[i] - '0';
+    const uint8_t low = i + 1 < nibbles.size() ? nibbles[i + 1] - '0' : sign;
+    bytes.push_back(high << 4 | low);
+  }
+  return bytes;
+}
+
+static std::vector<uint8_t> ascii(const char *value) {
+  return std::vector<uint8_t>(value, value + strlen(value));
+}
+
+static std::vector<uint8_t> littleEndian(uint64_t value, size_t length) {
+  std::vector<uint8_t> bytes;
+  for (size_t i = 0; i < length; ++i) {
+    bytes.push_back(static_cast<uint8_t>(value >> (i * 8)));
+  }
+  return bytes;
+}
+
+// value as a Microsoft Binary Format float of length 4 or 8 bytes: the
+// mantissa (with the sign in its top bit) then an exponent biased by 128,
+// where the mantissa is 0.1mmm in binary.
+static std::vector<uint8_t> bfloat(double value, size_t length) {
+  std::vector<uint8_t> bytes(length, 0);
+  if (value == 0) {
+    return bytes;
+  }
+
+  int exponent;
+  const double fraction = frexp(fabs(value), &exponent);  // [0.5, 1)
+  const unsigned int mantissaBits = (length - 1) * 8 - 1;
+  const uint64_t mantissa =
+      static_cast<uint64_t>(ldexp(fraction * 2 - 1, mantissaBits));
+  bytes = littleEndian(mantissa, length - 1);
+  if (value < 0) {
+    bytes[length - 2] |= 0x80;
+  }
+  bytes.push_back(static_cast<uint8_t>(exponent + 128));
+  return bytes;
+}
+
+// DATE and TIME compare by their most significant field, the last bytes.
+TEST_F(BtrieveDriverTest, DateAndTimeKeyOrder) {
+  verifyKeyTypeOrder(KeyDataType::Date, 4,
+                     {date(1999, 12, 31), date(2000, 1, 1), date(2000, 1, 2),
+                      date(2000, 2, 1), date(2001, 1, 1), date(2024, 7, 15)});
+  verifyKeyTypeOrder(KeyDataType::Time, 4,
+                     {timeOfDay(0, 0, 0, 99), timeOfDay(0, 0, 1, 0),
+                      timeOfDay(0, 1, 0, 0), timeOfDay(1, 0, 0, 0),
+                      timeOfDay(23, 59, 59, 99)});
+}
+
+TEST_F(BtrieveDriverTest, DecimalKeyOrder) {
+  for (auto type : {KeyDataType::Decimal, KeyDataType::Money}) {
+    auto driver = verifyKeyTypeOrder(
+        type, 3,
+        {packedDecimal("12345", 0xD, 3), packedDecimal("100", 0xD, 3),
+         packedDecimal("1", 0xD, 3), packedDecimal("0", 0xF, 3),
+         packedDecimal("1", 0xF, 3), packedDecimal("99", 0xF, 3),
+         packedDecimal("12345", 0xF, 3)});
+
+    // 0xC is positive too, and negative zero is zero
+    expectSameKey(*driver, packedDecimal("1", 0xC, 3), 3);
+    expectSameKey(*driver, packedDecimal("0", 0xD, 3), 4);
+  }
+}
+
+// 12 bytes holds 23 digits, too many for an INTEGER.
+TEST_F(BtrieveDriverTest, LongDecimalKeyOrder) {
+  auto driver = verifyKeyTypeOrder(
+      KeyDataType::Decimal, 12,
+      {packedDecimal("99999999999999999999999", 0xD, 12),
+       packedDecimal("10000000000000000000000", 0xD, 12),
+       packedDecimal("2", 0xD, 12), packedDecimal("1", 0xD, 12),
+       packedDecimal("0", 0xF, 12), packedDecimal("1", 0xF, 12),
+       packedDecimal("10000000000000000000000", 0xF, 12),
+       packedDecimal("99999999999999999999999", 0xF, 12)});
+
+  expectSameKey(*driver, packedDecimal("0", 0xD, 12), 4);
+}
+
+TEST_F(BtrieveDriverTest, NumericKeyOrder) {
+  // the last digit's overpunch: '}' and 'J' to 'R' negative, '{' and 'A' to
+  // 'I' or a plain digit positive
+  auto driver = verifyKeyTypeOrder(
+      KeyDataType::Numeric, 4,
+      {ascii("012L"), ascii("001}"), ascii("000J"), ascii("0000"),
+       ascii("0001"), ascii("0012"), ascii("123{"), ascii("9999")});
+
+  expectSameKey(*driver, ascii("000A"), 4);
+  expectSameKey(*driver, ascii("000}"), 5);
+  // leading spaces read as zeros
+  expectSameKey(*driver, ascii("  12"), 3);
+}
+
+TEST_F(BtrieveDriverTest, LongNumericKeyOrder) {
+  verifyKeyTypeOrder(KeyDataType::Numeric, 16,
+                     {ascii("999999999999999R"), ascii("000000000000001J"),
+                      ascii("0000000000000000"), ascii("0000000000000001"),
+                      ascii("999999999999999I")});
+}
+
+TEST_F(BtrieveDriverTest, NumericSAAndSTSKeyOrder) {
+  // 'p' to 'y' negative, 'P' to 'Y' or a plain digit positive
+  auto driver = verifyKeyTypeOrder(
+      KeyDataType::NumericSA, 3,
+      {ascii("01q"), ascii("00q"), ascii("000"), ascii("00Q"), ascii("011")});
+  expectSameKey(*driver, ascii("001"), 2);
+  expectSameKey(*driver, ascii("00p"), 3);
+
+  // a separate trailing sign
+  driver = verifyKeyTypeOrder(KeyDataType::NumericSTS, 4,
+                              {ascii("123-"), ascii("001-"), ascii("000+"),
+                               ascii("001+"), ascii("123+")});
+  expectSameKey(*driver, ascii("000-"), 3);
+}
+
+TEST_F(BtrieveDriverTest, BfloatKeyOrder) {
+  for (size_t length : {4, 8}) {
+    KeyValues ordered;
+    for (double value : {-1e6, -1000.5, -2.0, -1.0, -0.5, 0.0, 0.25, 1.0, 1.5,
+                         3.0, 1e6}) {
+      ordered.push_back(bfloat(value, length));
+    }
+    verifyKeyTypeOrder(KeyDataType::Bfloat, length, ordered);
+  }
+
+  // 1.0, then 1.0 plus the lowest of 55 mantissa bits, which a double can't
+  // hold
+  ASSERT_EQ(bfloat(1.0, 8),
+            std::vector<uint8_t>({0, 0, 0, 0, 0, 0, 0, 0x81}));
+  verifyKeyTypeOrder(KeyDataType::Bfloat, 8,
+                     {bfloat(1.0, 8), {1, 0, 0, 0, 0, 0, 0, 0x81}});
+}
+
+// 8 byte unsigned values from 2^63 up don't fit SQLite's signed INTEGER.
+TEST_F(BtrieveDriverTest, EightByteUnsignedKeyOrder) {
+  const KeyValues ordered = {
+      littleEndian(0, 8), littleEndian(1, 8),
+      littleEndian(0x7FFFFFFFFFFFFFFF, 8), littleEndian(0x8000000000000000, 8),
+      littleEndian(0xFFFFFFFFFFFFFFFF, 8)};
+  for (auto type : {KeyDataType::UnsignedBinary, KeyDataType::Unsigned,
+                    KeyDataType::OldBinary, KeyDataType::Timestamp}) {
+    verifyKeyTypeOrder(type, 8, ordered);
+  }
+}
+
+TEST_F(BtrieveDriverTest, CurrencyKeyOrder) {
+  verifyKeyTypeOrder(KeyDataType::Currency, 8,
+                     {littleEndian(0x8000000000000000, 8),
+                      littleEndian(-1, 8), littleEndian(0, 8),
+                      littleEndian(1, 8),
+                      littleEndian(0x7FFFFFFFFFFFFFFF, 8)});
 }

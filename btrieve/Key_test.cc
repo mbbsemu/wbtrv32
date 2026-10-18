@@ -56,6 +56,8 @@ TEST_P(ParameterizedFixture, IntegerTypeConversions) {
   EXPECT_EQ(actual, view.expected);
 }
 
+// 8 byte unsigned values have their top bit flipped, so they sort as unsigned
+// in SQLite's signed INTEGER.
 static std::vector<ParameterizedFixtureType> create() {
   return std::vector<ParameterizedFixtureType>{
       {DATA_NEGATIVE, 2, KeyDataType::Integer, static_cast<uint64_t>(-3343)},
@@ -75,15 +77,15 @@ static std::vector<ParameterizedFixtureType> create() {
       {DATA_NEGATIVE, 2, KeyDataType::Unsigned, 0xF2F1},
       {DATA_NEGATIVE, 4, KeyDataType::Unsigned, 0xF4F3F2F1},
       {DATA_NEGATIVE, 6, KeyDataType::Unsigned, 0xF6F5F4F3F2F1},
-      {DATA_NEGATIVE, 8, KeyDataType::Unsigned, 0xF8F7F6F5F4F3F2F1},
+      {DATA_NEGATIVE, 8, KeyDataType::Unsigned, 0x78F7F6F5F4F3F2F1},
       {DATA_NEGATIVE, 2, KeyDataType::UnsignedBinary, 0xF2F1},
       {DATA_NEGATIVE, 4, KeyDataType::UnsignedBinary, 0xF4F3F2F1},
       {DATA_NEGATIVE, 6, KeyDataType::UnsignedBinary, 0xF6F5F4F3F2F1},
-      {DATA_NEGATIVE, 8, KeyDataType::UnsignedBinary, 0xF8F7F6F5F4F3F2F1},
+      {DATA_NEGATIVE, 8, KeyDataType::UnsignedBinary, 0x78F7F6F5F4F3F2F1},
       {DATA_NEGATIVE, 2, KeyDataType::OldBinary, 0xF2F1},
       {DATA_NEGATIVE, 4, KeyDataType::OldBinary, 0xF4F3F2F1},
       {DATA_NEGATIVE, 6, KeyDataType::OldBinary, 0xF6F5F4F3F2F1},
-      {DATA_NEGATIVE, 8, KeyDataType::OldBinary, 0xF8F7F6F5F4F3F2F1},
+      {DATA_NEGATIVE, 8, KeyDataType::OldBinary, 0x78F7F6F5F4F3F2F1},
       {DATA_POSITIVE, 2, KeyDataType::Integer, 0x201},
       {DATA_POSITIVE, 4, KeyDataType::Integer, 0x4030201},
       {DATA_POSITIVE, 6, KeyDataType::Integer, 0x60504030201},
@@ -95,15 +97,15 @@ static std::vector<ParameterizedFixtureType> create() {
       {DATA_POSITIVE, 2, KeyDataType::UnsignedBinary, 0x201},
       {DATA_POSITIVE, 4, KeyDataType::UnsignedBinary, 0x4030201},
       {DATA_POSITIVE, 6, KeyDataType::UnsignedBinary, 0x60504030201},
-      {DATA_POSITIVE, 8, KeyDataType::UnsignedBinary, 0x807060504030201},
+      {DATA_POSITIVE, 8, KeyDataType::UnsignedBinary, 0x8807060504030201},
       {DATA_POSITIVE, 2, KeyDataType::Unsigned, 0x201},
       {DATA_POSITIVE, 4, KeyDataType::Unsigned, 0x4030201},
       {DATA_POSITIVE, 6, KeyDataType::Unsigned, 0x60504030201},
-      {DATA_POSITIVE, 8, KeyDataType::Unsigned, 0x807060504030201},
+      {DATA_POSITIVE, 8, KeyDataType::Unsigned, 0x8807060504030201},
       {DATA_POSITIVE, 2, KeyDataType::OldBinary, 0x201},
       {DATA_POSITIVE, 4, KeyDataType::OldBinary, 0x4030201},
       {DATA_POSITIVE, 6, KeyDataType::OldBinary, 0x60504030201},
-      {DATA_POSITIVE, 8, KeyDataType::OldBinary, 0x807060504030201}};
+      {DATA_POSITIVE, 8, KeyDataType::OldBinary, 0x8807060504030201}};
 }
 
 INSTANTIATE_TEST_CASE_P(Key, ParameterizedFixture,
@@ -881,6 +883,56 @@ TEST(Key, TruncatedCollatedLstringSearchKey) {
           << "attributes " << attributes << " length " << length;
     }
   }
+}
+
+// Types that convert to INTEGER when their values fit, else BLOB.
+TEST(Key, TypedColumnDefinitions) {
+  struct {
+    KeyDataType type;
+    uint16_t length;
+    const char *expected;
+  } cases[] = {
+      {KeyDataType::Date, 4, "INTEGER"},
+      {KeyDataType::Time, 4, "INTEGER"},
+      {KeyDataType::Decimal, 9, "INTEGER"},  // 17 digits
+      {KeyDataType::Decimal, 10, "BLOB"},    // 19 digits
+      {KeyDataType::Money, 9, "INTEGER"},
+      {KeyDataType::Numeric, 18, "INTEGER"},
+      {KeyDataType::Numeric, 19, "BLOB"},
+      {KeyDataType::NumericSA, 18, "INTEGER"},
+      {KeyDataType::NumericSTS, 19, "INTEGER"},  // 18 digits and a sign
+      {KeyDataType::NumericSTS, 20, "BLOB"},
+      {KeyDataType::Bfloat, 4, "INTEGER"},
+      {KeyDataType::Bfloat, 8, "INTEGER"},
+      {KeyDataType::Bfloat, 6, "BLOB"},
+      {KeyDataType::Currency, 8, "INTEGER"},
+      {KeyDataType::Timestamp, 8, "INTEGER"},
+      {KeyDataType::Logical, 2, "BLOB"},
+  };
+
+  for (auto &c : cases) {
+    KeyDefinition keyDefinition(0, c.length, 0, c.type, UseExtendedDataType,
+                                false, 0, 0, 0, "", std::vector<char>());
+    Key key(&keyDefinition, 1);
+    EXPECT_EQ(key.getSqliteColumnDefinitions()[0],
+              std::string("key_0 ") + c.expected + " NOT NULL UNIQUE")
+        << "type " << c.type << " length " << c.length;
+  }
+}
+
+// A search key cut short reads its missing bytes as zero, which for a DECIMAL
+// leaves a zero sign nibble, positive.
+TEST(Key, TruncatedDecimalSearchKey) {
+  KeyDefinition keyDefinition(0, 3, 0, KeyDataType::Decimal,
+                              UseExtendedDataType, false, 0, 0, 0, "",
+                              std::vector<char>());
+  Key key(&keyDefinition, 1);
+
+  uint8_t keyData[1] = {0x12};
+  EXPECT_EQ(key.searchKeyDataToSqliteObjects(
+                   std::basic_string_view<uint8_t>(keyData, sizeof(keyData)))[0]
+                .getIntegerValue(),
+            12000);
 }
 
 TEST(Key, FloatKeys) {
