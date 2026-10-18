@@ -18,7 +18,14 @@ bool FileExists(const wchar_t *file);
 // auto-dllexports every externally-visible function by default; the build
 // disables that (-fno-dll-export-fns) and exports BTRCALL explicitly here
 // instead, so the DLL's export table only contains the public Btrieve API.
+#if defined(__i386__) && !defined(_MSC_VER)
+// On 32-bit x86, __declspec(dllexport) would export the decorated stdcall
+// name (BTRCALL@28), and this toolchain can't consume wbtrv32.def (which is
+// how MSVC strips it). wbtrv32.cpp exports the undecorated name instead.
+#define WBTRV32_EXPORT
+#else
 #define WBTRV32_EXPORT __declspec(dllexport)
+#endif
 
 #else
 
