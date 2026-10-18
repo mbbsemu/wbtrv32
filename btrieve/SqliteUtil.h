@@ -33,6 +33,10 @@ std::string sqliteKeyComparison(const Key &key, const char *op);
 // e.g. "key_1_0 = @value0 AND key_1_1 = @value1".
 std::string sqliteKeyEquals(const Key &key);
 
+// A condition that the key has no true null, e.g. "key_1_0 = 0", one term
+// per null indicator segment.
+std::string sqliteKeyWithoutTrueNulls(const Key &key);
+
 // A WHERE clause, with a leading space, that leaves out records whose key is
 // null, since Btrieve doesn't index them. Empty for a key that can't be null.
 std::string sqliteKeyIndexedWhere(const Key &key);

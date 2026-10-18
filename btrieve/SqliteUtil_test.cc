@@ -83,4 +83,22 @@ TEST(SqliteUtil, MixedDirectionKeyLeadingDescending) {
             "AND key_1_1 <= @value1))");
 }
 
+TEST(SqliteUtil, KeyWithoutTrueNulls) {
+  KeyDefinition segments[4] = {
+      KeyDefinition(1, 1, 0, KeyDataType::NullIndicator,
+                    UseExtendedDataType | SegmentedKey, true, 1, 0, 0, "",
+                    std::vector<char>()),
+      KeyDefinition(1, 2, 1, KeyDataType::Integer,
+                    UseExtendedDataType | SegmentedKey, true, 1, 1, 0, "",
+                    std::vector<char>()),
+      KeyDefinition(1, 1, 3, KeyDataType::NullIndicator,
+                    UseExtendedDataType | SegmentedKey, true, 1, 2, 0, "",
+                    std::vector<char>()),
+      KeyDefinition(1, 2, 4, KeyDataType::Integer, UseExtendedDataType, false,
+                    1, 3, 0, "", std::vector<char>())};
+  Key key(segments, 4);
+
+  EXPECT_EQ(sqliteKeyWithoutTrueNulls(key), "key_1_0 = 0 AND key_1_2 = 0");
+}
+
 }  // namespace

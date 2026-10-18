@@ -1,7 +1,7 @@
 # Btrieve key compliance
 
 How wbtrv32's SQLite key handling compares with Actian's documented Btrieve key
-semantics, and the fixes still outstanding. Written after composite keys moved
+semantics, and the fixes made to match. Written after composite keys moved
 to one SQLite column per segment (PR #29, database version 4).
 
 ## Sources
@@ -55,17 +55,12 @@ test both bits: `(attributes & MultipleACS) == MultipleACS`.
 | A record whose key is null isn't put into the key's index | Its key columns are NULL, and First, Last and Equal skip them (`sqliteKeyIndexedWhere`), as do range comparisons since comparing with NULL is false. Get Direct, Insert or Update onto such a record leaves no logical position, so Get Next/Previous return 8. Stat doesn't count them as unique values. Only keys with a null flag store NULL; a single string key without one stores its empty string as a value |
 | DESC_KEY (0x40) is per segment, and Get Greater/Less and Next/Previous follow the key's order, so on a descending segment Greater means a lower value | Descending columns are indexed and ordered `DESC` (`sqliteKeyOrder`, `sqliteKeyIndexColumns`). `sqliteKeyComparison` flips the operator when every segment is descending, and compares a mixed key segment by segment, with a bound on the leading column so SQLite can still seek the index |
 | Each key type compares by value | `Key::segmentDataToSqliteObject` converts each type to a value SQLite orders correctly. DATE (day, month, year) and TIME (hundredths, seconds, minutes, hours) are little endian unsigned INTEGERs, whose high bytes are the most significant fields. DECIMAL and MONEY (packed BCD, sign nibble 0xD negative) and NUMERIC (EBCDIC overpunched sign), NUMERICSA (ASCII overpunch) and NUMERICSTS (trailing `+`/`-`) are signed INTEGERs of their digits up to 18 digits, else a BLOB of a sign byte then a byte per digit, inverted when negative; non-digits read as 0. BFLOAT is an INTEGER of its exponent then mantissa, negated when negative, which is exact where a double would round an 8 byte mantissa. CURRENCY is a signed INTEGER. 8 byte unsigned values (UNSIGNED BINARY, TIMESTAMP) flip their top bit to sort as unsigned in SQLite's signed INTEGER. LOGICAL stays raw bytes. The version 3 to 4 upgrade recomputes every key column, so no new version is needed |
+| True nulls: a null indicator segment (type 255, 1 byte) before a field makes it nullable. Zero is a value, any other byte a null; nulls sort after values, or first on a descending indicator, as duplicates, and Get Equal/Greater Or Equal on a null find the first, Less Or Equal the last. With 0x400 (DISTINCT) each non-zero byte is its own null. Nulls aren't equal to each other for uniqueness. The ACS flag is ignored | The indicator is an INTEGER column, 0, 1 or with DISTINCT the byte, and a null's following field reads as zero bytes (`Key::keyDataToSqliteObjects`). A unique key with an indicator gets a plain index plus a partial `UNIQUE` index over rows without nulls (`sqliteKeyWithoutTrueNulls`) |
 | A case insensitive key (0x400 without 0x20) sorts without regard to case; it has no effect with an ACS | String segments (STRING, LSTRING, ZSTRING, legacy ASCII) fold a to z to upper case during conversion, as an upper casing ACS would (`KeyDefinition::isCaseInsensitive`, `Key::applyCollation`). The docs don't say which case Btrieve folds to; it only matters for ``[ \ ] ^ _ ` `` between `Z` and `a`. The loader used to treat the flag as NUMBERED_ACS and threw "Can't load ACS" (`BtrieveDatabase_test.cc` `LoadsCaseInsensitiveKeyWithoutACS`) |
 
 ## Outstanding fixes
 
-These apply to single segment keys too, not only composite ones. None appear
-in the 11 local `.DAT` files (test assets, MBBSEmu, one module), which use
-only ZSTRING, INTEGER, FLOAT, UNSIGNED BINARY and AUTOINCREMENT, plus ACS.
-
-### 1. True nulls (null indicator segments) aren't supported
-
-Type 255 is a one byte null indicator segment before a nullable field. Nulls
-group together for sorting but aren't equal for uniqueness, so a unique key
-can hold several. Only files created through the SQL engine use these, so
-it's low priority for MBBS data.
+None. The fixes above weren't driven by data: none of the key features they
+cover appear in the 11 local `.DAT` files (test assets, MBBSEmu, one module),
+which use only ZSTRING, INTEGER, FLOAT, UNSIGNED BINARY and AUTOINCREMENT,
+plus ACS.

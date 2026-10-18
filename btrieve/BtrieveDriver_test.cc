@@ -3962,3 +3962,152 @@ TEST_F(BtrieveDriverTest, CurrencyKeyOrder) {
                       littleEndian(1, 8),
                       littleEndian(0x7FFFFFFFFFFFFFFF, 8)});
 }
+
+// A 16 byte record with a null indicator at 0, then a ZSTRING name at 1.
+static std::vector<uint8_t> createNullableNameRecord(uint8_t indicator,
+                                                     const char *name) {
+  std::vector<uint8_t> record(TYPED_RECORD_LENGTH, 0);
+  record[0] = indicator;
+  memcpy(record.data() + 1, name, strlen(name));
+  return record;
+}
+
+// Creates a database of createNullableNameRecord records keyed by
+// (indicator, name), with indicatorAttributes on the indicator.
+static std::unique_ptr<BtrieveDriver> createNullableNameDriver(
+    uint16_t keyAttributes, uint16_t indicatorAttributes,
+    const std::wstring &path = _TEXT("unused.db")) {
+  KeyDefinition segments[2] = {
+      KeyDefinition(0, 1, 0, KeyDataType::NullIndicator,
+                    UseExtendedDataType | SegmentedKey | keyAttributes |
+                        indicatorAttributes,
+                    true, 0, 0, 0, "", std::vector<char>()),
+      KeyDefinition(0, 8, 1, KeyDataType::Zstring,
+                    UseExtendedDataType | keyAttributes, false, 0, 1, 0, "",
+                    std::vector<char>())};
+
+  auto *database = new SqliteDatabase(
+      path == _TEXT("unused.db") ? SQLITE_OPEN_MEMORY : 0);
+  std::unique_ptr<BtrieveDriver> driver(new BtrieveDriver(database));
+  database
+      ->create(path.c_str(),
+               BtrieveDatabase({Key(segments, 2)}, 512, 1,
+                               TYPED_RECORD_LENGTH, TYPED_RECORD_LENGTH, 0, 512,
+                               RecordType::Fixed, false, 0))
+      ->onRecordsComplete();
+  return driver;
+}
+
+static void insertNullableNameRecords(BtrieveDriver &driver) {
+  unsigned int position = 1;
+  for (auto &record :
+       {createNullableNameRecord(0, "b"), createNullableNameRecord(1, "zz"),
+        createNullableNameRecord(0, "a"), createNullableNameRecord(5, "a"),
+        createNullableNameRecord(0, "")}) {
+    ASSERT_EQ(driver.insertRecord(view(record)),
+              std::make_pair(BtrieveError::Success, position++));
+  }
+}
+
+// True nulls sort after values on an ascending indicator, together as
+// duplicates whatever their field holds. A search for a null, with any
+// non-zero indicator, finds the group.
+TEST_F(BtrieveDriverTest, TrueNullsSortAfterValues) {
+  auto driver = createNullableNameDriver(Duplicates, 0);
+  insertNullableNameRecords(*driver);
+
+  // ("")5 ("a")3 ("b")1, then the nulls 2 and 4
+  static const unsigned int EXPECTED[] = {5, 3, 1, 2, 4};
+  verifyCompositeOrdering(*driver, 0, EXPECTED, std::size(EXPECTED));
+
+  auto null = createNullableNameRecord(9, "q");
+  expectKeyOperation(*driver, null, OperationCode::QueryEqual, 2);
+  expectKeyOperation(*driver, null, OperationCode::QueryGreaterOrEqual, 2);
+  expectKeyOperation(*driver, null, OperationCode::QueryLessOrEqual, 4);
+  expectKeyOperation(*driver, null, OperationCode::QueryGreater, 0);
+  expectKeyOperation(*driver, null, OperationCode::QueryLess, 1);
+
+  expectKeyOperation(*driver, createNullableNameRecord(0, "b"),
+                     OperationCode::QueryGreater, 2);
+  ASSERT_EQ(driver->performOperation(0, view(createNullableNameRecord(0, "c")),
+                                     OperationCode::QueryEqual),
+            BtrieveError::KeyValueNotFound);
+}
+
+// A descending indicator puts true nulls first.
+TEST_F(BtrieveDriverTest, DescendingNullIndicatorSortsTrueNullsFirst) {
+  auto driver = createNullableNameDriver(Duplicates, DescendingKeySegment);
+  insertNullableNameRecords(*driver);
+
+  static const unsigned int EXPECTED[] = {2, 4, 5, 3, 1};
+  verifyCompositeOrdering(*driver, 0, EXPECTED, std::size(EXPECTED));
+
+  auto null = createNullableNameRecord(1, "");
+  expectKeyOperation(*driver, null, OperationCode::QueryGreater, 5);
+  expectKeyOperation(*driver, null, OperationCode::QueryLess, 0);
+}
+
+// DISTINCT (0x400) keeps each non-zero indicator its own group of nulls.
+TEST_F(BtrieveDriverTest, DistinctNullIndicator) {
+  auto driver = createNullableNameDriver(Duplicates, CaseInsensitiveKey);
+  for (auto &record :
+       {createNullableNameRecord(18, "x"), createNullableNameRecord(0, "a"),
+        createNullableNameRecord(17, "y"), createNullableNameRecord(18, "z")}) {
+    ASSERT_EQ(driver->insertRecord(view(record)).first, BtrieveError::Success);
+  }
+
+  static const unsigned int EXPECTED[] = {2, 3, 1, 4};
+  verifyCompositeOrdering(*driver, 0, EXPECTED, std::size(EXPECTED));
+
+  expectKeyOperation(*driver, createNullableNameRecord(18, ""),
+                     OperationCode::QueryEqual, 1);
+  expectKeyOperation(*driver, createNullableNameRecord(17, ""),
+                     OperationCode::QueryEqual, 3);
+  ASSERT_EQ(driver->performOperation(0, view(createNullableNameRecord(19, "")),
+                                     OperationCode::QueryEqual),
+            BtrieveError::KeyValueNotFound);
+}
+
+// True nulls aren't equal to each other, so a unique key holds any number,
+// while values stay unique.
+TEST_F(BtrieveDriverTest, UniqueKeyHoldsTrueNulls) {
+  std::string dbPath = tempPath->getTempPath() + "/TRUENULL.DB";
+  {
+    auto driver = createNullableNameDriver(Modifiable, 0,
+                                           toWideString(dbPath.c_str()));
+    ASSERT_EQ(driver->insertRecord(view(createNullableNameRecord(1, "a"))),
+              std::make_pair(BtrieveError::Success, 1u));
+    ASSERT_EQ(driver->insertRecord(view(createNullableNameRecord(1, "a"))),
+              std::make_pair(BtrieveError::Success, 2u));
+    ASSERT_EQ(driver->insertRecord(view(createNullableNameRecord(0, "a"))),
+              std::make_pair(BtrieveError::Success, 3u));
+    ASSERT_EQ(driver->insertRecord(view(createNullableNameRecord(0, "a"))),
+              std::make_pair(BtrieveError::DuplicateKeyValue, 0u));
+    ASSERT_EQ(driver->updateRecord(1, view(createNullableNameRecord(0, "a"))),
+              BtrieveError::DuplicateKeyValue);
+    ASSERT_EQ(driver->updateRecord(1, view(createNullableNameRecord(0, "b"))),
+              BtrieveError::Success);
+
+    // each null counts as its own value
+    ASSERT_EQ(driver->getUniqueKeyCount(driver->getKeys()[0]), 3u);
+  }
+
+  sqlite3 *db;
+  ASSERT_EQ(sqlite3_open_v2(dbPath.c_str(), &db, SQLITE_OPEN_READONLY, nullptr),
+            SQLITE_OK);
+  std::vector<std::string> indices;
+  ASSERT_EQ(sqlite_exec(db,
+                        "SELECT sql FROM sqlite_master WHERE type = 'index' "
+                        "AND tbl_name = 'data_t' ORDER BY name",
+                        [&](int numResults, char **data, char **columns) {
+                          indices.push_back(data[0]);
+                        }),
+            SQLITE_OK);
+  sqlite3_close(db);
+
+  EXPECT_EQ(indices,
+            std::vector<std::string>(
+                {"CREATE INDEX key_0_index on data_t(key_0_0, key_0_1)",
+                 "CREATE UNIQUE INDEX key_0_unique on data_t(key_0_0, "
+                 "key_0_1) WHERE key_0_0 = 0"}));
+}

@@ -54,7 +54,8 @@ static const char *getSqliteType(const KeyDefinition &segment) {
   auto type = segment.getDataType();
   const size_t digits = getDecimalDigits(segment);
 
-  if ((isBinaryInteger(type) && segment.getLength() <= 8) ||
+  if (type == KeyDataType::NullIndicator ||
+      (isBinaryInteger(type) && segment.getLength() <= 8) ||
       isBfloat(segment) || (digits > 0 && digits <= MAX_INTEGER_DIGITS)) {
     return "INTEGER";
   } else if (type == KeyDataType::Lstring || type == KeyDataType::Zstring ||
@@ -383,6 +384,15 @@ static BindableValue segmentDataToSqliteObject(
   }
 
   switch (segment.getDataType()) {
+    case KeyDataType::NullIndicator: {
+      // every true null is the same unless the segment is DISTINCT, and they
+      // sort after values, or first when the segment is descending
+      const uint8_t indicator = byteAt(0);
+      if (indicator == 0 || segment.isDistinctNullIndicator()) {
+        return BindableValue(static_cast<int64_t>(indicator));
+      }
+      return BindableValue(static_cast<int64_t>(1));
+    }
     case KeyDataType::AutoInc:
     case KeyDataType::Integer:
     case KeyDataType::Currency:
@@ -512,6 +522,19 @@ std::vector<BindableValue> Key::keyDataToSqliteObjects(
   if (allowNull && isNullKeyData(paddedKeyDataView)) {
     values.resize(segments.size());
     return values;
+  }
+
+  // A true null's field reads as zero bytes, so true nulls sort together as
+  // duplicates whatever the field holds, and a search for one finds them.
+  size_t indicatorOffset = 0;
+  for (size_t i = 0; i + 1 < segments.size(); ++i) {
+    if (segments[i].isNullIndicator() &&
+        paddedKeyData[indicatorOffset] != 0) {
+      auto field = paddedKeyData.begin() + indicatorOffset +
+                   segments[i].getLength();
+      std::fill(field, field + segments[i + 1].getLength(), 0);
+    }
+    indicatorOffset += segments[i].getLength();
   }
 
   std::vector<uint8_t> modifiedKeyData = applyCollation(paddedKeyDataView);

@@ -52,6 +52,13 @@ class Key {
     return getPrimarySegment().isNullable();
   }
 
+  // Whether the key has a null indicator segment, so it can hold true nulls.
+  bool hasNullIndicator() const {
+    return std::any_of(
+        segments.begin(), segments.end(),
+        [](const KeyDefinition &segment) { return segment.isNullIndicator(); });
+  }
+
   bool requiresACS() const {
     auto requiresACS = [&](const KeyDefinition &key) {
       return key.requiresACS();

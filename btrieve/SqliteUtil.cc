@@ -123,6 +123,17 @@ std::string sqliteKeyEquals(const Key &key) {
   return join(columns, " AND ");
 }
 
+std::string sqliteKeyWithoutTrueNulls(const Key &key) {
+  std::vector<std::string> columns = key.getSqliteColumnNames();
+  std::vector<std::string> terms;
+  for (size_t i = 0; i < columns.size(); ++i) {
+    if (key.getSegments()[i].isNullIndicator()) {
+      terms.push_back(columns[i] + " = 0");
+    }
+  }
+  return join(terms, " AND ");
+}
+
 std::string sqliteKeyIndexedWhere(const Key &key) {
   if (!key.hasNullAttribute()) {
     return "";

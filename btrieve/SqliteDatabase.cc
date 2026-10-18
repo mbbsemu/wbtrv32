@@ -527,12 +527,28 @@ void SqliteDatabase::createSqliteDataTable(const char *table) {
 
 void SqliteDatabase::createSqliteDataIndices() {
   for (auto &key : keys) {
-    const char *possiblyUnique = key.isUnique() ? "UNIQUE" : "";
-    SqlitePreparedStatement command(
-        this->database, "CREATE %s INDEX %s_index on data_t(%s)",
-        possiblyUnique, key.getSqliteKeyName().c_str(),
-        sqliteKeyIndexColumns(key).c_str());
-    command.execute();
+    // True nulls aren't equal to each other, so a unique key with a null
+    // indicator is only unique among keys without a null, enforced by a
+    // separate partial index.
+    const bool uniqueWithoutNulls = key.isUnique() && key.hasNullIndicator();
+    const char *possiblyUnique =
+        key.isUnique() && !uniqueWithoutNulls ? "UNIQUE" : "";
+    {
+      SqlitePreparedStatement command(
+          this->database, "CREATE %s INDEX %s_index on data_t(%s)",
+          possiblyUnique, key.getSqliteKeyName().c_str(),
+          sqliteKeyIndexColumns(key).c_str());
+      command.execute();
+    }
+
+    if (uniqueWithoutNulls) {
+      SqlitePreparedStatement command(
+          this->database,
+          "CREATE UNIQUE INDEX %s_unique on data_t(%s) WHERE %s",
+          key.getSqliteKeyName().c_str(), sqliteKeyColumns(key).c_str(),
+          sqliteKeyWithoutTrueNulls(key).c_str());
+      command.execute();
+    }
   }
 }
 

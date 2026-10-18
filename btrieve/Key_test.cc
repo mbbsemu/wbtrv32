@@ -935,6 +935,72 @@ TEST(Key, TruncatedDecimalSearchKey) {
             12000);
 }
 
+// A null indicator segment is 0 for a value and 1 for any true null, or the
+// byte itself when DISTINCT, and a true null's field reads as zero bytes.
+TEST(Key, NullIndicatorSegmentValues) {
+  for (bool distinct : {false, true}) {
+    KeyDefinition keyDefinitions[2] = {
+        KeyDefinition(0, 1, 0, KeyDataType::NullIndicator,
+                      UseExtendedDataType | SegmentedKey |
+                          (distinct ? CaseInsensitiveKey : 0),
+                      true, 0, 0, 0, "", std::vector<char>()),
+        KeyDefinition(0, 4, 1, KeyDataType::Zstring, UseExtendedDataType,
+                      false, 0, 1, 0, "", std::vector<char>())};
+    Key key(keyDefinitions, 2);
+    ASSERT_TRUE(key.hasNullIndicator());
+    EXPECT_EQ(keyDefinitions[0].isDistinctNullIndicator(), distinct);
+
+    for (uint8_t indicator : {0, 1, 17, 0xFF}) {
+      uint8_t keyData[5] = {indicator, 'a', 'b', 'c', 0};
+      auto actual = key.keyDataToSqliteObjects(
+          std::basic_string_view<uint8_t>(keyData, sizeof(keyData)));
+      ASSERT_EQ(actual.size(), 2u);
+      EXPECT_EQ(actual[0].getIntegerValue(),
+                indicator == 0 || distinct ? indicator : 1)
+          << "indicator " << static_cast<int>(indicator);
+      EXPECT_EQ(actual[1].getStringValue(), indicator == 0 ? "abc" : "")
+          << "indicator " << static_cast<int>(indicator);
+    }
+  }
+}
+
+TEST(Key, NullIndicatorMasksIntegerField) {
+  KeyDefinition keyDefinitions[3] = {
+      KeyDefinition(0, 2, 0, KeyDataType::Integer,
+                    UseExtendedDataType | SegmentedKey, true, 0, 0, 0, "",
+                    std::vector<char>()),
+      KeyDefinition(0, 1, 2, KeyDataType::NullIndicator,
+                    UseExtendedDataType | SegmentedKey, true, 0, 1, 0, "",
+                    std::vector<char>()),
+      KeyDefinition(0, 2, 3, KeyDataType::Integer, UseExtendedDataType, false,
+                    0, 2, 0, "", std::vector<char>())};
+  Key key(keyDefinitions, 3);
+
+  // only the field after the indicator is masked
+  uint8_t keyData[5] = {0xFF, 0xFF, 1, 0xFE, 0xFF};
+  auto actual = key.keyDataToSqliteObjects(
+      std::basic_string_view<uint8_t>(keyData, sizeof(keyData)));
+  ASSERT_EQ(actual.size(), 3u);
+  EXPECT_EQ(actual[0].getIntegerValue(), -1);
+  EXPECT_EQ(actual[1].getIntegerValue(), 1);
+  EXPECT_EQ(actual[2].getIntegerValue(), 0);
+  EXPECT_EQ(key.getSqliteColumnDefinitions()[1], "key_0_1 INTEGER NOT NULL");
+}
+
+TEST(Key, NullIndicatorSegmentDefinition) {
+  EXPECT_THROW(KeyDefinition(0, 2, 0, KeyDataType::NullIndicator,
+                             UseExtendedDataType | SegmentedKey, true, 0, 0,
+                             0, "", std::vector<char>()),
+               BtrieveException);
+
+  // the ACS flag is ignored, so no ACS is needed
+  KeyDefinition keyDefinition(
+      0, 1, 0, KeyDataType::NullIndicator,
+      UseExtendedDataType | SegmentedKey | NumberedACS, true, 0, 0, 0, "",
+      std::vector<char>());
+  EXPECT_FALSE(keyDefinition.requiresACS());
+}
+
 TEST(Key, FloatKeys) {
   KeyDefinition keyDefinition(0, sizeof(float), 0, KeyDataType::Float,
                               UseExtendedDataType, false, 0, 0, 0, "",
