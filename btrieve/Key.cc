@@ -250,9 +250,7 @@ BindableValue Key::singleKeyDataToSqliteObject(
   // Only a key declared nullable can be null. Otherwise an empty string is an
   // ordinary value: Btrieve indexes it, and range queries must find it (SQL
   // comparisons never match NULL).
-  const bool declaredNullable = (getPrimarySegment().getAttributes() &
-                                 (NullAllSegments | NullAnySegment)) != 0;
-  if (allowNull && declaredNullable &&
+  if (allowNull && hasNullAttribute() &&
       (isAllSameByteValue(
            keyData, getPrimarySegment().getNullValue()) ||  // legacy null check
        (getPrimarySegment().getDataType() ==

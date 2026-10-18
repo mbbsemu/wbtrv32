@@ -52,6 +52,7 @@ test both bits: `(attributes & MultipleACS) == MultipleACS`.
 | LSTRING ignores bytes past its length, ZSTRING bytes after the first zero | Both convert to TEXT of the real length |
 | Partial key search on a nullable key: low trailing segments may match the null value | Search keys are never converted to NULL (`Key::searchKeyDataToSqliteObjects`), only stored keys are |
 | A non-modifiable key can't change, including to or from null | The trigger compares columns with `IS NOT`, since `!=` is never true against NULL (the version 3 to 4 upgrade recreates it) |
+| A record whose key is null isn't put into the key's index | Its key columns are NULL, and First, Last and Equal skip them (`sqliteKeyIndexedWhere`), as do range comparisons since comparing with NULL is false. Get Direct, Insert or Update onto such a record leaves no logical position, so Get Next/Previous return 8. Stat doesn't count them as unique values. Only keys with a null flag store NULL; a single string key without one stores its empty string as a value |
 | Case insensitive key without an ACS (0x400 alone) loads | Fixed: the loader used to treat it as NUMBERED_ACS and threw "Can't load ACS" (`BtrieveDatabase_test.cc` `LoadsCaseInsensitiveKeyWithoutACS`) |
 
 ## Outstanding fixes
@@ -86,25 +87,7 @@ next lower value, and Get Next/Previous run in reverse.
   `a > ?1 OR (a = ?1 AND b < ?2)`.
 - `SqliteQuery::changeDirection` needs the same treatment.
 
-### 3. Null keys stay in the index
-
-Btrieve doesn't index a record whose key is null: "the key value is not put
-into the index". We store the key columns as NULL instead, so those records
-still appear in Get First/Last and Next/Previous on that key, sorted first.
-Range comparisons already exclude them, since comparing with NULL is false.
-
-This also breaks changing direction on a null key: after Get Last and Get
-Previous reach a null key record, Get Next binds the NULL key into
-`SqliteQuery::changeDirection`'s `>=` and returns end of file.
-
-Add `WHERE <first key column> IS NOT NULL` to key queries for nullable keys
-(First, Last, and the queries in `SqliteQuery::changeDirection`). Check how
-`logicalCurrencySeek` should behave when the current record's key is null.
-Note that single segment string keys are also treated as nullable without any
-null flag (`KeyDefinition::isNullable`), so decide whether that legacy
-behaviour stays.
-
-### 4. Types stored as raw bytes sort incorrectly
+### 3. Types stored as raw bytes sort incorrectly
 
 `segmentDataToSqliteObject` in `Key.cc` falls through to a BLOB of the raw
 bytes for these, which `memcmp` misorders:
@@ -124,7 +107,7 @@ Changing how an existing type is stored needs a database version bump and an
 upgrade that recomputes the key columns. `upgradeDatabaseFrom3To4` already
 rebuilds `data_t` from the stored records and can be generalised.
 
-### 5. True nulls (null indicator segments) aren't supported
+### 4. True nulls (null indicator segments) aren't supported
 
 Type 255 is a one byte null indicator segment before a nullable field. Nulls
 group together for sorting but aren't equal for uniqueness, so a unique key

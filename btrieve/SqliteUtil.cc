@@ -49,16 +49,20 @@ std::string sqliteKeyComparison(const Key &key, const char *op) {
          join(parameters, ", ") + ")";
 }
 
-std::string sqliteKeyEquals(const Key &key,
-                            const std::vector<BindableValue> &values) {
+std::string sqliteKeyEquals(const Key &key) {
   std::vector<std::string> columns = key.getSqliteColumnNames();
   for (size_t i = 0; i < columns.size(); ++i) {
-    if (values[i].isNull()) {
-      columns[i] += " IS NULL";
-    } else {
-      columns[i] += " = @value" + std::to_string(i);
-    }
+    columns[i] += " = @value" + std::to_string(i);
   }
   return join(columns, " AND ");
+}
+
+std::string sqliteKeyIndexedWhere(const Key &key) {
+  if (!key.hasNullAttribute()) {
+    return "";
+  }
+
+  // a null key is NULL in every column
+  return " WHERE " + key.getSqliteColumnNames()[0] + " IS NOT NULL";
 }
 }  // namespace btrieve

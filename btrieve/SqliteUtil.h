@@ -19,10 +19,12 @@ std::string sqliteKeyColumns(const Key &key, const char *suffix = "");
 // @value1)", which orders segment by segment and can seek the key's index.
 std::string sqliteKeyComparison(const Key &key, const char *op);
 
-// Matches each of the key's columns against values, e.g. "key_1_0 = @value0
-// AND key_1_1 = @value1". Null values are matched with IS NULL and aren't
-// parameters, so bind only the non-null values, in order, starting at 1.
-std::string sqliteKeyEquals(const Key &key,
-                            const std::vector<BindableValue> &values);
+// Matches each of the key's columns against parameters @value0..@valueN-1,
+// e.g. "key_1_0 = @value0 AND key_1_1 = @value1".
+std::string sqliteKeyEquals(const Key &key);
+
+// A WHERE clause, with a leading space, that leaves out records whose key is
+// null, since Btrieve doesn't index them. Empty for a key that can't be null.
+std::string sqliteKeyIndexedWhere(const Key &key);
 }  // namespace btrieve
 #endif

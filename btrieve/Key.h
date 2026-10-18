@@ -35,12 +35,19 @@ class Key {
 
   bool isUnique() const { return getPrimarySegment().isUnique(); }
 
+  // Whether the key opts in to null values through the null attributes. Only
+  // such a key stores a null key, as NULL columns, and Btrieve leaves records
+  // with a null key out of the index.
+  bool hasNullAttribute() const {
+    return getPrimarySegment().getAttributes() &
+           (NullAllSegments | NullAnySegment);
+  }
+
   // Composite keys are only null when they opt in through the null attributes,
   // since a composite with e.g. an empty string segment is still a real key.
   bool isNullable() const {
     if (isComposite()) {
-      return getPrimarySegment().getAttributes() &
-             (NullAllSegments | NullAnySegment);
+      return hasNullAttribute();
     }
     return getPrimarySegment().isNullable();
   }

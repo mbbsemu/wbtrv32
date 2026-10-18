@@ -746,7 +746,8 @@ unsigned int SqliteDatabase::getRecordCount() const {
 }
 
 unsigned int SqliteDatabase::getUniqueKeyCount(const Key &key) const {
-  if (key.isUnique()) {
+  // null keys aren't indexed, so they aren't counted
+  if (key.isUnique() && !key.hasNullAttribute()) {
     return getRecordCount();
   }
 
@@ -757,7 +758,7 @@ unsigned int SqliteDatabase::getUniqueKeyCount(const Key &key) const {
     sql << separator << column;
     separator = ", ";
   }
-  sql << " FROM data_t)";
+  sql << " FROM data_t" << sqliteKeyIndexedWhere(key) << ")";
 
   const SqlitePreparedStatement &command =
       getPreparedStatement(sql.str().c_str());
@@ -1069,19 +1070,18 @@ BtrieveError SqliteDatabase::nextReader(Query *query,
 
 BtrieveError SqliteDatabase::getByKeyEqual(Query *query) {
   const Key &key = *query->getKey();
-  auto values = key.keyDataToSqliteObjects(query->getKeyData());
+  // a search key equal to the null value finds nothing, since null keys
+  // aren't indexed and compare as NULL
+  auto values = key.searchKeyDataToSqliteObjects(query->getKeyData());
 
   std::stringstream sql;
   sql << "SELECT id, " << sqliteKeyColumns(key) << ", data FROM data_t WHERE "
-      << sqliteKeyEquals(key, values) << " ORDER BY "
-      << sqliteKeyColumns(key, " ASC") << ", id ASC";
+      << sqliteKeyEquals(key) << " ORDER BY " << sqliteKeyColumns(key, " ASC")
+      << ", id ASC";
 
   SqlitePreparedStatement &command = getPreparedStatement(sql.str().c_str());
-  unsigned int parameterNumber = 1;
-  for (auto &value : values) {
-    if (!value.isNull()) {
-      command.bindParameter(parameterNumber++, value);
-    }
+  for (unsigned int i = 0; i < values.size(); ++i) {
+    command.bindParameter(i + 1, values[i]);
   }
 
   static_cast<SqliteQuery *>(query)->setReader(command.executeReader());
@@ -1101,8 +1101,9 @@ BtrieveError SqliteDatabase::getByKeyFirst(Query *query) {
   std::stringstream sql;
 
   sql << "SELECT id, " << sqliteKeyColumns(*query->getKey())
-      << ", data FROM data_t ORDER BY "
-      << sqliteKeyColumns(*query->getKey(), " ASC") << ", id ASC";
+      << ", data FROM data_t" << sqliteKeyIndexedWhere(*query->getKey())
+      << " ORDER BY " << sqliteKeyColumns(*query->getKey(), " ASC")
+      << ", id ASC";
   SqlitePreparedStatement &command = getPreparedStatement(sql.str().c_str());
 
   static_cast<SqliteQuery *>(query)->setReader(command.executeReader());
@@ -1114,8 +1115,9 @@ BtrieveError SqliteDatabase::getByKeyLast(Query *query) {
   std::stringstream sql;
 
   sql << "SELECT id, " << sqliteKeyColumns(*query->getKey())
-      << ", data FROM data_t ORDER BY "
-      << sqliteKeyColumns(*query->getKey(), " DESC") << ", id DESC";
+      << ", data FROM data_t" << sqliteKeyIndexedWhere(*query->getKey())
+      << " ORDER BY " << sqliteKeyColumns(*query->getKey(), " DESC")
+      << ", id DESC";
   SqlitePreparedStatement &command = getPreparedStatement(sql.str().c_str());
 
   static_cast<SqliteQuery *>(query)->setReader(command.executeReader());
@@ -1174,13 +1176,17 @@ std::unique_ptr<Query> SqliteDatabase::logicalCurrencySeek(
                                       record.second.getData().size()));
   auto keyView =
       std::basic_string_view<uint8_t>(keyBytes.data(), keyBytes.size());
-
-  auto ret = newQuery(position, &keys.at(keyNumber), keyView);
-
-  static_cast<SqliteQuery *>(ret.get())->setLastKey(
-      keys.at(keyNumber).keyDataToSqliteObjects(keyView));
+  auto values = keys.at(keyNumber).keyDataToSqliteObjects(keyView);
 
   error = BtrieveError::Success;
+  // a record with a null key isn't in the key's index, so there's no logical
+  // position to continue from: Get Next/Previous fail with InvalidPositioning
+  if (values[0].isNull()) {
+    return nullptr;
+  }
+
+  auto ret = newQuery(position, &keys.at(keyNumber), keyView);
+  static_cast<SqliteQuery *>(ret.get())->setLastKey(std::move(values));
   return ret;
 }
 }  // namespace btrieve

@@ -3132,6 +3132,9 @@ TEST_F(BtrieveDriverTest, UniqueNullableCompositeKeyAllowsMultipleNulls) {
             std::make_pair(BtrieveError::Success, 3u));
   ASSERT_EQ(driver->insertRecord(view(createIntStringRecord(3, "a"))),
             std::make_pair(BtrieveError::DuplicateKeyValue, 0u));
+
+  // only the indexed key counts
+  ASSERT_EQ(driver->getUniqueKeyCount(driver->getKeys()[0]), 1u);
 }
 
 // A null key is stored as NULL columns, which != never compares unequal to.
@@ -3150,4 +3153,119 @@ TEST_F(BtrieveDriverTest, NonModifiableNullableKeyCantChangeToOrFromNull) {
   // updating a null key to null is no change
   ASSERT_EQ(driver->updateRecord(1, view(createIntStringRecord(0, ""))),
             BtrieveError::Success);
+}
+
+// Btrieve leaves a record whose key is null out of the key's index, so key
+// traversal never reaches it and Get Equal can't find it.
+TEST_F(BtrieveDriverTest, NullAllSegmentsKeysAreNotIndexed) {
+  auto driver = createIntStringDriver(Duplicates | NullAllSegments);
+  for (auto &record : {std::make_pair(0, ""), std::make_pair(-3, "a"),
+                       std::make_pair(0, "a"), std::make_pair(4, "b"),
+                       std::make_pair(0, "")}) {
+    ASSERT_EQ(driver->insertRecord(view(
+                  createIntStringRecord(record.first, record.second))).first,
+              BtrieveError::Success);
+  }
+
+  // positions 1 and 5 are null, (0, "a") isn't since only one segment is
+  static const unsigned int EXPECTED[] = {2, 3, 4};
+  verifyCompositeOrdering(*driver, 0, EXPECTED, std::size(EXPECTED));
+
+  ASSERT_EQ(driver->performOperation(0, view(createIntStringRecord(0, "")),
+                                     OperationCode::QueryEqual),
+            BtrieveError::KeyValueNotFound);
+
+  // records are still there by position
+  ASSERT_EQ(driver->getRecordCount(), 5u);
+  ASSERT_EQ(driver->getUniqueKeyCount(driver->getKeys()[0]), 3u);
+}
+
+TEST_F(BtrieveDriverTest, NullAnySegmentKeysAreNotIndexed) {
+  auto driver = createIntStringDriver(Duplicates | NullAnySegment);
+  for (auto &record : {std::make_pair(0, "zzz"), std::make_pair(5, ""),
+                       std::make_pair(-1, "a"), std::make_pair(5, "a")}) {
+    ASSERT_EQ(driver->insertRecord(view(
+                  createIntStringRecord(record.first, record.second))).first,
+              BtrieveError::Success);
+  }
+
+  // (0, "zzz") and (5, "") each have a null segment
+  static const unsigned int EXPECTED[] = {3, 4};
+  verifyCompositeOrdering(*driver, 0, EXPECTED, std::size(EXPECTED));
+
+  ASSERT_EQ(driver->performOperation(0, view(createIntStringRecord(0, "zzz")),
+                                     OperationCode::QueryEqual),
+            BtrieveError::KeyValueNotFound);
+  ASSERT_EQ(driver->getUniqueKeyCount(driver->getKeys()[0]), 2u);
+}
+
+// Reversing direction at the first or last indexed key mustn't pass through
+// the null keys, which used to sort first and stop Get Next from continuing.
+TEST_F(BtrieveDriverTest, NullKeysDontInterruptChangingDirection) {
+  auto driver = createIntStringDriver(Duplicates | NullAllSegments);
+  for (auto &record : {std::make_pair(0, ""), std::make_pair(-3, "a"),
+                       std::make_pair(4, "b")}) {
+    ASSERT_EQ(driver->insertRecord(view(
+                  createIntStringRecord(record.first, record.second))).first,
+              BtrieveError::Success);
+  }
+
+  std::basic_string_view<uint8_t> unused;
+  ASSERT_EQ(driver->performOperation(0, unused, OperationCode::QueryLast),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 3u);
+  ASSERT_EQ(driver->performOperation(0, unused, OperationCode::QueryPrevious),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 2u);
+  ASSERT_EQ(driver->performOperation(0, unused, OperationCode::QueryPrevious),
+            BtrieveError::EndOfFile);
+
+  ASSERT_EQ(driver->performOperation(0, unused, OperationCode::QueryFirst),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 2u);
+  ASSERT_EQ(driver->performOperation(0, unused, OperationCode::QueryPrevious),
+            BtrieveError::EndOfFile);
+
+  ASSERT_EQ(driver->performOperation(0, unused, OperationCode::QueryFirst),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->performOperation(0, unused, OperationCode::QueryNext),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 3u);
+  ASSERT_EQ(driver->performOperation(0, unused, OperationCode::QueryPrevious),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 2u);
+  ASSERT_EQ(driver->performOperation(0, unused, OperationCode::QueryNext),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 3u);
+}
+
+// Get Direct, Insert or Update onto a record whose key is null establishes no
+// logical position on that key, since the record isn't in its index.
+TEST_F(BtrieveDriverTest, LogicalCurrencySeekOntoNullKey) {
+  auto driver = createIntStringDriver(Duplicates | NullAllSegments);
+  for (auto &record : {std::make_pair(-3, "a"), std::make_pair(0, ""),
+                       std::make_pair(4, "b")}) {
+    ASSERT_EQ(driver->insertRecord(view(
+                  createIntStringRecord(record.first, record.second))).first,
+              BtrieveError::Success);
+  }
+
+  std::basic_string_view<uint8_t> unused;
+  for (auto operation :
+       {OperationCode::QueryNext, OperationCode::QueryPrevious}) {
+    ASSERT_EQ(driver->performOperation(0, unused, OperationCode::QueryFirst),
+              BtrieveError::Success);
+
+    ASSERT_EQ(driver->logicalCurrencySeek(0, 2), BtrieveError::Success);
+    ASSERT_EQ(driver->performOperation(0, unused, operation),
+              BtrieveError::InvalidPositioning);
+  }
+
+  ASSERT_EQ(driver->logicalCurrencySeek(0, 3), BtrieveError::Success);
+  ASSERT_EQ(driver->performOperation(0, unused, OperationCode::QueryPrevious),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 1u);
+  ASSERT_EQ(driver->performOperation(0, unused, OperationCode::QueryNext),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 3u);
 }
