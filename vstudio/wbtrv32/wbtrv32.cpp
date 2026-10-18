@@ -963,6 +963,12 @@ static BtrieveError handle(BtrieveCommand &command) {
 }
 // clang-format on
 
+#if defined(WIN32) && defined(__i386__) && !defined(_MSC_VER)
+// Export the 32-bit stdcall symbol _BTRCALL@28 under its undecorated name,
+// matching wbtrv32.def in the MSVC build; see WBTRV32_EXPORT in framework.h.
+__asm__(".section .drectve\n.ascii \" -export:BTRCALL=BTRCALL@28\"\n.text");
+#endif
+
 extern "C" WBTRV32_EXPORT int __stdcall BTRCALL(WORD wOperation,
                                                 LPVOID lpPositionBlock,
                                                 LPVOID lpDataBuffer,
