@@ -687,6 +687,90 @@ createACSReplacementMultipleKey() {
 INSTANTIATE_TEST_CASE_P(Key, ParameterizedACSReplacementMultipleKeyFixture,
                         ::testing::ValuesIn(createACSReplacementMultipleKey()));
 
+// An LSTRING segment after an INTEGER one: its first byte is the length,
+// which is clamped to the segment, and the bytes past it aren't part of the
+// key.
+TEST(Key, CompositeLstringSegmentValues) {
+  KeyDefinition keyDefinitions[2] = {
+      KeyDefinition(0, 2, 0, KeyDataType::Integer, UseExtendedDataType, true,
+                    0, 0, 0, "", std::vector<char>()),
+      KeyDefinition(0, 8, 2, KeyDataType::Lstring, UseExtendedDataType, false,
+                    0, 1, 0, "", std::vector<char>())};
+  Key key(keyDefinitions, 2);
+
+  struct {
+    uint8_t length;
+    const char *expected;
+  } cases[] = {{3, "abc"}, {0, ""}, {7, "abcdefg"}, {200, "abcdefg"}};
+
+  for (auto &c : cases) {
+    uint8_t keyData[10] = {0xFF, 0xFF, c.length, 'a', 'b', 'c',
+                           'd',  'e',  'f',      'g'};
+    auto actual = key.keyDataToSqliteObjects(
+        std::basic_string_view<uint8_t>(keyData, sizeof(keyData)));
+    ASSERT_EQ(actual.size(), 2u);
+    EXPECT_EQ(actual[0].getIntegerValue(), -1);
+    EXPECT_EQ(actual[1].getStringValue(), c.expected)
+        << "length " << static_cast<int>(c.length);
+  }
+}
+
+// The ACS maps only the segments that use it. An INTEGER segment's bytes are
+// left alone, so 'a' 'a' stays 0x6161 rather than becoming 'A' 'A'.
+TEST(Key, CompositeACSLeavesIntegerSegment) {
+  std::vector<char> acs = upperACS();
+
+  for (bool stringFirst : {false, true}) {
+    KeyDefinition intSegment(0, 2, stringFirst ? 8 : 0, KeyDataType::Integer,
+                             UseExtendedDataType, false, 0, 0, 0, "",
+                             std::vector<char>());
+    KeyDefinition stringSegment(0, 8, stringFirst ? 0 : 2,
+                                KeyDataType::Zstring,
+                                UseExtendedDataType | NumberedACS, false, 0, 0,
+                                0, "upper", acs);
+    KeyDefinition keyDefinitions[2] = {
+        stringFirst ? stringSegment : intSegment,
+        stringFirst ? intSegment : stringSegment};
+    Key key(keyDefinitions, 2);
+
+    uint8_t record[10] = {0};
+    memcpy(record + (stringFirst ? 0 : 2), "abc", 3);
+    record[stringFirst ? 8 : 0] = 'a';
+    record[stringFirst ? 9 : 1] = 'a';
+
+    auto actual = key.extractKeyInRecordToSqliteObjects(
+        std::basic_string_view<uint8_t>(record, sizeof(record)));
+    ASSERT_EQ(actual.size(), 2u);
+    EXPECT_EQ(actual[stringFirst ? 1 : 0].getIntegerValue(), 0x6161)
+        << "stringFirst " << stringFirst;
+    EXPECT_EQ(actual[stringFirst ? 0 : 1].getStringValue(), "ABC")
+        << "stringFirst " << stringFirst;
+  }
+}
+
+// The ACS maps an LSTRING's characters but not its length byte, here mapped
+// by the ACS from 3 to 7.
+TEST(Key, CompositeACSLstringKeepsLengthByte) {
+  std::vector<char> acs = upperACS();
+  acs[3] = 7;
+
+  KeyDefinition keyDefinitions[2] = {
+      KeyDefinition(0, 2, 0, KeyDataType::Integer, UseExtendedDataType, true,
+                    0, 0, 0, "", std::vector<char>()),
+      KeyDefinition(0, 8, 2, KeyDataType::Lstring,
+                    UseExtendedDataType | NumberedACS, false, 0, 1, 0, "upper",
+                    acs)};
+  Key key(keyDefinitions, 2);
+
+  uint8_t keyData[10] = {3, 0, 3, 'a', 'b', 'c', 'd', 'e', 'f', 'g'};
+  auto actual = key.keyDataToSqliteObjects(
+      std::basic_string_view<uint8_t>(keyData, sizeof(keyData)));
+  ASSERT_EQ(actual.size(), 2u);
+  // the integer segment isn't mapped either
+  EXPECT_EQ(actual[0].getIntegerValue(), 3);
+  EXPECT_EQ(actual[1].getStringValue(), "ABC");
+}
+
 TEST(Key, FloatKeys) {
   KeyDefinition keyDefinition(0, sizeof(float), 0, KeyDataType::Float,
                               UseExtendedDataType, false, 0, 0, 0, "",

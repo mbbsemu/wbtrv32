@@ -2928,16 +2928,20 @@ static std::vector<uint8_t> createIntStringRecord(int16_t a, const char *name,
 }
 
 // Creates an in memory database with one composite key over the record's
-// (a INTEGER, name ZSTRING), or (name, a) when stringFirst. The null value is
-// 0, so a segment is null when all zero: a == 0, or name is empty.
+// (a INTEGER, name stringType), or (name, a) when stringFirst. The null value
+// is 0, so a segment is null when all zero: a == 0, or name is empty. A
+// non-empty acs applies to the name segment only.
 static std::unique_ptr<BtrieveDriver> createIntStringDriver(
-    uint16_t attributes, bool stringFirst = false) {
+    uint16_t attributes, bool stringFirst = false,
+    KeyDataType stringType = KeyDataType::Zstring,
+    const std::vector<char> &acs = std::vector<char>()) {
   KeyDefinition intSegment(0, 2, 0, KeyDataType::Integer,
                            UseExtendedDataType | attributes, true, 0, 0, 0, "",
                            std::vector<char>());
-  KeyDefinition stringSegment(0, 8, 2, KeyDataType::Zstring,
-                              UseExtendedDataType | attributes, true, 0, 0, 0,
-                              "", std::vector<char>());
+  KeyDefinition stringSegment(
+      0, 8, 2, stringType,
+      UseExtendedDataType | attributes | (acs.empty() ? 0 : NumberedACS), true,
+      0, 0, 0, acs.empty() ? "" : "upper", acs);
   KeyDefinition segments[2] = {stringFirst ? stringSegment : intSegment,
                                stringFirst ? intSegment : stringSegment};
 
@@ -3321,4 +3325,123 @@ TEST_F(BtrieveDriverTest, CompositeSearchWithTruncatedIntegerSegment) {
   ASSERT_EQ(driver->performOperation(0, view(key), OperationCode::QueryEqual),
             BtrieveError::Success);
   ASSERT_EQ(driver->getPosition(), 8u);
+}
+
+// The name as an LSTRING: a length byte, then up to 7 characters. The bytes
+// past the length are fill, which isn't part of the key.
+static std::vector<uint8_t> createIntLstringRecord(int16_t a, const char *name,
+                                                   uint8_t fill = 0) {
+  auto record = createIntStringRecord(a, "");
+  auto *lstring = record.data() + offsetof(IntStringRecordStruct, name);
+  memset(lstring + 1, fill, sizeof(IntStringRecordStruct::name) - 1);
+  lstring[0] = static_cast<uint8_t>(strlen(name));
+  memcpy(lstring + 1, name, strlen(name));
+  return record;
+}
+
+TEST_F(BtrieveDriverTest, CompositeIntLstringOrdering) {
+  auto driver = createIntStringDriver(Duplicates, /* stringFirst= */ false,
+                                      KeyDataType::Lstring);
+  for (auto &record :
+       {createIntLstringRecord(1, ""), createIntLstringRecord(-1, "b"),
+        createIntLstringRecord(-1, "", 'z'), createIntLstringRecord(0, "a", 'x'),
+        createIntLstringRecord(-1, "a"), createIntLstringRecord(0, "a"),
+        createIntLstringRecord(0, "ab")}) {
+    ASSERT_EQ(driver->insertRecord(view(record)).first, BtrieveError::Success);
+  }
+
+  // (-1, "")3 (-1, "a")5 (-1, "b")2 (0, "a")4 (0, "a")6 (0, "ab")7 (1, "")1
+  static const unsigned int EXPECTED[] = {3, 5, 2, 4, 6, 7, 1};
+  verifyCompositeOrdering(*driver, 0, EXPECTED, std::size(EXPECTED));
+
+  // the fill after the length isn't compared
+  ASSERT_EQ(driver->performOperation(0, view(createIntLstringRecord(0, "a", 'q')),
+                                     OperationCode::QueryEqual),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 4u);
+
+  ASSERT_EQ(driver->performOperation(0, view(createIntLstringRecord(-1, "")),
+                                     OperationCode::QueryEqual),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 3u);
+
+  ASSERT_EQ(driver->performOperation(0, view(createIntLstringRecord(0, "")),
+                                     OperationCode::QueryGreaterOrEqual),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 4u);
+}
+
+TEST_F(BtrieveDriverTest, CompositeIntLstringUniqueIgnoresFill) {
+  auto driver = createIntStringDriver(0, /* stringFirst= */ false,
+                                      KeyDataType::Lstring);
+  ASSERT_EQ(driver->insertRecord(view(createIntLstringRecord(-1, "a", 'x'))),
+            std::make_pair(BtrieveError::Success, 1u));
+  ASSERT_EQ(driver->insertRecord(view(createIntLstringRecord(-1, "a", 'y'))),
+            std::make_pair(BtrieveError::DuplicateKeyValue, 0u));
+  ASSERT_EQ(driver->insertRecord(view(createIntLstringRecord(1, "a", 'y'))),
+            std::make_pair(BtrieveError::Success, 2u));
+}
+
+// An ACS on the string segment collates it case insensitively, while the
+// integer segment beside it still compares by value.
+TEST_F(BtrieveDriverTest, CompositeACSStringThenInteger) {
+  auto driver = createIntStringDriver(Duplicates, /* stringFirst= */ true,
+                                      KeyDataType::Zstring, upperACS());
+  for (auto &record :
+       {createIntStringRecord(1, "abc"), createIntStringRecord(-1, "ABD"),
+        createIntStringRecord(-5, "Abc"), createIntStringRecord(2, "abd"),
+        createIntStringRecord(0, "ab")}) {
+    ASSERT_EQ(driver->insertRecord(view(record)).first, BtrieveError::Success);
+  }
+
+  // ("AB", 0)5 ("ABC", -5)3 ("ABC", 1)1 ("ABD", -1)2 ("ABD", 2)4
+  static const unsigned int EXPECTED[] = {5, 3, 1, 2, 4};
+  verifyCompositeOrdering(*driver, 0, EXPECTED, std::size(EXPECTED));
+
+  auto key = createIntStringRecord(1, "aBc");
+  // the key buffer is (name, a)
+  std::vector<uint8_t> keyData(key.begin() + 2, key.end());
+  keyData.insert(keyData.end(), key.begin(), key.begin() + 2);
+  ASSERT_EQ(driver->performOperation(0, view(keyData), OperationCode::QueryEqual),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 1u);
+
+  // lowest a for "abc"
+  keyData[8] = 0x00;
+  keyData[9] = 0x80;
+  ASSERT_EQ(driver->performOperation(0, view(keyData),
+                                     OperationCode::QueryGreaterOrEqual),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 3u);
+}
+
+TEST_F(BtrieveDriverTest, CompositeACSUniqueAcrossCase) {
+  auto driver = createIntStringDriver(0, /* stringFirst= */ false,
+                                      KeyDataType::Zstring, upperACS());
+  ASSERT_EQ(driver->insertRecord(view(createIntStringRecord(-1, "abc"))),
+            std::make_pair(BtrieveError::Success, 1u));
+  ASSERT_EQ(driver->insertRecord(view(createIntStringRecord(-1, "ABC"))),
+            std::make_pair(BtrieveError::DuplicateKeyValue, 0u));
+  ASSERT_EQ(driver->insertRecord(view(createIntStringRecord(1, "ABC"))),
+            std::make_pair(BtrieveError::Success, 2u));
+}
+
+// The ACS maps the LSTRING's characters, not its length byte.
+TEST_F(BtrieveDriverTest, CompositeIntACSLstring) {
+  auto driver = createIntStringDriver(Duplicates, /* stringFirst= */ false,
+                                      KeyDataType::Lstring, upperACS());
+  for (auto &record :
+       {createIntLstringRecord(-1, "b", 'x'), createIntLstringRecord(-1, "A"),
+        createIntLstringRecord(-2, "zz"), createIntLstringRecord(-1, "ab")}) {
+    ASSERT_EQ(driver->insertRecord(view(record)).first, BtrieveError::Success);
+  }
+
+  // (-2, "ZZ")3 (-1, "A")2 (-1, "AB")4 (-1, "B")1
+  static const unsigned int EXPECTED[] = {3, 2, 4, 1};
+  verifyCompositeOrdering(*driver, 0, EXPECTED, std::size(EXPECTED));
+
+  ASSERT_EQ(driver->performOperation(0, view(createIntLstringRecord(-1, "aB")),
+                                     OperationCode::QueryEqual),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 4u);
 }
