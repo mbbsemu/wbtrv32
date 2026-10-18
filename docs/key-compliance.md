@@ -44,7 +44,7 @@ test both bits: `(attributes & MultipleACS) == MultipleACS`.
 | A unique segmented key is unique as a whole, single segments may repeat | `UNIQUE` index over all of the key's columns |
 | Segments may overlap | Each segment is extracted by its own offset and length |
 | Each segment uses the key's ACS or none; only segments that specify it collate with it | `Key::applyACS` checks each segment's flag |
-| NUL (0x08): null only if every segment is null. MANUAL_KEY (0x200): null if any segment is | `Key::isNullCompositeKeyData` |
+| NUL (0x08): null only if every segment is null. MANUAL_KEY (0x200): null if any segment is. A segment is null when every byte is the null value, strings included | `Key::isNullKeyData`, for single and composite keys alike |
 | If one segment is modifiable, all must be | Primary segment's flag; the trigger covers every column |
 | Partial key search: set known leading segments, low trailing ones, Get Greater Or Equal | Row value `>=`; short key buffers are zero padded |
 | Duplicates come back in insertion order | Every key query orders by `id` last |

@@ -424,6 +424,37 @@ TEST(Key, EmptyStringKeyIsNullWithNullAttribute) {
                   .isNull());
 }
 
+// A key is null only when every byte is the null value, for strings too, so a
+// ZSTRING with bytes after its terminator is an empty string, not null. Single
+// and composite keys follow the same rule.
+TEST(Key, ZstringWithBytesAfterTerminatorIsNotNull) {
+  KeyDefinition single(0, 8, 0, KeyDataType::Zstring,
+                       UseExtendedDataType | NullAllSegments, false, 0, 0, 0,
+                       "", std::vector<char>());
+  KeyDefinition composite[2] = {
+      KeyDefinition(0, 8, 0, KeyDataType::Zstring,
+                    UseExtendedDataType | NullAnySegment, true, 0, 0, 0, "",
+                    std::vector<char>()),
+      KeyDefinition(0, 2, 8, KeyDataType::Integer,
+                    UseExtendedDataType | NullAnySegment, false, 0, 1, 0, "",
+                    std::vector<char>())};
+
+  for (const Key &key : {Key(&single, 1), Key(composite, 2)}) {
+    uint8_t record[10] = {0, 'x', 'y', 0, 0, 0, 0, 0, 1, 0};
+    auto actual = key.extractKeyInRecordToSqliteObjects(
+        std::basic_string_view<uint8_t>(record, sizeof(record)));
+    ASSERT_FALSE(actual[0].isNull()) << key.getSegments().size();
+    EXPECT_EQ(actual[0].getStringValue(), "");
+
+    record[1] = record[2] = 0;
+    EXPECT_TRUE(key.extractKeyInRecordToSqliteObjects(
+                       std::basic_string_view<uint8_t>(record, sizeof(record)))
+                    [0]
+                        .isNull())
+        << key.getSegments().size();
+  }
+}
+
 struct ParameterizedKeyDataType {
   KeyDataType type;
 };

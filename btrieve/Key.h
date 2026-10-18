@@ -135,7 +135,7 @@ class Key {
   BindableValue singleKeyDataToSqliteObject(
       std::basic_string_view<uint8_t> keyData, bool allowNull) const;
 
-  bool isNullCompositeKeyData(std::basic_string_view<uint8_t> keyData) const;
+  bool isNullKeyData(std::basic_string_view<uint8_t> keyData) const;
 
   std::vector<KeyDefinition> segments;
 };

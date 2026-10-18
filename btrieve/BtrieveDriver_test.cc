@@ -3269,3 +3269,38 @@ TEST_F(BtrieveDriverTest, LogicalCurrencySeekOntoNullKey) {
             BtrieveError::Success);
   ASSERT_EQ(driver->getPosition(), 3u);
 }
+
+// A ZSTRING key with bytes after its terminator isn't null, since not every
+// byte is the null value, so it's indexed as an empty string.
+TEST_F(BtrieveDriverTest, ZstringKeyWithBytesAfterTerminatorIsIndexed) {
+  KeyDefinition keyDefinition(0, 8, 2, KeyDataType::Zstring,
+                              UseExtendedDataType | Duplicates |
+                                  NullAllSegments,
+                              false, 0, 0, 0, "", std::vector<char>());
+
+  auto *database = new SqliteDatabase(SQLITE_OPEN_MEMORY);
+  BtrieveDriver driver(database);
+  database
+      ->create(_TEXT("unused.db"),
+               BtrieveDatabase({Key(&keyDefinition, 1)}, 512, 1,
+                               sizeof(IntStringRecordStruct),
+                               sizeof(IntStringRecordStruct), 0, 512,
+                               RecordType::Fixed, false, 0))
+      ->onRecordsComplete();
+
+  ASSERT_EQ(driver.insertRecord(view(createIntStringRecord(1, "\0xy", 3))),
+            std::make_pair(BtrieveError::Success, 1u));
+  ASSERT_EQ(driver.insertRecord(view(createIntStringRecord(2, ""))),
+            std::make_pair(BtrieveError::Success, 2u));
+  ASSERT_EQ(driver.insertRecord(view(createIntStringRecord(3, "a"))),
+            std::make_pair(BtrieveError::Success, 3u));
+
+  // position 2 is all zero, so null and not indexed
+  static const unsigned int EXPECTED[] = {1, 3};
+  verifyCompositeOrdering(driver, 0, EXPECTED, std::size(EXPECTED));
+
+  std::vector<uint8_t> key(8, 0);
+  ASSERT_EQ(driver.performOperation(0, view(key), OperationCode::QueryEqual),
+            BtrieveError::Success);
+  ASSERT_EQ(driver.getPosition(), 1u);
+}

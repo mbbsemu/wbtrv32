@@ -247,16 +247,7 @@ static BindableValue segmentDataToSqliteObject(
 
 BindableValue Key::singleKeyDataToSqliteObject(
     std::basic_string_view<uint8_t> keyData, bool allowNull) const {
-  // Only a key declared nullable can be null. Otherwise an empty string is an
-  // ordinary value: Btrieve indexes it, and range queries must find it (SQL
-  // comparisons never match NULL).
-  if (allowNull && hasNullAttribute() &&
-      (isAllSameByteValue(
-           keyData, getPrimarySegment().getNullValue()) ||  // legacy null check
-       (getPrimarySegment().getDataType() ==
-            KeyDataType::Zstring &&  // special handling for null strings
-        keyData.size() > 0 &&
-        keyData[0] == 0))) {
+  if (allowNull && isNullKeyData(keyData)) {
     return BindableValue();
   }
 
@@ -266,11 +257,14 @@ BindableValue Key::singleKeyDataToSqliteObject(
                                modifiedKeyData.data(), modifiedKeyData.size()));
 }
 
-// NullAllSegments makes the key null when every segment is entirely its null
-// value, NullAnySegment when any one is.
-bool Key::isNullCompositeKeyData(
-    std::basic_string_view<uint8_t> keyData) const {
-  if (!isNullable()) {
+// Only a key declared nullable can be null. Otherwise an empty string is an
+// ordinary value: Btrieve indexes it, and range queries must find it (SQL
+// comparisons never match NULL). NullAllSegments makes the key null when every
+// segment is entirely its null value, NullAnySegment when any one is. That
+// holds for strings too, so a ZSTRING with bytes after its terminator isn't
+// null, even though it compares equal to an empty string.
+bool Key::isNullKeyData(std::basic_string_view<uint8_t> keyData) const {
+  if (!hasNullAttribute()) {
     return false;
   }
 
@@ -306,7 +300,7 @@ std::vector<BindableValue> Key::keyDataToSqliteObjects(
   std::basic_string_view<uint8_t> paddedKeyDataView(paddedKeyData.data(),
                                                     paddedKeyData.size());
 
-  if (allowNull && isNullCompositeKeyData(paddedKeyDataView)) {
+  if (allowNull && isNullKeyData(paddedKeyDataView)) {
     values.resize(segments.size());
     return values;
   }
