@@ -946,12 +946,7 @@ static BtrieveError handle(BtrieveCommand &command) {
       return ::Unlock(command);
     CASE_WITH_RECORD_LOCK(OperationCode::BeginTransaction):
     CASE_WITH_RECORD_LOCK(OperationCode::BeginConcurrentTransaction):
-    // concurrent with the +500 no-wait bias, alone or with a lock bias
-    case OperationCode::BeginConcurrentTransaction + 500:
-    case OperationCode::BeginConcurrentTransaction + 600:
-    case OperationCode::BeginConcurrentTransaction + 700:
-    case OperationCode::BeginConcurrentTransaction + 800:
-    case OperationCode::BeginConcurrentTransaction + 900:
+    CASE_WITH_RECORD_LOCK(OperationCode::BeginConcurrentNoWaitTransaction):
       return ::BeginTransaction();
     case OperationCode::EndTransaction:
       return ::EndTransaction();
@@ -962,6 +957,12 @@ static BtrieveError handle(BtrieveCommand &command) {
   }
 }
 // clang-format on
+
+#if defined(WIN32) && defined(__i386__) && !defined(_MSC_VER)
+// Export the 32-bit stdcall symbol _BTRCALL@28 under its undecorated name,
+// matching wbtrv32.def in the MSVC build; see WBTRV32_EXPORT in framework.h.
+__asm__(".section .drectve\n.ascii \" -export:BTRCALL=BTRCALL@28\"\n.text");
+#endif
 
 extern "C" WBTRV32_EXPORT int __stdcall BTRCALL(WORD wOperation,
                                                 LPVOID lpPositionBlock,

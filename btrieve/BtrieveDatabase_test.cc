@@ -313,6 +313,7 @@ TEST(BtrieveDatabase, LoadsCaseInsensitiveKeyWithoutACS) {
   ASSERT_EQ(database.getKeys().size(), 4u);
   const KeyDefinition &key = database.getKeys()[0].getPrimarySegment();
   EXPECT_EQ(key.getAttributes(), 0x0501);
+  EXPECT_TRUE(key.isCaseInsensitive());
   EXPECT_FALSE(key.requiresACS());
   EXPECT_EQ(key.getACS(), nullptr);
   EXPECT_EQ(database.getRecordCount(), 4u);

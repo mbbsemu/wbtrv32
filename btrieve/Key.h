@@ -35,14 +35,28 @@ class Key {
 
   bool isUnique() const { return getPrimarySegment().isUnique(); }
 
+  // Whether the key opts in to null values through the null attributes. Only
+  // such a key stores a null key, as NULL columns, and Btrieve leaves records
+  // with a null key out of the index.
+  bool hasNullAttribute() const {
+    return getPrimarySegment().getAttributes() &
+           (NullAllSegments | NullAnySegment);
+  }
+
   // Composite keys are only null when they opt in through the null attributes,
   // since a composite with e.g. an empty string segment is still a real key.
   bool isNullable() const {
     if (isComposite()) {
-      return getPrimarySegment().getAttributes() &
-             (NullAllSegments | NullAnySegment);
+      return hasNullAttribute();
     }
     return getPrimarySegment().isNullable();
+  }
+
+  // Whether the key has a null indicator segment, so it can hold true nulls.
+  bool hasNullIndicator() const {
+    return std::any_of(
+        segments.begin(), segments.end(),
+        [](const KeyDefinition &segment) { return segment.isNullIndicator(); });
   }
 
   bool requiresACS() const {
@@ -87,7 +101,17 @@ class Key {
   // Converts key data to one value per column, parallel to
   // getSqliteColumnNames(). A null key is all nulls.
   std::vector<BindableValue> keyDataToSqliteObjects(
-      std::basic_string_view<uint8_t> keyData) const;
+      std::basic_string_view<uint8_t> keyData) const {
+    return keyDataToSqliteObjects(keyData, true);
+  }
+
+  // Converts a search key for a range comparison. Unlike a stored key it's
+  // never null: a partial key search leaves trailing segments low, which can
+  // match the null value, and SQL comparisons never match NULL.
+  std::vector<BindableValue> searchKeyDataToSqliteObjects(
+      std::basic_string_view<uint8_t> keyData) const {
+    return keyDataToSqliteObjects(keyData, false);
+  }
 
   std::vector<BindableValue> extractKeyInRecordToSqliteObjects(
       std::basic_string_view<uint8_t> record) const {
@@ -110,12 +134,18 @@ class Key {
   }
 
  private:
-  std::vector<uint8_t> applyACS(std::basic_string_view<uint8_t> keyData) const;
-
-  BindableValue singleKeyDataToSqliteObject(
+  // Maps each segment's bytes through its ACS, or to upper case when it's
+  // case insensitive, so they compare in the segment's collating order.
+  std::vector<uint8_t> applyCollation(
       std::basic_string_view<uint8_t> keyData) const;
 
-  bool isNullCompositeKeyData(std::basic_string_view<uint8_t> keyData) const;
+  std::vector<BindableValue> keyDataToSqliteObjects(
+      std::basic_string_view<uint8_t> keyData, bool allowNull) const;
+
+  BindableValue singleKeyDataToSqliteObject(
+      std::basic_string_view<uint8_t> keyData, bool allowNull) const;
+
+  bool isNullKeyData(std::basic_string_view<uint8_t> keyData) const;
 
   std::vector<KeyDefinition> segments;
 };

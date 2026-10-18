@@ -19,6 +19,7 @@
 #include <sys/types.h>
 
 #include <chrono>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 
@@ -181,9 +182,9 @@ TEST_F(BtrieveDriverTest, LoadsAndConverts) {
 
   static const char *EXPECTED_TRIGGERS_SQL =
       "CREATE TRIGGER non_modifiable "
-      "BEFORE UPDATE ON data_t BEGIN SELECT CASE WHEN NEW.key_0 != "
+      "BEFORE UPDATE ON data_t BEGIN SELECT CASE WHEN NEW.key_0 IS NOT "
       "OLD.key_0 THEN RAISE (ABORT,'You modified a non-modifiable key_0!') "
-      "WHEN NEW.key_3 != OLD.key_3 THEN RAISE (ABORT,'You modified a "
+      "WHEN NEW.key_3 IS NOT OLD.key_3 THEN RAISE (ABORT,'You modified a "
       "non-modifiable key_3!') END; END";
 
   bool foundTrigger = false;
@@ -2899,8 +2900,1214 @@ TEST_F(BtrieveDriverTest, UpgradesCompositeKeysFromVersion3) {
                  "CREATE UNIQUE INDEX key_0_index on data_t(key_0_0, key_0_1)",
                  "CREATE INDEX key_1_index on data_t(key_1_0, key_1_1)",
                  "CREATE TRIGGER non_modifiable BEFORE UPDATE ON data_t BEGIN "
-                 "SELECT CASE WHEN NEW.key_0_0 != OLD.key_0_0 THEN RAISE "
+                 "SELECT CASE WHEN NEW.key_0_0 IS NOT OLD.key_0_0 THEN RAISE "
                  "(ABORT,'You modified a non-modifiable key_0!') WHEN "
-                 "NEW.key_0_1 != OLD.key_0_1 THEN RAISE (ABORT,'You modified a "
-                 "non-modifiable key_0!') END; END"}));
+                 "NEW.key_0_1 IS NOT OLD.key_0_1 THEN RAISE (ABORT,'You "
+                 "modified a non-modifiable key_0!') END; END"}));
+}
+
+#pragma pack(push, 1)
+typedef struct _tagIntStringRecordStruct {
+  int16_t a;
+  char name[8];
+} IntStringRecordStruct;
+#pragma pack(pop)
+
+static_assert(sizeof(IntStringRecordStruct) == 10);
+
+// name is copied with nameLength bytes, or up to its terminator when 0, so
+// callers can put bytes after the terminator
+static std::vector<uint8_t> createIntStringRecord(int16_t a, const char *name,
+                                                  size_t nameLength = 0) {
+  IntStringRecordStruct record;
+  memset(&record, 0, sizeof(record));
+  record.a = a;
+  memcpy(record.name, name, nameLength ? nameLength : strlen(name));
+
+  auto data = reinterpret_cast<const uint8_t *>(&record);
+  return std::vector<uint8_t>(data, data + sizeof(record));
+}
+
+// Creates an in memory database with one composite key over the record's
+// (a INTEGER, name stringType), or (name, a) when stringFirst. The null value
+// is 0, so a segment is null when all zero: a == 0, or name is empty. A
+// non-empty acs applies to the name segment only.
+static std::unique_ptr<BtrieveDriver> createIntStringDriver(
+    uint16_t attributes, bool stringFirst = false,
+    KeyDataType stringType = KeyDataType::Zstring,
+    const std::vector<char> &acs = std::vector<char>()) {
+  KeyDefinition intSegment(0, 2, 0, KeyDataType::Integer,
+                           UseExtendedDataType | attributes, true, 0, 0, 0, "",
+                           std::vector<char>());
+  KeyDefinition stringSegment(
+      0, 8, 2, stringType,
+      UseExtendedDataType | attributes | (acs.empty() ? 0 : NumberedACS), true,
+      0, 0, 0, acs.empty() ? "" : "upper", acs);
+  KeyDefinition segments[2] = {stringFirst ? stringSegment : intSegment,
+                               stringFirst ? intSegment : stringSegment};
+
+  auto *database = new SqliteDatabase(SQLITE_OPEN_MEMORY);
+  std::unique_ptr<BtrieveDriver> driver(new BtrieveDriver(database));
+  database
+      ->create(_TEXT("unused.db"),
+               BtrieveDatabase({Key(segments, 2)}, 512, 1,
+                               sizeof(IntStringRecordStruct),
+                               sizeof(IntStringRecordStruct), 0, 512,
+                               RecordType::Fixed, false, 0))
+      ->onRecordsComplete();
+  return driver;
+}
+
+static const struct {
+  int16_t a;
+  const char *name;
+} INT_STRING_RECORDS[] = {
+    {1, ""},       // position 1
+    {-1, "a"},     // position 2
+    {0, ""},       // position 3
+    {-32768, "z"}, // position 4
+    {32767, ""},   // position 5
+    {-256, ""},    // position 6
+    {-1, ""},      // position 7
+    {0, "a"},      // position 8
+    {255, "a"},    // position 9
+    {-32768, ""},  // position 10
+};
+
+static void insertIntStringRecords(BtrieveDriver &driver) {
+  unsigned int position = 1;
+  for (auto &record : INT_STRING_RECORDS) {
+    ASSERT_EQ(driver.insertRecord(
+                  view(createIntStringRecord(record.a, record.name))),
+              std::make_pair(BtrieveError::Success, position++));
+  }
+}
+
+// Negative and positive integers sort by value, -256 (raw bytes 00 FF) before
+// -1 (FF FF), and an empty string sorts first within the same integer.
+TEST_F(BtrieveDriverTest, CompositeIntStringOrdersSignsAndEmptyStrings) {
+  auto driver = createIntStringDriver(Duplicates);
+  insertIntStringRecords(*driver);
+
+  static const unsigned int EXPECTED[] = {10, 4, 6, 7, 2, 3, 8, 1, 9, 5};
+  verifyCompositeOrdering(*driver, 0, EXPECTED, std::size(EXPECTED));
+}
+
+TEST_F(BtrieveDriverTest, CompositeStringIntOrdersEmptyStringsAndSigns) {
+  auto driver = createIntStringDriver(Duplicates, /* stringFirst= */ true);
+  insertIntStringRecords(*driver);
+
+  // ("", ints by value), then ("a", ints by value), then ("z", -32768)
+  static const unsigned int EXPECTED[] = {10, 6, 7, 3, 1, 5, 2, 8, 9, 4};
+  verifyCompositeOrdering(*driver, 0, EXPECTED, std::size(EXPECTED));
+}
+
+TEST_F(BtrieveDriverTest, CompositeIntStringPartialKeySearch) {
+  auto driver = createIntStringDriver(Duplicates);
+  insertIntStringRecords(*driver);
+
+  auto key = createIntStringRecord(-1, "");
+  ASSERT_EQ(driver->performOperation(0, view(key),
+                                     OperationCode::QueryGreaterOrEqual),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 7u);
+
+  ASSERT_EQ(driver->performOperation(0, view(key), OperationCode::QueryEqual),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 7u);
+
+  ASSERT_EQ(driver->performOperation(0, view(key), OperationCode::QueryLess),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 6u);
+
+  key = createIntStringRecord(0, "");
+  ASSERT_EQ(driver->performOperation(0, view(key), OperationCode::QueryLess),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 2u);
+}
+
+// Applications often pass search buffers with leftover bytes after a
+// ZSTRING's terminator, which aren't part of the key.
+TEST_F(BtrieveDriverTest, CompositeSearchIgnoresBytesAfterZstringTerminator) {
+  auto driver = createIntStringDriver(Duplicates);
+  insertIntStringRecords(*driver);
+
+  ASSERT_EQ(
+      driver->performOperation(0, view(createIntStringRecord(-1, "a\0ZZZZ", 7)),
+                               OperationCode::QueryEqual),
+      BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 2u);
+}
+
+// A partial key search leaves trailing segments low. Under NullAnySegment a
+// zeroed segment matches the null value, but the search key must still
+// compare as a value rather than NULL, which matches nothing.
+TEST_F(BtrieveDriverTest, NullAnySegmentPartialKeySearch) {
+  auto driver = createIntStringDriver(Duplicates | NullAnySegment);
+  ASSERT_EQ(driver->insertRecord(view(createIntStringRecord(-5, "b"))),
+            std::make_pair(BtrieveError::Success, 1u));
+  ASSERT_EQ(driver->insertRecord(view(createIntStringRecord(5, "a"))),
+            std::make_pair(BtrieveError::Success, 2u));
+  ASSERT_EQ(driver->insertRecord(view(createIntStringRecord(7, "b"))),
+            std::make_pair(BtrieveError::Success, 3u));
+
+  auto key = createIntStringRecord(5, "");
+  ASSERT_EQ(driver->performOperation(0, view(key),
+                                     OperationCode::QueryGreaterOrEqual),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 2u);
+
+  ASSERT_EQ(driver->performOperation(0, view(key), OperationCode::QueryGreater),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 2u);
+
+  ASSERT_EQ(driver->performOperation(0, view(key), OperationCode::QueryLess),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 1u);
+
+  ASSERT_EQ(
+      driver->performOperation(0, view(key), OperationCode::QueryLessOrEqual),
+      BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 1u);
+}
+
+TEST_F(BtrieveDriverTest, NullAllSegmentsAllZeroKeySearch) {
+  auto driver = createIntStringDriver(Duplicates | NullAllSegments);
+  ASSERT_EQ(driver->insertRecord(view(createIntStringRecord(-5, "a"))),
+            std::make_pair(BtrieveError::Success, 1u));
+  ASSERT_EQ(driver->insertRecord(view(createIntStringRecord(0, "a"))),
+            std::make_pair(BtrieveError::Success, 2u));
+  ASSERT_EQ(driver->insertRecord(view(createIntStringRecord(7, "b"))),
+            std::make_pair(BtrieveError::Success, 3u));
+
+  auto key = createIntStringRecord(0, "");
+  ASSERT_EQ(driver->performOperation(0, view(key),
+                                     OperationCode::QueryGreaterOrEqual),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 2u);
+
+  ASSERT_EQ(driver->performOperation(0, view(key), OperationCode::QueryLess),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 1u);
+}
+
+// The same applies to a single segment nullable key that isn't a string.
+TEST_F(BtrieveDriverTest, NullableIntegerKeySearchWithNullValue) {
+  KeyDefinition keyDefinition(0, 2, 0, KeyDataType::Integer,
+                              UseExtendedDataType | Duplicates |
+                                  NullAllSegments,
+                              false, 0, 0, 0, "", std::vector<char>());
+
+  auto *database = new SqliteDatabase(SQLITE_OPEN_MEMORY);
+  BtrieveDriver driver(database);
+  database
+      ->create(_TEXT("unused.db"),
+               BtrieveDatabase({Key(&keyDefinition, 1)}, 512, 1,
+                               sizeof(IntStringRecordStruct),
+                               sizeof(IntStringRecordStruct), 0, 512,
+                               RecordType::Fixed, false, 0))
+      ->onRecordsComplete();
+
+  ASSERT_EQ(driver.insertRecord(view(createIntStringRecord(-3, "a"))),
+            std::make_pair(BtrieveError::Success, 1u));
+  ASSERT_EQ(driver.insertRecord(view(createIntStringRecord(4, "b"))),
+            std::make_pair(BtrieveError::Success, 2u));
+
+  auto key = createIntStringRecord(0, "");
+  key.resize(sizeof(int16_t));
+  ASSERT_EQ(driver.performOperation(0, view(key),
+                                    OperationCode::QueryGreaterOrEqual),
+            BtrieveError::Success);
+  ASSERT_EQ(driver.getPosition(), 2u);
+
+  ASSERT_EQ(driver.performOperation(0, view(key), OperationCode::QueryLess),
+            BtrieveError::Success);
+  ASSERT_EQ(driver.getPosition(), 1u);
+}
+
+// A unique nullable key can hold any number of null keys, since Btrieve
+// doesn't index them.
+TEST_F(BtrieveDriverTest, UniqueNullableCompositeKeyAllowsMultipleNulls) {
+  auto driver = createIntStringDriver(NullAnySegment);
+  ASSERT_EQ(driver->insertRecord(view(createIntStringRecord(1, ""))),
+            std::make_pair(BtrieveError::Success, 1u));
+  ASSERT_EQ(driver->insertRecord(view(createIntStringRecord(2, ""))),
+            std::make_pair(BtrieveError::Success, 2u));
+  ASSERT_EQ(driver->insertRecord(view(createIntStringRecord(3, "a"))),
+            std::make_pair(BtrieveError::Success, 3u));
+  ASSERT_EQ(driver->insertRecord(view(createIntStringRecord(3, "a"))),
+            std::make_pair(BtrieveError::DuplicateKeyValue, 0u));
+
+  // only the indexed key counts
+  ASSERT_EQ(driver->getUniqueKeyCount(driver->getKeys()[0]), 1u);
+}
+
+// A null key is stored as NULL columns, which != never compares unequal to.
+TEST_F(BtrieveDriverTest, NonModifiableNullableKeyCantChangeToOrFromNull) {
+  auto driver = createIntStringDriver(Duplicates | NullAllSegments);
+  ASSERT_EQ(driver->insertRecord(view(createIntStringRecord(0, ""))),
+            std::make_pair(BtrieveError::Success, 1u));
+  ASSERT_EQ(driver->insertRecord(view(createIntStringRecord(2, "x"))),
+            std::make_pair(BtrieveError::Success, 2u));
+
+  ASSERT_EQ(driver->updateRecord(1, view(createIntStringRecord(9, "q"))),
+            BtrieveError::NonModifiableKeyValue);
+  ASSERT_EQ(driver->updateRecord(2, view(createIntStringRecord(0, ""))),
+            BtrieveError::NonModifiableKeyValue);
+
+  // updating a null key to null is no change
+  ASSERT_EQ(driver->updateRecord(1, view(createIntStringRecord(0, ""))),
+            BtrieveError::Success);
+}
+
+// Btrieve leaves a record whose key is null out of the key's index, so key
+// traversal never reaches it and Get Equal can't find it.
+TEST_F(BtrieveDriverTest, NullAllSegmentsKeysAreNotIndexed) {
+  auto driver = createIntStringDriver(Duplicates | NullAllSegments);
+  for (auto &record : {std::make_pair(0, ""), std::make_pair(-3, "a"),
+                       std::make_pair(0, "a"), std::make_pair(4, "b"),
+                       std::make_pair(0, "")}) {
+    ASSERT_EQ(driver->insertRecord(view(
+                  createIntStringRecord(record.first, record.second))).first,
+              BtrieveError::Success);
+  }
+
+  // positions 1 and 5 are null, (0, "a") isn't since only one segment is
+  static const unsigned int EXPECTED[] = {2, 3, 4};
+  verifyCompositeOrdering(*driver, 0, EXPECTED, std::size(EXPECTED));
+
+  ASSERT_EQ(driver->performOperation(0, view(createIntStringRecord(0, "")),
+                                     OperationCode::QueryEqual),
+            BtrieveError::KeyValueNotFound);
+
+  // records are still there by position
+  ASSERT_EQ(driver->getRecordCount(), 5u);
+  ASSERT_EQ(driver->getUniqueKeyCount(driver->getKeys()[0]), 3u);
+}
+
+TEST_F(BtrieveDriverTest, NullAnySegmentKeysAreNotIndexed) {
+  auto driver = createIntStringDriver(Duplicates | NullAnySegment);
+  for (auto &record : {std::make_pair(0, "zzz"), std::make_pair(5, ""),
+                       std::make_pair(-1, "a"), std::make_pair(5, "a")}) {
+    ASSERT_EQ(driver->insertRecord(view(
+                  createIntStringRecord(record.first, record.second))).first,
+              BtrieveError::Success);
+  }
+
+  // (0, "zzz") and (5, "") each have a null segment
+  static const unsigned int EXPECTED[] = {3, 4};
+  verifyCompositeOrdering(*driver, 0, EXPECTED, std::size(EXPECTED));
+
+  ASSERT_EQ(driver->performOperation(0, view(createIntStringRecord(0, "zzz")),
+                                     OperationCode::QueryEqual),
+            BtrieveError::KeyValueNotFound);
+  ASSERT_EQ(driver->getUniqueKeyCount(driver->getKeys()[0]), 2u);
+}
+
+// Reversing direction at the first or last indexed key mustn't pass through
+// the null keys, which used to sort first and stop Get Next from continuing.
+TEST_F(BtrieveDriverTest, NullKeysDontInterruptChangingDirection) {
+  auto driver = createIntStringDriver(Duplicates | NullAllSegments);
+  for (auto &record : {std::make_pair(0, ""), std::make_pair(-3, "a"),
+                       std::make_pair(4, "b")}) {
+    ASSERT_EQ(driver->insertRecord(view(
+                  createIntStringRecord(record.first, record.second))).first,
+              BtrieveError::Success);
+  }
+
+  std::basic_string_view<uint8_t> unused;
+  ASSERT_EQ(driver->performOperation(0, unused, OperationCode::QueryLast),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 3u);
+  ASSERT_EQ(driver->performOperation(0, unused, OperationCode::QueryPrevious),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 2u);
+  ASSERT_EQ(driver->performOperation(0, unused, OperationCode::QueryPrevious),
+            BtrieveError::EndOfFile);
+
+  ASSERT_EQ(driver->performOperation(0, unused, OperationCode::QueryFirst),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 2u);
+  ASSERT_EQ(driver->performOperation(0, unused, OperationCode::QueryPrevious),
+            BtrieveError::EndOfFile);
+
+  ASSERT_EQ(driver->performOperation(0, unused, OperationCode::QueryFirst),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->performOperation(0, unused, OperationCode::QueryNext),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 3u);
+  ASSERT_EQ(driver->performOperation(0, unused, OperationCode::QueryPrevious),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 2u);
+  ASSERT_EQ(driver->performOperation(0, unused, OperationCode::QueryNext),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 3u);
+}
+
+// Get Direct, Insert or Update onto a record whose key is null establishes no
+// logical position on that key, since the record isn't in its index.
+TEST_F(BtrieveDriverTest, LogicalCurrencySeekOntoNullKey) {
+  auto driver = createIntStringDriver(Duplicates | NullAllSegments);
+  for (auto &record : {std::make_pair(-3, "a"), std::make_pair(0, ""),
+                       std::make_pair(4, "b")}) {
+    ASSERT_EQ(driver->insertRecord(view(
+                  createIntStringRecord(record.first, record.second))).first,
+              BtrieveError::Success);
+  }
+
+  std::basic_string_view<uint8_t> unused;
+  for (auto operation :
+       {OperationCode::QueryNext, OperationCode::QueryPrevious}) {
+    ASSERT_EQ(driver->performOperation(0, unused, OperationCode::QueryFirst),
+              BtrieveError::Success);
+
+    ASSERT_EQ(driver->logicalCurrencySeek(0, 2), BtrieveError::Success);
+    ASSERT_EQ(driver->performOperation(0, unused, operation),
+              BtrieveError::InvalidPositioning);
+  }
+
+  ASSERT_EQ(driver->logicalCurrencySeek(0, 3), BtrieveError::Success);
+  ASSERT_EQ(driver->performOperation(0, unused, OperationCode::QueryPrevious),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 1u);
+  ASSERT_EQ(driver->performOperation(0, unused, OperationCode::QueryNext),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 3u);
+}
+
+// A ZSTRING key with bytes after its terminator isn't null, since not every
+// byte is the null value, so it's indexed as an empty string.
+TEST_F(BtrieveDriverTest, ZstringKeyWithBytesAfterTerminatorIsIndexed) {
+  KeyDefinition keyDefinition(0, 8, 2, KeyDataType::Zstring,
+                              UseExtendedDataType | Duplicates |
+                                  NullAllSegments,
+                              false, 0, 0, 0, "", std::vector<char>());
+
+  auto *database = new SqliteDatabase(SQLITE_OPEN_MEMORY);
+  BtrieveDriver driver(database);
+  database
+      ->create(_TEXT("unused.db"),
+               BtrieveDatabase({Key(&keyDefinition, 1)}, 512, 1,
+                               sizeof(IntStringRecordStruct),
+                               sizeof(IntStringRecordStruct), 0, 512,
+                               RecordType::Fixed, false, 0))
+      ->onRecordsComplete();
+
+  ASSERT_EQ(driver.insertRecord(view(createIntStringRecord(1, "\0xy", 3))),
+            std::make_pair(BtrieveError::Success, 1u));
+  ASSERT_EQ(driver.insertRecord(view(createIntStringRecord(2, ""))),
+            std::make_pair(BtrieveError::Success, 2u));
+  ASSERT_EQ(driver.insertRecord(view(createIntStringRecord(3, "a"))),
+            std::make_pair(BtrieveError::Success, 3u));
+
+  // position 2 is all zero, so null and not indexed
+  static const unsigned int EXPECTED[] = {1, 3};
+  verifyCompositeOrdering(driver, 0, EXPECTED, std::size(EXPECTED));
+
+  std::vector<uint8_t> key(8, 0);
+  ASSERT_EQ(driver.performOperation(0, view(key), OperationCode::QueryEqual),
+            BtrieveError::Success);
+  ASSERT_EQ(driver.getPosition(), 1u);
+}
+
+// A search key ending partway through a signed integer segment extends the
+// sign of its last byte, so a single 0xFF byte searches for -1.
+TEST_F(BtrieveDriverTest, CompositeSearchWithTruncatedIntegerSegment) {
+  auto driver = createIntStringDriver(Duplicates, /* stringFirst= */ true);
+  insertIntStringRecords(*driver);
+
+  // name "a" then the low byte of a
+  std::vector<uint8_t> key = {'a', 0, 0, 0, 0, 0, 0, 0, 0xFF};
+  ASSERT_EQ(driver->performOperation(0, view(key), OperationCode::QueryEqual),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 2u);
+
+  key.back() = 0x00;
+  ASSERT_EQ(driver->performOperation(0, view(key), OperationCode::QueryEqual),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 8u);
+}
+
+// The name as an LSTRING: a length byte, then up to 7 characters. The bytes
+// past the length are fill, which isn't part of the key.
+static std::vector<uint8_t> createIntLstringRecord(int16_t a, const char *name,
+                                                   uint8_t fill = 0) {
+  auto record = createIntStringRecord(a, "");
+  auto *lstring = record.data() + offsetof(IntStringRecordStruct, name);
+  memset(lstring + 1, fill, sizeof(IntStringRecordStruct::name) - 1);
+  lstring[0] = static_cast<uint8_t>(strlen(name));
+  memcpy(lstring + 1, name, strlen(name));
+  return record;
+}
+
+TEST_F(BtrieveDriverTest, CompositeIntLstringOrdering) {
+  auto driver = createIntStringDriver(Duplicates, /* stringFirst= */ false,
+                                      KeyDataType::Lstring);
+  for (auto &record :
+       {createIntLstringRecord(1, ""), createIntLstringRecord(-1, "b"),
+        createIntLstringRecord(-1, "", 'z'), createIntLstringRecord(0, "a", 'x'),
+        createIntLstringRecord(-1, "a"), createIntLstringRecord(0, "a"),
+        createIntLstringRecord(0, "ab")}) {
+    ASSERT_EQ(driver->insertRecord(view(record)).first, BtrieveError::Success);
+  }
+
+  // (-1, "")3 (-1, "a")5 (-1, "b")2 (0, "a")4 (0, "a")6 (0, "ab")7 (1, "")1
+  static const unsigned int EXPECTED[] = {3, 5, 2, 4, 6, 7, 1};
+  verifyCompositeOrdering(*driver, 0, EXPECTED, std::size(EXPECTED));
+
+  // the fill after the length isn't compared
+  ASSERT_EQ(driver->performOperation(0, view(createIntLstringRecord(0, "a", 'q')),
+                                     OperationCode::QueryEqual),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 4u);
+
+  ASSERT_EQ(driver->performOperation(0, view(createIntLstringRecord(-1, "")),
+                                     OperationCode::QueryEqual),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 3u);
+
+  ASSERT_EQ(driver->performOperation(0, view(createIntLstringRecord(0, "")),
+                                     OperationCode::QueryGreaterOrEqual),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 4u);
+}
+
+TEST_F(BtrieveDriverTest, CompositeIntLstringUniqueIgnoresFill) {
+  auto driver = createIntStringDriver(0, /* stringFirst= */ false,
+                                      KeyDataType::Lstring);
+  ASSERT_EQ(driver->insertRecord(view(createIntLstringRecord(-1, "a", 'x'))),
+            std::make_pair(BtrieveError::Success, 1u));
+  ASSERT_EQ(driver->insertRecord(view(createIntLstringRecord(-1, "a", 'y'))),
+            std::make_pair(BtrieveError::DuplicateKeyValue, 0u));
+  ASSERT_EQ(driver->insertRecord(view(createIntLstringRecord(1, "a", 'y'))),
+            std::make_pair(BtrieveError::Success, 2u));
+}
+
+// An ACS on the string segment collates it case insensitively, while the
+// integer segment beside it still compares by value.
+TEST_F(BtrieveDriverTest, CompositeACSStringThenInteger) {
+  auto driver = createIntStringDriver(Duplicates, /* stringFirst= */ true,
+                                      KeyDataType::Zstring, upperACS());
+  for (auto &record :
+       {createIntStringRecord(1, "abc"), createIntStringRecord(-1, "ABD"),
+        createIntStringRecord(-5, "Abc"), createIntStringRecord(2, "abd"),
+        createIntStringRecord(0, "ab")}) {
+    ASSERT_EQ(driver->insertRecord(view(record)).first, BtrieveError::Success);
+  }
+
+  // ("AB", 0)5 ("ABC", -5)3 ("ABC", 1)1 ("ABD", -1)2 ("ABD", 2)4
+  static const unsigned int EXPECTED[] = {5, 3, 1, 2, 4};
+  verifyCompositeOrdering(*driver, 0, EXPECTED, std::size(EXPECTED));
+
+  auto key = createIntStringRecord(1, "aBc");
+  // the key buffer is (name, a)
+  std::vector<uint8_t> keyData(key.begin() + 2, key.end());
+  keyData.insert(keyData.end(), key.begin(), key.begin() + 2);
+  ASSERT_EQ(driver->performOperation(0, view(keyData), OperationCode::QueryEqual),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 1u);
+
+  // lowest a for "abc"
+  keyData[8] = 0x00;
+  keyData[9] = 0x80;
+  ASSERT_EQ(driver->performOperation(0, view(keyData),
+                                     OperationCode::QueryGreaterOrEqual),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 3u);
+}
+
+TEST_F(BtrieveDriverTest, CompositeACSUniqueAcrossCase) {
+  auto driver = createIntStringDriver(0, /* stringFirst= */ false,
+                                      KeyDataType::Zstring, upperACS());
+  ASSERT_EQ(driver->insertRecord(view(createIntStringRecord(-1, "abc"))),
+            std::make_pair(BtrieveError::Success, 1u));
+  ASSERT_EQ(driver->insertRecord(view(createIntStringRecord(-1, "ABC"))),
+            std::make_pair(BtrieveError::DuplicateKeyValue, 0u));
+  ASSERT_EQ(driver->insertRecord(view(createIntStringRecord(1, "ABC"))),
+            std::make_pair(BtrieveError::Success, 2u));
+}
+
+// The ACS maps the LSTRING's characters, not its length byte.
+TEST_F(BtrieveDriverTest, CompositeIntACSLstring) {
+  auto driver = createIntStringDriver(Duplicates, /* stringFirst= */ false,
+                                      KeyDataType::Lstring, upperACS());
+  for (auto &record :
+       {createIntLstringRecord(-1, "b", 'x'), createIntLstringRecord(-1, "A"),
+        createIntLstringRecord(-2, "zz"), createIntLstringRecord(-1, "ab")}) {
+    ASSERT_EQ(driver->insertRecord(view(record)).first, BtrieveError::Success);
+  }
+
+  // (-2, "ZZ")3 (-1, "A")2 (-1, "AB")4 (-1, "B")1
+  static const unsigned int EXPECTED[] = {3, 2, 4, 1};
+  verifyCompositeOrdering(*driver, 0, EXPECTED, std::size(EXPECTED));
+
+  ASSERT_EQ(driver->performOperation(0, view(createIntLstringRecord(-1, "aB")),
+                                     OperationCode::QueryEqual),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 4u);
+}
+
+// Creates an in memory database of IntStringRecordStruct records with one key
+// made of segments.
+static std::unique_ptr<BtrieveDriver> createIntStringDriverWithKey(
+    std::vector<KeyDefinition> segments) {
+  auto *database = new SqliteDatabase(SQLITE_OPEN_MEMORY);
+  std::unique_ptr<BtrieveDriver> driver(new BtrieveDriver(database));
+  database
+      ->create(_TEXT("unused.db"),
+               BtrieveDatabase({Key(segments.data(), segments.size())}, 512, 1,
+                               sizeof(IntStringRecordStruct),
+                               sizeof(IntStringRecordStruct), 0, 512,
+                               RecordType::Fixed, false, 0))
+      ->onRecordsComplete();
+  return driver;
+}
+
+static KeyDefinition intSegment(uint16_t attributes) {
+  return KeyDefinition(0, 2, 0, KeyDataType::Integer,
+                       UseExtendedDataType | Duplicates | attributes, true, 0,
+                       0, 0, "", std::vector<char>());
+}
+
+static KeyDefinition stringSegment(uint16_t attributes) {
+  return KeyDefinition(0, 8, 2, KeyDataType::Zstring,
+                       UseExtendedDataType | Duplicates | attributes, true, 0,
+                       0, 0, "", std::vector<char>());
+}
+
+// Expects operation with key to find expectedPosition, or fail with
+// EndOfFile when it's 0.
+static void expectKeyOperation(BtrieveDriver &driver,
+                               const std::vector<uint8_t> &key,
+                               OperationCode operation,
+                               unsigned int expectedPosition) {
+  auto error = driver.performOperation(0, view(key), operation);
+  if (expectedPosition == 0) {
+    EXPECT_EQ(error, BtrieveError::EndOfFile) << "operation " << operation;
+    return;
+  }
+  ASSERT_EQ(error, BtrieveError::Success) << "operation " << operation;
+  EXPECT_EQ(driver.getPosition(), expectedPosition)
+      << "operation " << operation;
+}
+
+// The (name, a) key buffer for a record's values.
+static std::vector<uint8_t> stringIntKey(int16_t a, const char *name) {
+  auto record = createIntStringRecord(a, name);
+  std::vector<uint8_t> key(record.begin() + 2, record.end());
+  key.insert(key.end(), record.begin(), record.begin() + 2);
+  return key;
+}
+
+// A descending key runs from high to low, and Get Greater means later in
+// that order, so a lower value.
+TEST_F(BtrieveDriverTest, DescendingIntegerKey) {
+  auto driver = createIntStringDriverWithKey(
+      {KeyDefinition(0, 2, 0, KeyDataType::Integer,
+                     UseExtendedDataType | Duplicates | DescendingKeySegment,
+                     false, 0, 0, 0, "", std::vector<char>())});
+  for (int16_t a : {5, -1, 0, -32768, 7, -1}) {
+    ASSERT_EQ(driver->insertRecord(view(createIntStringRecord(a, "x"))).first,
+              BtrieveError::Success);
+  }
+
+  // duplicates stay in insertion order
+  static const unsigned int EXPECTED[] = {5, 1, 3, 2, 6, 4};
+  verifyCompositeOrdering(*driver, 0, EXPECTED, std::size(EXPECTED));
+
+  auto key = [](int16_t a) {
+    std::vector<uint8_t> key(sizeof(a));
+    memcpy(key.data(), &a, sizeof(a));
+    return key;
+  };
+  expectKeyOperation(*driver, key(0), OperationCode::QueryGreater, 2);
+  expectKeyOperation(*driver, key(0), OperationCode::QueryGreaterOrEqual, 3);
+  expectKeyOperation(*driver, key(0), OperationCode::QueryLess, 1);
+  expectKeyOperation(*driver, key(0), OperationCode::QueryLessOrEqual, 3);
+  expectKeyOperation(*driver, key(1), OperationCode::QueryGreaterOrEqual, 3);
+  expectKeyOperation(*driver, key(1), OperationCode::QueryLessOrEqual, 1);
+  expectKeyOperation(*driver, key(-32768), OperationCode::QueryGreater, 0);
+  expectKeyOperation(*driver, key(7), OperationCode::QueryLess, 0);
+
+  // change direction through the duplicates
+  std::basic_string_view<uint8_t> unused;
+  expectKeyOperation(*driver, key(-1), OperationCode::QueryEqual, 2);
+  for (auto expected :
+       {std::make_pair(OperationCode::QueryNext, 6u),
+        std::make_pair(OperationCode::QueryNext, 4u),
+        std::make_pair(OperationCode::QueryPrevious, 6u),
+        std::make_pair(OperationCode::QueryPrevious, 2u),
+        std::make_pair(OperationCode::QueryPrevious, 3u),
+        std::make_pair(OperationCode::QueryNext, 2u)}) {
+    ASSERT_EQ(driver->performOperation(0, unused, expected.first),
+              BtrieveError::Success);
+    EXPECT_EQ(driver->getPosition(), expected.second);
+  }
+}
+
+TEST_F(BtrieveDriverTest, AllDescendingCompositeKey) {
+  auto driver = createIntStringDriverWithKey(
+      {intSegment(SegmentedKey | DescendingKeySegment),
+       stringSegment(DescendingKeySegment)});
+  insertIntStringRecords(*driver);
+
+  // the reverse of CompositeIntStringOrdersSignsAndEmptyStrings
+  static const unsigned int EXPECTED[] = {5, 9, 1, 8, 3, 2, 7, 6, 4, 10};
+  verifyCompositeOrdering(*driver, 0, EXPECTED, std::size(EXPECTED));
+
+  expectKeyOperation(*driver, createIntStringRecord(-1, ""),
+                     OperationCode::QueryGreater, 6);
+  expectKeyOperation(*driver, createIntStringRecord(-1, "a"),
+                     OperationCode::QueryGreaterOrEqual, 2);
+  expectKeyOperation(*driver, createIntStringRecord(-1, ""),
+                     OperationCode::QueryLess, 2);
+  expectKeyOperation(*driver, createIntStringRecord(-1, "b"),
+                     OperationCode::QueryLessOrEqual, 3);
+}
+
+TEST_F(BtrieveDriverTest, MixedDirectionCompositeKey) {
+  auto driver = createIntStringDriverWithKey(
+      {intSegment(SegmentedKey), stringSegment(DescendingKeySegment)});
+  insertIntStringRecords(*driver);
+
+  // a ascending, then name descending
+  static const unsigned int EXPECTED[] = {4, 10, 6, 2, 7, 8, 3, 1, 9, 5};
+  verifyCompositeOrdering(*driver, 0, EXPECTED, std::size(EXPECTED));
+
+  expectKeyOperation(*driver, createIntStringRecord(-1, "a"),
+                     OperationCode::QueryGreater, 7);
+  expectKeyOperation(*driver, createIntStringRecord(-1, "a"),
+                     OperationCode::QueryGreaterOrEqual, 2);
+  expectKeyOperation(*driver, createIntStringRecord(-1, ""),
+                     OperationCode::QueryGreater, 8);
+  expectKeyOperation(*driver, createIntStringRecord(-1, "b"),
+                     OperationCode::QueryGreaterOrEqual, 2);
+  expectKeyOperation(*driver, createIntStringRecord(0, "a"),
+                     OperationCode::QueryLess, 7);
+  expectKeyOperation(*driver, createIntStringRecord(0, ""),
+                     OperationCode::QueryLessOrEqual, 3);
+  expectKeyOperation(*driver, createIntStringRecord(0, "b"),
+                     OperationCode::QueryLessOrEqual, 7);
+  expectKeyOperation(*driver, createIntStringRecord(-32768, "z"),
+                     OperationCode::QueryLess, 0);
+  expectKeyOperation(*driver, createIntStringRecord(32767, ""),
+                     OperationCode::QueryGreater, 0);
+
+  std::basic_string_view<uint8_t> unused;
+  expectKeyOperation(*driver, createIntStringRecord(0, "a"),
+                     OperationCode::QueryEqual, 8);
+  for (auto expected : {std::make_pair(OperationCode::QueryNext, 3u),
+                        std::make_pair(OperationCode::QueryPrevious, 8u),
+                        std::make_pair(OperationCode::QueryPrevious, 7u),
+                        std::make_pair(OperationCode::QueryNext, 8u)}) {
+    ASSERT_EQ(driver->performOperation(0, unused, expected.first),
+              BtrieveError::Success);
+    EXPECT_EQ(driver->getPosition(), expected.second);
+  }
+}
+
+TEST_F(BtrieveDriverTest, MixedDirectionCompositeKeyLeadingDescending) {
+  auto driver = createIntStringDriverWithKey(
+      {stringSegment(SegmentedKey | DescendingKeySegment), intSegment(0)});
+  insertIntStringRecords(*driver);
+
+  // name descending, then a ascending
+  static const unsigned int EXPECTED[] = {4, 2, 8, 9, 10, 6, 7, 3, 1, 5};
+  verifyCompositeOrdering(*driver, 0, EXPECTED, std::size(EXPECTED));
+
+  expectKeyOperation(*driver, stringIntKey(255, "a"),
+                     OperationCode::QueryGreater, 10);
+  expectKeyOperation(*driver, stringIntKey(-32768, ""),
+                     OperationCode::QueryLess, 9);
+  expectKeyOperation(*driver, stringIntKey(0, "a"),
+                     OperationCode::QueryGreaterOrEqual, 8);
+  expectKeyOperation(*driver, stringIntKey(0, "z"),
+                     OperationCode::QueryLessOrEqual, 4);
+  expectKeyOperation(*driver, stringIntKey(-32768, "b"),
+                     OperationCode::QueryGreaterOrEqual, 2);
+}
+
+// Descending columns are indexed descending, so SQLite reads the key's order
+// straight from its index.
+TEST_F(BtrieveDriverTest, DescendingSegmentIndex) {
+  std::string dbPath = tempPath->getTempPath() + "/DESCENDING.DB";
+  KeyDefinition segments[2] = {intSegment(SegmentedKey),
+                               stringSegment(DescendingKeySegment)};
+  {
+    SqliteDatabase database;
+    database
+        .create(toWideString(dbPath.c_str()).c_str(),
+                BtrieveDatabase({Key(segments, 2)}, 512, 1,
+                                sizeof(IntStringRecordStruct),
+                                sizeof(IntStringRecordStruct), 0, 512,
+                                RecordType::Fixed, false, 0))
+        ->onRecordsComplete();
+  }
+
+  sqlite3 *db;
+  ASSERT_EQ(sqlite3_open_v2(dbPath.c_str(), &db, SQLITE_OPEN_READONLY, nullptr),
+            SQLITE_OK);
+  std::string index;
+  ASSERT_EQ(sqlite_exec(db,
+                        "SELECT sql FROM sqlite_master WHERE name = "
+                        "'key_0_index'",
+                        [&](int numResults, char **data, char **columns) {
+                          index = data[0];
+                        }),
+            SQLITE_OK);
+  std::string plan;
+  ASSERT_EQ(sqlite_exec(db,
+                        "EXPLAIN QUERY PLAN SELECT id FROM data_t ORDER BY "
+                        "key_0_0 DESC, key_0_1 ASC, id DESC",
+                        [&](int numResults, char **data, char **columns) {
+                          plan += std::string(data[numResults - 1]) + "\n";
+                        }),
+            SQLITE_OK);
+  sqlite3_close(db);
+
+  EXPECT_EQ(index,
+            "CREATE INDEX key_0_index on data_t(key_0_0, key_0_1 DESC)");
+  EXPECT_EQ(plan.find("TEMP B-TREE"), std::string::npos) << plan;
+}
+
+// A case insensitive segment orders by upper case, so '_' sorts after every
+// letter rather than between the upper and lower case ones, and letters that
+// differ only in case are duplicates, in insertion order.
+TEST_F(BtrieveDriverTest, CaseInsensitiveCompositeKey) {
+  auto driver = createIntStringDriverWithKey(
+      {intSegment(SegmentedKey), stringSegment(CaseInsensitiveKey)});
+  for (auto &record :
+       {createIntStringRecord(1, "b"), createIntStringRecord(1, "A"),
+        createIntStringRecord(1, "_"), createIntStringRecord(1, "a"),
+        createIntStringRecord(-1, "Z"), createIntStringRecord(1, "B")}) {
+    ASSERT_EQ(driver->insertRecord(view(record)).first, BtrieveError::Success);
+  }
+
+  // (-1, "Z")5 (1, "A")2 (1, "a")4 (1, "b")1 (1, "B")6 (1, "_")3
+  static const unsigned int EXPECTED[] = {5, 2, 4, 1, 6, 3};
+  verifyCompositeOrdering(*driver, 0, EXPECTED, std::size(EXPECTED));
+
+  expectKeyOperation(*driver, createIntStringRecord(1, "B"),
+                     OperationCode::QueryEqual, 1);
+  expectKeyOperation(*driver, createIntStringRecord(1, "a"),
+                     OperationCode::QueryGreater, 1);
+  expectKeyOperation(*driver, createIntStringRecord(1, "Z"),
+                     OperationCode::QueryGreater, 3);
+  expectKeyOperation(*driver, createIntStringRecord(1, "c"),
+                     OperationCode::QueryLess, 6);
+}
+
+TEST_F(BtrieveDriverTest, CaseInsensitiveUniqueKey) {
+  auto driver = createIntStringDriverWithKey({KeyDefinition(
+      0, 8, 2, KeyDataType::Zstring, UseExtendedDataType | CaseInsensitiveKey,
+      false, 0, 0, 0, "", std::vector<char>())});
+
+  ASSERT_EQ(driver->insertRecord(view(createIntStringRecord(1, "Sysop"))),
+            std::make_pair(BtrieveError::Success, 1u));
+  ASSERT_EQ(driver->insertRecord(view(createIntStringRecord(2, "SYSOP"))),
+            std::make_pair(BtrieveError::DuplicateKeyValue, 0u));
+  ASSERT_EQ(driver->insertRecord(view(createIntStringRecord(2, "Sysop2"))),
+            std::make_pair(BtrieveError::Success, 2u));
+}
+
+// A .DAT key with NOCASE_KEY converts to a case insensitive key: MBBSEMU.DAT
+// key 0 holds "Sysop" in every record.
+TEST_F(BtrieveDriverTest, ConvertsCaseInsensitiveKey) {
+  auto dat = tempPath->copyToTempPath("assets/MBBSEMU.DAT");
+  {
+    // key 0's attributes are at 0x118, see
+    // BtrieveDatabase.LoadsCaseInsensitiveKeyWithoutACS
+    std::fstream file(std::filesystem::path(dat),
+                      std::ios::in | std::ios::out | std::ios::binary);
+    file.seekp(0x119);
+    file.put(0x05);
+  }
+
+  BtrieveDriver driver(new SqliteDatabase());
+  ASSERT_EQ(driver.open(dat.c_str()), BtrieveError::Success);
+
+  std::vector<uint8_t> key(32, 0);
+  memcpy(key.data(), "SYSOP", 5);
+  ASSERT_EQ(driver.performOperation(0, view(key), OperationCode::QueryEqual),
+            BtrieveError::Success);
+  ASSERT_EQ(driver.getPosition(), 1u);
+}
+
+typedef std::vector<std::vector<uint8_t>> KeyValues;
+
+static const size_t TYPED_RECORD_LENGTH = 16;
+
+// Creates a database of 16 byte records keyed by their first length bytes, a
+// unique key of type, and inserts values, which are in Btrieve's order for
+// type, in reverse. Expects key traversal and every range search to follow
+// that order.
+static std::unique_ptr<BtrieveDriver> verifyKeyTypeOrder(
+    KeyDataType type, uint16_t length, const KeyValues &ordered) {
+  KeyDefinition keyDefinition(0, length, 0, type, UseExtendedDataType, false,
+                              0, 0, 0, "", std::vector<char>());
+  auto *database = new SqliteDatabase(SQLITE_OPEN_MEMORY);
+  std::unique_ptr<BtrieveDriver> driver(new BtrieveDriver(database));
+  database
+      ->create(_TEXT("unused.db"),
+               BtrieveDatabase({Key(&keyDefinition, 1)}, 512, 1,
+                               TYPED_RECORD_LENGTH, TYPED_RECORD_LENGTH, 0, 512,
+                               RecordType::Fixed, false, 0))
+      ->onRecordsComplete();
+
+  // ordered[i] is at position n - i
+  const unsigned int n = ordered.size();
+  for (unsigned int i = n; i-- > 0;) {
+    std::vector<uint8_t> record(TYPED_RECORD_LENGTH, 0);
+    std::copy(ordered[i].begin(), ordered[i].end(), record.begin());
+    EXPECT_EQ(driver->insertRecord(view(record)),
+              std::make_pair(BtrieveError::Success, n - i))
+        << "type " << type << " value " << i;
+  }
+
+  std::vector<unsigned int> expected;
+  for (unsigned int i = 0; i < n; ++i) {
+    expected.push_back(n - i);
+  }
+  verifyCompositeOrdering(*driver, 0, expected.data(), expected.size());
+
+  for (unsigned int i = 0; i < n; ++i) {
+    SCOPED_TRACE("type " + std::to_string(type) + " value " +
+                 std::to_string(i));
+    expectKeyOperation(*driver, ordered[i], OperationCode::QueryEqual, n - i);
+    expectKeyOperation(*driver, ordered[i], OperationCode::QueryGreater,
+                       i + 1 < n ? n - i - 1 : 0);
+    expectKeyOperation(*driver, ordered[i], OperationCode::QueryLess,
+                       i > 0 ? n - i + 1 : 0);
+  }
+  return driver;
+}
+
+// Expects key, a different encoding of an inserted value, to find the record
+// at position.
+static void expectSameKey(BtrieveDriver &driver,
+                          const std::vector<uint8_t> &key,
+                          unsigned int position) {
+  expectKeyOperation(driver, key, OperationCode::QueryEqual, position);
+}
+
+static std::vector<uint8_t> date(uint16_t year, uint8_t month, uint8_t day) {
+  return {day, month, static_cast<uint8_t>(year),
+          static_cast<uint8_t>(year >> 8)};
+}
+
+static std::vector<uint8_t> timeOfDay(uint8_t hours, uint8_t minutes,
+                                      uint8_t seconds, uint8_t hundredths) {
+  return {hundredths, seconds, minutes, hours};
+}
+
+// Packs digits, then a sign nibble, as DECIMAL BCD, left padded with zeros to
+// length bytes.
+static std::vector<uint8_t> packedDecimal(const char *digits, uint8_t sign,
+                                          size_t length) {
+  std::string nibbles(length * 2 - 1 - strlen(digits), '0');
+  nibbles += digits;
+  std::vector<uint8_t> bytes;
+  for (size_t i = 0; i < nibbles.size(); i += 2) {
+    const uint8_t high = nibbles[i] - '0';
+    const uint8_t low = i + 1 < nibbles.size() ? nibbles[i + 1] - '0' : sign;
+    bytes.push_back(high << 4 | low);
+  }
+  return bytes;
+}
+
+static std::vector<uint8_t> ascii(const char *value) {
+  return std::vector<uint8_t>(value, value + strlen(value));
+}
+
+static std::vector<uint8_t> littleEndian(uint64_t value, size_t length) {
+  std::vector<uint8_t> bytes;
+  for (size_t i = 0; i < length; ++i) {
+    bytes.push_back(static_cast<uint8_t>(value >> (i * 8)));
+  }
+  return bytes;
+}
+
+// value as a Microsoft Binary Format float of length 4 or 8 bytes: the
+// mantissa (with the sign in its top bit) then an exponent biased by 128,
+// where the mantissa is 0.1mmm in binary.
+static std::vector<uint8_t> bfloat(double value, size_t length) {
+  std::vector<uint8_t> bytes(length, 0);
+  if (value == 0) {
+    return bytes;
+  }
+
+  int exponent;
+  const double fraction = frexp(fabs(value), &exponent);  // [0.5, 1)
+  const unsigned int mantissaBits = (length - 1) * 8 - 1;
+  const uint64_t mantissa =
+      static_cast<uint64_t>(ldexp(fraction * 2 - 1, mantissaBits));
+  bytes = littleEndian(mantissa, length - 1);
+  if (value < 0) {
+    bytes[length - 2] |= 0x80;
+  }
+  bytes.push_back(static_cast<uint8_t>(exponent + 128));
+  return bytes;
+}
+
+// DATE and TIME compare by their most significant field, the last bytes.
+TEST_F(BtrieveDriverTest, DateAndTimeKeyOrder) {
+  verifyKeyTypeOrder(KeyDataType::Date, 4,
+                     {date(1999, 12, 31), date(2000, 1, 1), date(2000, 1, 2),
+                      date(2000, 2, 1), date(2001, 1, 1), date(2024, 7, 15)});
+  verifyKeyTypeOrder(KeyDataType::Time, 4,
+                     {timeOfDay(0, 0, 0, 99), timeOfDay(0, 0, 1, 0),
+                      timeOfDay(0, 1, 0, 0), timeOfDay(1, 0, 0, 0),
+                      timeOfDay(23, 59, 59, 99)});
+}
+
+TEST_F(BtrieveDriverTest, DecimalKeyOrder) {
+  for (auto type : {KeyDataType::Decimal, KeyDataType::Money}) {
+    auto driver = verifyKeyTypeOrder(
+        type, 3,
+        {packedDecimal("12345", 0xD, 3), packedDecimal("100", 0xD, 3),
+         packedDecimal("1", 0xD, 3), packedDecimal("0", 0xF, 3),
+         packedDecimal("1", 0xF, 3), packedDecimal("99", 0xF, 3),
+         packedDecimal("12345", 0xF, 3)});
+
+    // 0xC is positive too, and negative zero is zero
+    expectSameKey(*driver, packedDecimal("1", 0xC, 3), 3);
+    expectSameKey(*driver, packedDecimal("0", 0xD, 3), 4);
+  }
+}
+
+// 12 bytes holds 23 digits, too many for an INTEGER.
+TEST_F(BtrieveDriverTest, LongDecimalKeyOrder) {
+  auto driver = verifyKeyTypeOrder(
+      KeyDataType::Decimal, 12,
+      {packedDecimal("99999999999999999999999", 0xD, 12),
+       packedDecimal("10000000000000000000000", 0xD, 12),
+       packedDecimal("2", 0xD, 12), packedDecimal("1", 0xD, 12),
+       packedDecimal("0", 0xF, 12), packedDecimal("1", 0xF, 12),
+       packedDecimal("10000000000000000000000", 0xF, 12),
+       packedDecimal("99999999999999999999999", 0xF, 12)});
+
+  expectSameKey(*driver, packedDecimal("0", 0xD, 12), 4);
+}
+
+TEST_F(BtrieveDriverTest, NumericKeyOrder) {
+  // the last digit's overpunch: '}' and 'J' to 'R' negative, '{' and 'A' to
+  // 'I' or a plain digit positive
+  auto driver = verifyKeyTypeOrder(
+      KeyDataType::Numeric, 4,
+      {ascii("012L"), ascii("001}"), ascii("000J"), ascii("0000"),
+       ascii("0001"), ascii("0012"), ascii("123{"), ascii("9999")});
+
+  expectSameKey(*driver, ascii("000A"), 4);
+  expectSameKey(*driver, ascii("000}"), 5);
+  // leading spaces read as zeros
+  expectSameKey(*driver, ascii("  12"), 3);
+}
+
+TEST_F(BtrieveDriverTest, LongNumericKeyOrder) {
+  verifyKeyTypeOrder(KeyDataType::Numeric, 16,
+                     {ascii("999999999999999R"), ascii("000000000000001J"),
+                      ascii("0000000000000000"), ascii("0000000000000001"),
+                      ascii("999999999999999I")});
+}
+
+TEST_F(BtrieveDriverTest, NumericSAAndSTSKeyOrder) {
+  // 'p' to 'y' negative, 'P' to 'Y' or a plain digit positive
+  auto driver = verifyKeyTypeOrder(
+      KeyDataType::NumericSA, 3,
+      {ascii("01q"), ascii("00q"), ascii("000"), ascii("00Q"), ascii("011")});
+  expectSameKey(*driver, ascii("001"), 2);
+  expectSameKey(*driver, ascii("00p"), 3);
+
+  // a separate trailing sign
+  driver = verifyKeyTypeOrder(KeyDataType::NumericSTS, 4,
+                              {ascii("123-"), ascii("001-"), ascii("000+"),
+                               ascii("001+"), ascii("123+")});
+  expectSameKey(*driver, ascii("000-"), 3);
+}
+
+TEST_F(BtrieveDriverTest, BfloatKeyOrder) {
+  for (size_t length : {4, 8}) {
+    KeyValues ordered;
+    for (double value : {-1e6, -1000.5, -2.0, -1.0, -0.5, 0.0, 0.25, 1.0, 1.5,
+                         3.0, 1e6}) {
+      ordered.push_back(bfloat(value, length));
+    }
+    verifyKeyTypeOrder(KeyDataType::Bfloat, length, ordered);
+  }
+
+  // 1.0, then 1.0 plus the lowest of 55 mantissa bits, which a double can't
+  // hold
+  ASSERT_EQ(bfloat(1.0, 8),
+            std::vector<uint8_t>({0, 0, 0, 0, 0, 0, 0, 0x81}));
+  verifyKeyTypeOrder(KeyDataType::Bfloat, 8,
+                     {bfloat(1.0, 8), {1, 0, 0, 0, 0, 0, 0, 0x81}});
+}
+
+// 8 byte unsigned values from 2^63 up don't fit SQLite's signed INTEGER.
+TEST_F(BtrieveDriverTest, EightByteUnsignedKeyOrder) {
+  const KeyValues ordered = {
+      littleEndian(0, 8), littleEndian(1, 8),
+      littleEndian(0x7FFFFFFFFFFFFFFF, 8), littleEndian(0x8000000000000000, 8),
+      littleEndian(0xFFFFFFFFFFFFFFFF, 8)};
+  for (auto type : {KeyDataType::UnsignedBinary, KeyDataType::Unsigned,
+                    KeyDataType::OldBinary, KeyDataType::Timestamp}) {
+    verifyKeyTypeOrder(type, 8, ordered);
+  }
+}
+
+TEST_F(BtrieveDriverTest, CurrencyKeyOrder) {
+  verifyKeyTypeOrder(KeyDataType::Currency, 8,
+                     {littleEndian(0x8000000000000000, 8),
+                      littleEndian(-1, 8), littleEndian(0, 8),
+                      littleEndian(1, 8),
+                      littleEndian(0x7FFFFFFFFFFFFFFF, 8)});
+}
+
+// A 16 byte record with a null indicator at 0, then a ZSTRING name at 1.
+static std::vector<uint8_t> createNullableNameRecord(uint8_t indicator,
+                                                     const char *name) {
+  std::vector<uint8_t> record(TYPED_RECORD_LENGTH, 0);
+  record[0] = indicator;
+  memcpy(record.data() + 1, name, strlen(name));
+  return record;
+}
+
+// Creates a database of createNullableNameRecord records keyed by
+// (indicator, name), with indicatorAttributes on the indicator.
+static std::unique_ptr<BtrieveDriver> createNullableNameDriver(
+    uint16_t keyAttributes, uint16_t indicatorAttributes,
+    const std::wstring &path = _TEXT("unused.db")) {
+  KeyDefinition segments[2] = {
+      KeyDefinition(0, 1, 0, KeyDataType::NullIndicator,
+                    UseExtendedDataType | SegmentedKey | keyAttributes |
+                        indicatorAttributes,
+                    true, 0, 0, 0, "", std::vector<char>()),
+      KeyDefinition(0, 8, 1, KeyDataType::Zstring,
+                    UseExtendedDataType | keyAttributes, false, 0, 1, 0, "",
+                    std::vector<char>())};
+
+  auto *database = new SqliteDatabase(
+      path == _TEXT("unused.db") ? SQLITE_OPEN_MEMORY : 0);
+  std::unique_ptr<BtrieveDriver> driver(new BtrieveDriver(database));
+  database
+      ->create(path.c_str(),
+               BtrieveDatabase({Key(segments, 2)}, 512, 1,
+                               TYPED_RECORD_LENGTH, TYPED_RECORD_LENGTH, 0, 512,
+                               RecordType::Fixed, false, 0))
+      ->onRecordsComplete();
+  return driver;
+}
+
+static void insertNullableNameRecords(BtrieveDriver &driver) {
+  unsigned int position = 1;
+  for (auto &record :
+       {createNullableNameRecord(0, "b"), createNullableNameRecord(1, "zz"),
+        createNullableNameRecord(0, "a"), createNullableNameRecord(5, "a"),
+        createNullableNameRecord(0, "")}) {
+    ASSERT_EQ(driver.insertRecord(view(record)),
+              std::make_pair(BtrieveError::Success, position++));
+  }
+}
+
+// True nulls sort after values on an ascending indicator, together as
+// duplicates whatever their field holds. A search for a null, with any
+// non-zero indicator, finds the group.
+TEST_F(BtrieveDriverTest, TrueNullsSortAfterValues) {
+  auto driver = createNullableNameDriver(Duplicates, 0);
+  insertNullableNameRecords(*driver);
+
+  // ("")5 ("a")3 ("b")1, then the nulls 2 and 4
+  static const unsigned int EXPECTED[] = {5, 3, 1, 2, 4};
+  verifyCompositeOrdering(*driver, 0, EXPECTED, std::size(EXPECTED));
+
+  auto null = createNullableNameRecord(9, "q");
+  expectKeyOperation(*driver, null, OperationCode::QueryEqual, 2);
+  expectKeyOperation(*driver, null, OperationCode::QueryGreaterOrEqual, 2);
+  expectKeyOperation(*driver, null, OperationCode::QueryLessOrEqual, 4);
+  expectKeyOperation(*driver, null, OperationCode::QueryGreater, 0);
+  expectKeyOperation(*driver, null, OperationCode::QueryLess, 1);
+
+  expectKeyOperation(*driver, createNullableNameRecord(0, "b"),
+                     OperationCode::QueryGreater, 2);
+  ASSERT_EQ(driver->performOperation(0, view(createNullableNameRecord(0, "c")),
+                                     OperationCode::QueryEqual),
+            BtrieveError::KeyValueNotFound);
+}
+
+// A descending indicator puts true nulls first.
+TEST_F(BtrieveDriverTest, DescendingNullIndicatorSortsTrueNullsFirst) {
+  auto driver = createNullableNameDriver(Duplicates, DescendingKeySegment);
+  insertNullableNameRecords(*driver);
+
+  static const unsigned int EXPECTED[] = {2, 4, 5, 3, 1};
+  verifyCompositeOrdering(*driver, 0, EXPECTED, std::size(EXPECTED));
+
+  auto null = createNullableNameRecord(1, "");
+  expectKeyOperation(*driver, null, OperationCode::QueryGreater, 5);
+  expectKeyOperation(*driver, null, OperationCode::QueryLess, 0);
+}
+
+// DISTINCT (0x400) keeps each non-zero indicator its own group of nulls.
+TEST_F(BtrieveDriverTest, DistinctNullIndicator) {
+  auto driver = createNullableNameDriver(Duplicates, CaseInsensitiveKey);
+  for (auto &record :
+       {createNullableNameRecord(18, "x"), createNullableNameRecord(0, "a"),
+        createNullableNameRecord(17, "y"), createNullableNameRecord(18, "z")}) {
+    ASSERT_EQ(driver->insertRecord(view(record)).first, BtrieveError::Success);
+  }
+
+  static const unsigned int EXPECTED[] = {2, 3, 1, 4};
+  verifyCompositeOrdering(*driver, 0, EXPECTED, std::size(EXPECTED));
+
+  expectKeyOperation(*driver, createNullableNameRecord(18, ""),
+                     OperationCode::QueryEqual, 1);
+  expectKeyOperation(*driver, createNullableNameRecord(17, ""),
+                     OperationCode::QueryEqual, 3);
+  ASSERT_EQ(driver->performOperation(0, view(createNullableNameRecord(19, "")),
+                                     OperationCode::QueryEqual),
+            BtrieveError::KeyValueNotFound);
+}
+
+// True nulls aren't equal to each other, so a unique key holds any number,
+// while values stay unique.
+TEST_F(BtrieveDriverTest, UniqueKeyHoldsTrueNulls) {
+  std::string dbPath = tempPath->getTempPath() + "/TRUENULL.DB";
+  {
+    auto driver = createNullableNameDriver(Modifiable, 0,
+                                           toWideString(dbPath.c_str()));
+    ASSERT_EQ(driver->insertRecord(view(createNullableNameRecord(1, "a"))),
+              std::make_pair(BtrieveError::Success, 1u));
+    ASSERT_EQ(driver->insertRecord(view(createNullableNameRecord(1, "a"))),
+              std::make_pair(BtrieveError::Success, 2u));
+    ASSERT_EQ(driver->insertRecord(view(createNullableNameRecord(0, "a"))),
+              std::make_pair(BtrieveError::Success, 3u));
+    ASSERT_EQ(driver->insertRecord(view(createNullableNameRecord(0, "a"))),
+              std::make_pair(BtrieveError::DuplicateKeyValue, 0u));
+    ASSERT_EQ(driver->updateRecord(1, view(createNullableNameRecord(0, "a"))),
+              BtrieveError::DuplicateKeyValue);
+    ASSERT_EQ(driver->updateRecord(1, view(createNullableNameRecord(0, "b"))),
+              BtrieveError::Success);
+
+    // each null counts as its own value
+    ASSERT_EQ(driver->getUniqueKeyCount(driver->getKeys()[0]), 3u);
+  }
+
+  sqlite3 *db;
+  ASSERT_EQ(sqlite3_open_v2(dbPath.c_str(), &db, SQLITE_OPEN_READONLY, nullptr),
+            SQLITE_OK);
+  std::vector<std::string> indices;
+  ASSERT_EQ(sqlite_exec(db,
+                        "SELECT sql FROM sqlite_master WHERE type = 'index' "
+                        "AND tbl_name = 'data_t' ORDER BY name",
+                        [&](int numResults, char **data, char **columns) {
+                          indices.push_back(data[0]);
+                        }),
+            SQLITE_OK);
+  sqlite3_close(db);
+
+  EXPECT_EQ(indices,
+            std::vector<std::string>(
+                {"CREATE INDEX key_0_index on data_t(key_0_0, key_0_1)",
+                 "CREATE UNIQUE INDEX key_0_unique on data_t(key_0_0, "
+                 "key_0_1) WHERE key_0_0 = 0"}));
 }

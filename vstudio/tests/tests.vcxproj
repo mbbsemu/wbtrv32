@@ -148,6 +148,7 @@ copy /Y $(SolutionDir)..\bin\wbtrv32\$(Platform)\$(Configuration)\wbtrv32.pdb $(
     <ClCompile Include="..\..\btrieve\BtrieveDriver_test.cc" />
     <ClCompile Include="..\..\btrieve\Key_test.cc" />
     <ClCompile Include="..\..\btrieve\LRUCache_test.cc" />
+    <ClCompile Include="..\..\btrieve\SqliteUtil_test.cc" />
     <ClCompile Include="..\..\btrieve\TestBase.cc" />
     <ClCompile Include="..\wbtrv32\bad_data.cc">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">false</ExcludedFromBuild>

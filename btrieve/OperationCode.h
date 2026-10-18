@@ -124,6 +124,7 @@ enum OperationCode {
   // +500 no-wait bias (1519..1919).
   WITH_RECORD_LOCK(BeginTransaction, 0x13),
   WITH_RECORD_LOCK(BeginConcurrentTransaction, 1019),
+  WITH_RECORD_LOCK(BeginConcurrentNoWaitTransaction, 1519),
   EndTransaction = 0x14,
   AbortTransaction = 0x15,
 

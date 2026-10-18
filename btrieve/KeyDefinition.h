@@ -38,6 +38,11 @@ class KeyDefinition {
                              number);
     }
 
+    if (dataType_ == KeyDataType::NullIndicator && length_ != 1) {
+      throw BtrieveException(BtrieveError::BadKeyLength,
+                             "Null indicator segment isn't 1 byte");
+    }
+
     if (dataType_ == KeyDataType::Float && (length_ != 8 && length_ != 4)) {
       throw BtrieveException(
           BtrieveError::BadKeyLength,
@@ -60,9 +65,35 @@ class KeyDefinition {
 
   uint16_t getPosition() const { return offset + 1; }
 
-  bool requiresACS() const { return attributes & NumberedACS; }
+  // A null indicator segment ignores the ACS flag.
+  bool requiresACS() const {
+    return (attributes & NumberedACS) && !isNullIndicator();
+  }
+
+  bool isNullIndicator() const {
+    return dataType == KeyDataType::NullIndicator;
+  }
+
+  // On a null indicator segment the case insensitive flag means DISTINCT:
+  // each non-zero byte is its own kind of null, rather than all being one.
+  bool isDistinctNullIndicator() const {
+    return isNullIndicator() && (attributes & CaseInsensitiveKey);
+  }
+
+  // A string segment that sorts without regard to case. It has no effect
+  // with an ACS, which then governs the order.
+  bool isCaseInsensitive() const {
+    return (attributes & CaseInsensitiveKey) && !requiresACS() &&
+           (dataType == KeyDataType::String ||
+            dataType == KeyDataType::Lstring ||
+            dataType == KeyDataType::Zstring ||
+            dataType == KeyDataType::OldAscii);
+  }
 
   bool isModifiable() const { return attributes & Modifiable; }
+
+  // Each segment sorts in its own direction.
+  bool isDescending() const { return attributes & DescendingKeySegment; }
 
   bool allowDuplicates() const {
     return attributes & (Duplicates | RepeatingDuplicatesKey);
