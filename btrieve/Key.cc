@@ -172,14 +172,19 @@ static bool isBigEndian() {
 
 static bool bigEndian = isBigEndian();
 
-// Converts one segment's (already ACS mapped) bytes to its SQLite value. data
-// can be shorter than the segment when searching with a truncated key, in
-// which case the missing bytes read as zero.
+// Converts one segment's (already ACS mapped) bytes to its SQLite value.
+// Searching with a truncated key supplies only the first supplied bytes of the
+// segment, possibly none. The missing bytes read as zero, except that a signed
+// integer's missing high bytes extend the sign of the last byte supplied, so
+// 0xFF for a 2 byte INTEGER is -1 rather than 255. data can also be shorter
+// than the segment, in which case the bytes past it are missing too.
 static BindableValue segmentDataToSqliteObject(
-    const KeyDefinition &segment, std::basic_string_view<uint8_t> data) {
+    const KeyDefinition &segment, std::basic_string_view<uint8_t> data,
+    size_t supplied) {
   const uint16_t length = segment.getLength();
+  supplied = std::min<size_t>({supplied, length, data.size()});
   auto byteAt = [&](size_t i) -> uint8_t {
-    return i < data.size() ? data[i] : 0;
+    return i < supplied ? data[i] : 0;
   };
 
   uint64_t value = 0;
@@ -189,7 +194,7 @@ static BindableValue segmentDataToSqliteObject(
     case KeyDataType::AutoInc:
     case KeyDataType::Integer:
       // extend sign bit
-      if (length > 0 && (byteAt(length - 1) & 0x80)) {
+      if (supplied > 0 && (byteAt(supplied - 1) & 0x80)) {
         value = -1;
       }
       // fall through on purpose
@@ -197,7 +202,7 @@ static BindableValue segmentDataToSqliteObject(
     case KeyDataType::UnsignedBinary:
     case KeyDataType::OldBinary:
       if (length > 0 && length <= 8) {
-        for (int i = 0; i < length; ++i) {
+        for (size_t i = 0; i < supplied; ++i) {
           if (bigEndian) {
             subValue[7 - i] = byteAt(i);
           } else {
@@ -253,8 +258,10 @@ BindableValue Key::singleKeyDataToSqliteObject(
 
   std::vector<uint8_t> modifiedKeyData = applyACS(keyData);
   return segmentDataToSqliteObject(
-      getPrimarySegment(), std::basic_string_view<uint8_t>(
-                               modifiedKeyData.data(), modifiedKeyData.size()));
+      getPrimarySegment(),
+      std::basic_string_view<uint8_t>(modifiedKeyData.data(),
+                                      modifiedKeyData.size()),
+      keyData.size());
 }
 
 // Only a key declared nullable can be null. Otherwise an empty string is an
@@ -293,7 +300,8 @@ std::vector<BindableValue> Key::keyDataToSqliteObjects(
     return values;
   }
 
-  // search keys may be truncated, so treat missing bytes as zero
+  // search keys may be truncated, so pad with zeros for the null check and
+  // ACS, and tell each segment's conversion how many of its bytes were supplied
   std::vector<uint8_t> paddedKeyData(keyData.data(),
                                      keyData.data() + keyData.size());
   paddedKeyData.resize(getLength(), 0);
@@ -310,8 +318,11 @@ std::vector<BindableValue> Key::keyDataToSqliteObjects(
                                                       modifiedKeyData.size());
   size_t offset = 0;
   for (auto &segment : segments) {
+    const size_t supplied =
+        keyData.size() > offset ? keyData.size() - offset : 0;
     values.push_back(segmentDataToSqliteObject(
-        segment, modifiedKeyDataView.substr(offset, segment.getLength())));
+        segment, modifiedKeyDataView.substr(offset, segment.getLength()),
+        supplied));
     offset += segment.getLength();
   }
 

@@ -46,7 +46,7 @@ test both bits: `(attributes & MultipleACS) == MultipleACS`.
 | Each segment uses the key's ACS or none; only segments that specify it collate with it | `Key::applyACS` checks each segment's flag |
 | NUL (0x08): null only if every segment is null. MANUAL_KEY (0x200): null if any segment is. A segment is null when every byte is the null value, strings included | `Key::isNullKeyData`, for single and composite keys alike |
 | If one segment is modifiable, all must be | Primary segment's flag; the trigger covers every column |
-| Partial key search: set known leading segments, low trailing ones, Get Greater Or Equal | Row value `>=`; short key buffers are zero padded |
+| Partial key search: set known leading segments, low trailing ones, Get Greater Or Equal | Row value `>=`; a key buffer shorter than the key (only possible through the driver, since the DLL returns status 21) is zero padded, except that a signed integer segment cut short extends its last byte's sign |
 | Duplicates come back in insertion order | Every key query orders by `id` last |
 | An AUTOINCREMENT key can be an integer segment of a higher numbered key | Its single segment key assigns the value before the composite columns are computed |
 | LSTRING ignores bytes past its length, ZSTRING bytes after the first zero | Both convert to TEXT of the real length |

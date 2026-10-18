@@ -224,6 +224,72 @@ TEST(Key, CompositeKeyTruncatedKeyDataIsZeroPadded) {
   EXPECT_EQ(actual[1].getIntegerValue(), 0x03);
 }
 
+// A search key can end partway through an integer segment. A signed
+// segment's missing high bytes extend the sign of the last byte supplied, an
+// unsigned segment's are zero, and a segment with no bytes supplied is zero.
+struct TruncatedIntegerFixtureType {
+  KeyDataType type;
+  uint16_t length;
+  std::vector<uint8_t> keyData;
+  int64_t expected;
+};
+
+class TruncatedIntegerFixture
+    : public testing::TestWithParam<TruncatedIntegerFixtureType> {};
+
+TEST_P(TruncatedIntegerFixture, SingleKey) {
+  const TruncatedIntegerFixtureType &view = GetParam();
+
+  KeyDefinition keyDefinition(0, view.length, 0, view.type,
+                              UseExtendedDataType, false, 0, 0, 0, "",
+                              std::vector<char>());
+  Key key(&keyDefinition, 1);
+
+  auto actual = key.searchKeyDataToSqliteObjects(
+      std::basic_string_view<uint8_t>(view.keyData.data(),
+                                      view.keyData.size()));
+  ASSERT_EQ(actual.size(), 1u);
+  EXPECT_EQ(actual[0].getIntegerValue(), view.expected);
+}
+
+// The same segment after a 2 byte INTEGER segment, which is supplied in full.
+TEST_P(TruncatedIntegerFixture, CompositeKey) {
+  const TruncatedIntegerFixtureType &view = GetParam();
+
+  KeyDefinition keyDefinitions[2] = {
+      KeyDefinition(0, 2, 0, KeyDataType::Integer, UseExtendedDataType, true,
+                    0, 0, 0, "", std::vector<char>()),
+      KeyDefinition(0, view.length, 2, view.type, UseExtendedDataType, false,
+                    0, 1, 0, "", std::vector<char>())};
+  Key key(keyDefinitions, 2);
+
+  std::vector<uint8_t> keyData = {0xFE, 0xFF};
+  keyData.insert(keyData.end(), view.keyData.begin(), view.keyData.end());
+
+  auto actual = key.searchKeyDataToSqliteObjects(
+      std::basic_string_view<uint8_t>(keyData.data(), keyData.size()));
+  ASSERT_EQ(actual.size(), 2u);
+  EXPECT_EQ(actual[0].getIntegerValue(), -2);
+  EXPECT_EQ(actual[1].getIntegerValue(), view.expected);
+}
+
+INSTANTIATE_TEST_CASE_P(
+    Key, TruncatedIntegerFixture,
+    ::testing::ValuesIn(std::vector<TruncatedIntegerFixtureType>{
+        {KeyDataType::Integer, 2, {}, 0},
+        {KeyDataType::Integer, 2, {0xFF}, -1},
+        {KeyDataType::Integer, 2, {0x80}, -128},
+        {KeyDataType::Integer, 2, {0x7F}, 127},
+        {KeyDataType::Integer, 2, {0xFF, 0x7F}, 0x7FFF},
+        {KeyDataType::Integer, 2, {0x00, 0x80}, -32768},
+        {KeyDataType::Integer, 4, {0x00, 0x80}, -32768},
+        {KeyDataType::Integer, 4, {0x01, 0x02, 0x03}, 0x030201},
+        {KeyDataType::Integer, 8, {0xFE, 0xFF, 0xFF}, -2},
+        {KeyDataType::AutoInc, 4, {0xFF}, -1},
+        {KeyDataType::Unsigned, 2, {0xFF}, 0xFF},
+        {KeyDataType::UnsignedBinary, 4, {0x00, 0x80}, 0x8000},
+    }));
+
 struct CompositeNullFixtureType {
   uint16_t nullAttribute;
   bool firstSegmentNull;

@@ -3304,3 +3304,21 @@ TEST_F(BtrieveDriverTest, ZstringKeyWithBytesAfterTerminatorIsIndexed) {
             BtrieveError::Success);
   ASSERT_EQ(driver.getPosition(), 1u);
 }
+
+// A search key ending partway through a signed integer segment extends the
+// sign of its last byte, so a single 0xFF byte searches for -1.
+TEST_F(BtrieveDriverTest, CompositeSearchWithTruncatedIntegerSegment) {
+  auto driver = createIntStringDriver(Duplicates, /* stringFirst= */ true);
+  insertIntStringRecords(*driver);
+
+  // name "a" then the low byte of a
+  std::vector<uint8_t> key = {'a', 0, 0, 0, 0, 0, 0, 0, 0xFF};
+  ASSERT_EQ(driver->performOperation(0, view(key), OperationCode::QueryEqual),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 2u);
+
+  key.back() = 0x00;
+  ASSERT_EQ(driver->performOperation(0, view(key), OperationCode::QueryEqual),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 8u);
+}
