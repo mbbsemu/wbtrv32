@@ -64,6 +64,9 @@ class KeyDefinition {
 
   bool isModifiable() const { return attributes & Modifiable; }
 
+  // Each segment sorts in its own direction.
+  bool isDescending() const { return attributes & DescendingKeySegment; }
+
   bool allowDuplicates() const {
     return attributes & (Duplicates | RepeatingDuplicatesKey);
   }

@@ -14,9 +14,19 @@ void throwException(int errorCode);
 // "key_1_0 DESC, key_1_1 DESC".
 std::string sqliteKeyColumns(const Key &key, const char *suffix = "");
 
-// Compares the key's columns against parameters @value0..@valueN-1 with op.
-// Composite keys use a row value, e.g. "(key_1_0, key_1_1) > (@value0,
-// @value1)", which orders segment by segment and can seek the key's index.
+// ORDER BY terms for the key's index order, each column in its segment's
+// direction, or the opposite when reverse, e.g. "key_1_0 ASC, key_1_1 DESC".
+std::string sqliteKeyOrder(const Key &key, bool reverse);
+
+// The key's columns for CREATE INDEX, with DESC after descending segments.
+std::string sqliteKeyIndexColumns(const Key &key);
+
+// Compares the key's columns against parameters @value0..@valueN-1 with op
+// (>, >=, < or <=) in the key's index order, so on a descending segment >
+// means a lower value. When every segment sorts the same way it's a row value,
+// e.g. "(key_1_0, key_1_1) > (@value0, @value1)", which orders segment by
+// segment and can seek the key's index. Mixed directions are compared segment
+// by segment instead.
 std::string sqliteKeyComparison(const Key &key, const char *op);
 
 // Matches each of the key's columns against parameters @value0..@valueN-1,

@@ -3445,3 +3445,226 @@ TEST_F(BtrieveDriverTest, CompositeIntACSLstring) {
             BtrieveError::Success);
   ASSERT_EQ(driver->getPosition(), 4u);
 }
+
+// Creates an in memory database of IntStringRecordStruct records with one key
+// made of segments.
+static std::unique_ptr<BtrieveDriver> createIntStringDriverWithKey(
+    std::vector<KeyDefinition> segments) {
+  auto *database = new SqliteDatabase(SQLITE_OPEN_MEMORY);
+  std::unique_ptr<BtrieveDriver> driver(new BtrieveDriver(database));
+  database
+      ->create(_TEXT("unused.db"),
+               BtrieveDatabase({Key(segments.data(), segments.size())}, 512, 1,
+                               sizeof(IntStringRecordStruct),
+                               sizeof(IntStringRecordStruct), 0, 512,
+                               RecordType::Fixed, false, 0))
+      ->onRecordsComplete();
+  return driver;
+}
+
+static KeyDefinition intSegment(uint16_t attributes) {
+  return KeyDefinition(0, 2, 0, KeyDataType::Integer,
+                       UseExtendedDataType | Duplicates | attributes, true, 0,
+                       0, 0, "", std::vector<char>());
+}
+
+static KeyDefinition stringSegment(uint16_t attributes) {
+  return KeyDefinition(0, 8, 2, KeyDataType::Zstring,
+                       UseExtendedDataType | Duplicates | attributes, true, 0,
+                       0, 0, "", std::vector<char>());
+}
+
+// Expects operation with key to find expectedPosition, or fail with
+// EndOfFile when it's 0.
+static void expectKeyOperation(BtrieveDriver &driver,
+                               const std::vector<uint8_t> &key,
+                               OperationCode operation,
+                               unsigned int expectedPosition) {
+  auto error = driver.performOperation(0, view(key), operation);
+  if (expectedPosition == 0) {
+    EXPECT_EQ(error, BtrieveError::EndOfFile) << "operation " << operation;
+    return;
+  }
+  ASSERT_EQ(error, BtrieveError::Success) << "operation " << operation;
+  EXPECT_EQ(driver.getPosition(), expectedPosition)
+      << "operation " << operation;
+}
+
+// The (name, a) key buffer for a record's values.
+static std::vector<uint8_t> stringIntKey(int16_t a, const char *name) {
+  auto record = createIntStringRecord(a, name);
+  std::vector<uint8_t> key(record.begin() + 2, record.end());
+  key.insert(key.end(), record.begin(), record.begin() + 2);
+  return key;
+}
+
+// A descending key runs from high to low, and Get Greater means later in
+// that order, so a lower value.
+TEST_F(BtrieveDriverTest, DescendingIntegerKey) {
+  auto driver = createIntStringDriverWithKey(
+      {KeyDefinition(0, 2, 0, KeyDataType::Integer,
+                     UseExtendedDataType | Duplicates | DescendingKeySegment,
+                     false, 0, 0, 0, "", std::vector<char>())});
+  for (int16_t a : {5, -1, 0, -32768, 7, -1}) {
+    ASSERT_EQ(driver->insertRecord(view(createIntStringRecord(a, "x"))).first,
+              BtrieveError::Success);
+  }
+
+  // duplicates stay in insertion order
+  static const unsigned int EXPECTED[] = {5, 1, 3, 2, 6, 4};
+  verifyCompositeOrdering(*driver, 0, EXPECTED, std::size(EXPECTED));
+
+  auto key = [](int16_t a) {
+    std::vector<uint8_t> key(sizeof(a));
+    memcpy(key.data(), &a, sizeof(a));
+    return key;
+  };
+  expectKeyOperation(*driver, key(0), OperationCode::QueryGreater, 2);
+  expectKeyOperation(*driver, key(0), OperationCode::QueryGreaterOrEqual, 3);
+  expectKeyOperation(*driver, key(0), OperationCode::QueryLess, 1);
+  expectKeyOperation(*driver, key(0), OperationCode::QueryLessOrEqual, 3);
+  expectKeyOperation(*driver, key(1), OperationCode::QueryGreaterOrEqual, 3);
+  expectKeyOperation(*driver, key(1), OperationCode::QueryLessOrEqual, 1);
+  expectKeyOperation(*driver, key(-32768), OperationCode::QueryGreater, 0);
+  expectKeyOperation(*driver, key(7), OperationCode::QueryLess, 0);
+
+  // change direction through the duplicates
+  std::basic_string_view<uint8_t> unused;
+  expectKeyOperation(*driver, key(-1), OperationCode::QueryEqual, 2);
+  for (auto expected :
+       {std::make_pair(OperationCode::QueryNext, 6u),
+        std::make_pair(OperationCode::QueryNext, 4u),
+        std::make_pair(OperationCode::QueryPrevious, 6u),
+        std::make_pair(OperationCode::QueryPrevious, 2u),
+        std::make_pair(OperationCode::QueryPrevious, 3u),
+        std::make_pair(OperationCode::QueryNext, 2u)}) {
+    ASSERT_EQ(driver->performOperation(0, unused, expected.first),
+              BtrieveError::Success);
+    EXPECT_EQ(driver->getPosition(), expected.second);
+  }
+}
+
+TEST_F(BtrieveDriverTest, AllDescendingCompositeKey) {
+  auto driver = createIntStringDriverWithKey(
+      {intSegment(SegmentedKey | DescendingKeySegment),
+       stringSegment(DescendingKeySegment)});
+  insertIntStringRecords(*driver);
+
+  // the reverse of CompositeIntStringOrdersSignsAndEmptyStrings
+  static const unsigned int EXPECTED[] = {5, 9, 1, 8, 3, 2, 7, 6, 4, 10};
+  verifyCompositeOrdering(*driver, 0, EXPECTED, std::size(EXPECTED));
+
+  expectKeyOperation(*driver, createIntStringRecord(-1, ""),
+                     OperationCode::QueryGreater, 6);
+  expectKeyOperation(*driver, createIntStringRecord(-1, "a"),
+                     OperationCode::QueryGreaterOrEqual, 2);
+  expectKeyOperation(*driver, createIntStringRecord(-1, ""),
+                     OperationCode::QueryLess, 2);
+  expectKeyOperation(*driver, createIntStringRecord(-1, "b"),
+                     OperationCode::QueryLessOrEqual, 3);
+}
+
+TEST_F(BtrieveDriverTest, MixedDirectionCompositeKey) {
+  auto driver = createIntStringDriverWithKey(
+      {intSegment(SegmentedKey), stringSegment(DescendingKeySegment)});
+  insertIntStringRecords(*driver);
+
+  // a ascending, then name descending
+  static const unsigned int EXPECTED[] = {4, 10, 6, 2, 7, 8, 3, 1, 9, 5};
+  verifyCompositeOrdering(*driver, 0, EXPECTED, std::size(EXPECTED));
+
+  expectKeyOperation(*driver, createIntStringRecord(-1, "a"),
+                     OperationCode::QueryGreater, 7);
+  expectKeyOperation(*driver, createIntStringRecord(-1, "a"),
+                     OperationCode::QueryGreaterOrEqual, 2);
+  expectKeyOperation(*driver, createIntStringRecord(-1, ""),
+                     OperationCode::QueryGreater, 8);
+  expectKeyOperation(*driver, createIntStringRecord(-1, "b"),
+                     OperationCode::QueryGreaterOrEqual, 2);
+  expectKeyOperation(*driver, createIntStringRecord(0, "a"),
+                     OperationCode::QueryLess, 7);
+  expectKeyOperation(*driver, createIntStringRecord(0, ""),
+                     OperationCode::QueryLessOrEqual, 3);
+  expectKeyOperation(*driver, createIntStringRecord(0, "b"),
+                     OperationCode::QueryLessOrEqual, 7);
+  expectKeyOperation(*driver, createIntStringRecord(-32768, "z"),
+                     OperationCode::QueryLess, 0);
+  expectKeyOperation(*driver, createIntStringRecord(32767, ""),
+                     OperationCode::QueryGreater, 0);
+
+  std::basic_string_view<uint8_t> unused;
+  expectKeyOperation(*driver, createIntStringRecord(0, "a"),
+                     OperationCode::QueryEqual, 8);
+  for (auto expected : {std::make_pair(OperationCode::QueryNext, 3u),
+                        std::make_pair(OperationCode::QueryPrevious, 8u),
+                        std::make_pair(OperationCode::QueryPrevious, 7u),
+                        std::make_pair(OperationCode::QueryNext, 8u)}) {
+    ASSERT_EQ(driver->performOperation(0, unused, expected.first),
+              BtrieveError::Success);
+    EXPECT_EQ(driver->getPosition(), expected.second);
+  }
+}
+
+TEST_F(BtrieveDriverTest, MixedDirectionCompositeKeyLeadingDescending) {
+  auto driver = createIntStringDriverWithKey(
+      {stringSegment(SegmentedKey | DescendingKeySegment), intSegment(0)});
+  insertIntStringRecords(*driver);
+
+  // name descending, then a ascending
+  static const unsigned int EXPECTED[] = {4, 2, 8, 9, 10, 6, 7, 3, 1, 5};
+  verifyCompositeOrdering(*driver, 0, EXPECTED, std::size(EXPECTED));
+
+  expectKeyOperation(*driver, stringIntKey(255, "a"),
+                     OperationCode::QueryGreater, 10);
+  expectKeyOperation(*driver, stringIntKey(-32768, ""),
+                     OperationCode::QueryLess, 9);
+  expectKeyOperation(*driver, stringIntKey(0, "a"),
+                     OperationCode::QueryGreaterOrEqual, 8);
+  expectKeyOperation(*driver, stringIntKey(0, "z"),
+                     OperationCode::QueryLessOrEqual, 4);
+  expectKeyOperation(*driver, stringIntKey(-32768, "b"),
+                     OperationCode::QueryGreaterOrEqual, 2);
+}
+
+// Descending columns are indexed descending, so SQLite reads the key's order
+// straight from its index.
+TEST_F(BtrieveDriverTest, DescendingSegmentIndex) {
+  std::string dbPath = tempPath->getTempPath() + "/DESCENDING.DB";
+  KeyDefinition segments[2] = {intSegment(SegmentedKey),
+                               stringSegment(DescendingKeySegment)};
+  {
+    SqliteDatabase database;
+    database
+        .create(toWideString(dbPath.c_str()).c_str(),
+                BtrieveDatabase({Key(segments, 2)}, 512, 1,
+                                sizeof(IntStringRecordStruct),
+                                sizeof(IntStringRecordStruct), 0, 512,
+                                RecordType::Fixed, false, 0))
+        ->onRecordsComplete();
+  }
+
+  sqlite3 *db;
+  ASSERT_EQ(sqlite3_open_v2(dbPath.c_str(), &db, SQLITE_OPEN_READONLY, nullptr),
+            SQLITE_OK);
+  std::string index;
+  ASSERT_EQ(sqlite_exec(db,
+                        "SELECT sql FROM sqlite_master WHERE name = "
+                        "'key_0_index'",
+                        [&](int numResults, char **data, char **columns) {
+                          index = data[0];
+                        }),
+            SQLITE_OK);
+  std::string plan;
+  ASSERT_EQ(sqlite_exec(db,
+                        "EXPLAIN QUERY PLAN SELECT id FROM data_t ORDER BY "
+                        "key_0_0 DESC, key_0_1 ASC, id DESC",
+                        [&](int numResults, char **data, char **columns) {
+                          plan += std::string(data[numResults - 1]) + "\n";
+                        }),
+            SQLITE_OK);
+  sqlite3_close(db);
+
+  EXPECT_EQ(index,
+            "CREATE INDEX key_0_index on data_t(key_0_0, key_0_1 DESC)");
+  EXPECT_EQ(plan.find("TEMP B-TREE"), std::string::npos) << plan;
+}

@@ -77,11 +77,11 @@ class SqliteQuery : public Query {
     switch (newDirection) {
       case CursorDirection::Forward:
         sql << sqliteKeyComparison(*key, ">=") << " ORDER BY "
-            << sqliteKeyColumns(*key, " ASC") << ", id ASC";
+            << sqliteKeyOrder(*key, false) << ", id ASC";
         break;
       case CursorDirection::Reverse:
         sql << sqliteKeyComparison(*key, "<=") << " ORDER BY "
-            << sqliteKeyColumns(*key, " DESC") << ", id DESC";
+            << sqliteKeyOrder(*key, true) << ", id DESC";
         break;
       default:
         // could log an error here

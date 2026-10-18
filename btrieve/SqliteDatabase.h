@@ -90,8 +90,7 @@ class SqliteDatabase : public SqlDatabase {
   uint32_t loadSqliteMetadata();
   void loadSqliteKeys();
 
-  BtrieveError getByKeyRange(Query *query, const char *opurator,
-                             const char *direction,
+  BtrieveError getByKeyRange(Query *query, const char *opurator, bool reverse,
                              CursorDirection cursorDirection);
   BtrieveError getByKeyGreater(Query *query, const char *opurator);
   virtual BtrieveError getByKeyGreater(Query *query) override {

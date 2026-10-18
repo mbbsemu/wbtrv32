@@ -53,6 +53,9 @@
     <ClCompile Include="..\..\btrieve\Key_test.cc">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\btrieve\SqliteUtil_test.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\btrieve\TestBase.cc">
       <Filter>Source Files</Filter>
     </ClCompile>

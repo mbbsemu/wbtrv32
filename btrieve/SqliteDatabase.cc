@@ -531,7 +531,7 @@ void SqliteDatabase::createSqliteDataIndices() {
     SqlitePreparedStatement command(
         this->database, "CREATE %s INDEX %s_index on data_t(%s)",
         possiblyUnique, key.getSqliteKeyName().c_str(),
-        sqliteKeyColumns(key).c_str());
+        sqliteKeyIndexColumns(key).c_str());
     command.execute();
   }
 }
@@ -1076,7 +1076,7 @@ BtrieveError SqliteDatabase::getByKeyEqual(Query *query) {
 
   std::stringstream sql;
   sql << "SELECT id, " << sqliteKeyColumns(key) << ", data FROM data_t WHERE "
-      << sqliteKeyEquals(key) << " ORDER BY " << sqliteKeyColumns(key, " ASC")
+      << sqliteKeyEquals(key) << " ORDER BY " << sqliteKeyOrder(key, false)
       << ", id ASC";
 
   SqlitePreparedStatement &command = getPreparedStatement(sql.str().c_str());
@@ -1102,7 +1102,7 @@ BtrieveError SqliteDatabase::getByKeyFirst(Query *query) {
 
   sql << "SELECT id, " << sqliteKeyColumns(*query->getKey())
       << ", data FROM data_t" << sqliteKeyIndexedWhere(*query->getKey())
-      << " ORDER BY " << sqliteKeyColumns(*query->getKey(), " ASC")
+      << " ORDER BY " << sqliteKeyOrder(*query->getKey(), false)
       << ", id ASC";
   SqlitePreparedStatement &command = getPreparedStatement(sql.str().c_str());
 
@@ -1116,7 +1116,7 @@ BtrieveError SqliteDatabase::getByKeyLast(Query *query) {
 
   sql << "SELECT id, " << sqliteKeyColumns(*query->getKey())
       << ", data FROM data_t" << sqliteKeyIndexedWhere(*query->getKey())
-      << " ORDER BY " << sqliteKeyColumns(*query->getKey(), " DESC")
+      << " ORDER BY " << sqliteKeyOrder(*query->getKey(), true)
       << ", id DESC";
   SqlitePreparedStatement &command = getPreparedStatement(sql.str().c_str());
 
@@ -1126,16 +1126,16 @@ BtrieveError SqliteDatabase::getByKeyLast(Query *query) {
 }
 
 // Runs a range query comparing the key against the query's key data with
-// opurator, ordered by direction (" ASC" or " DESC").
+// opurator, in the key's index order, ordered forward or in reverse.
 BtrieveError SqliteDatabase::getByKeyRange(Query *query, const char *opurator,
-                                           const char *direction,
+                                           bool reverse,
                                            CursorDirection cursorDirection) {
   const Key &key = *query->getKey();
   std::stringstream sql;
 
   sql << "SELECT id, " << sqliteKeyColumns(key) << ", data FROM data_t WHERE "
       << sqliteKeyComparison(key, opurator) << " ORDER BY "
-      << sqliteKeyColumns(key, direction) << ", id" << direction;
+      << sqliteKeyOrder(key, reverse) << ", id" << (reverse ? " DESC" : " ASC");
 
   auto values = key.searchKeyDataToSqliteObjects(query->getKeyData());
 
@@ -1151,11 +1151,11 @@ BtrieveError SqliteDatabase::getByKeyRange(Query *query, const char *opurator,
 
 BtrieveError SqliteDatabase::getByKeyGreater(Query *query,
                                              const char *opurator) {
-  return getByKeyRange(query, opurator, " ASC", CursorDirection::Forward);
+  return getByKeyRange(query, opurator, false, CursorDirection::Forward);
 }
 
 BtrieveError SqliteDatabase::getByKeyLess(Query *query, const char *opurator) {
-  return getByKeyRange(query, opurator, " DESC", CursorDirection::Reverse);
+  return getByKeyRange(query, opurator, true, CursorDirection::Reverse);
 }
 
 std::unique_ptr<Query> SqliteDatabase::logicalCurrencySeek(
