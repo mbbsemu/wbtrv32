@@ -246,13 +246,13 @@ static BindableValue segmentDataToSqliteObject(
 }
 
 BindableValue Key::singleKeyDataToSqliteObject(
-    std::basic_string_view<uint8_t> keyData) const {
+    std::basic_string_view<uint8_t> keyData, bool allowNull) const {
   // Only a key declared nullable can be null. Otherwise an empty string is an
   // ordinary value: Btrieve indexes it, and range queries must find it (SQL
   // comparisons never match NULL).
   const bool declaredNullable = (getPrimarySegment().getAttributes() &
                                  (NullAllSegments | NullAnySegment)) != 0;
-  if (declaredNullable &&
+  if (allowNull && declaredNullable &&
       (isAllSameByteValue(
            keyData, getPrimarySegment().getNullValue()) ||  // legacy null check
        (getPrimarySegment().getDataType() ==
@@ -293,11 +293,11 @@ bool Key::isNullCompositeKeyData(
 }
 
 std::vector<BindableValue> Key::keyDataToSqliteObjects(
-    std::basic_string_view<uint8_t> keyData) const {
+    std::basic_string_view<uint8_t> keyData, bool allowNull) const {
   std::vector<BindableValue> values;
 
   if (!isComposite()) {
-    values.push_back(singleKeyDataToSqliteObject(keyData));
+    values.push_back(singleKeyDataToSqliteObject(keyData, allowNull));
     return values;
   }
 
@@ -308,7 +308,7 @@ std::vector<BindableValue> Key::keyDataToSqliteObjects(
   std::basic_string_view<uint8_t> paddedKeyDataView(paddedKeyData.data(),
                                                     paddedKeyData.size());
 
-  if (isNullCompositeKeyData(paddedKeyDataView)) {
+  if (allowNull && isNullCompositeKeyData(paddedKeyDataView)) {
     values.resize(segments.size());
     return values;
   }

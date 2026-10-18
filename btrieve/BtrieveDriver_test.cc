@@ -181,9 +181,9 @@ TEST_F(BtrieveDriverTest, LoadsAndConverts) {
 
   static const char *EXPECTED_TRIGGERS_SQL =
       "CREATE TRIGGER non_modifiable "
-      "BEFORE UPDATE ON data_t BEGIN SELECT CASE WHEN NEW.key_0 != "
+      "BEFORE UPDATE ON data_t BEGIN SELECT CASE WHEN NEW.key_0 IS NOT "
       "OLD.key_0 THEN RAISE (ABORT,'You modified a non-modifiable key_0!') "
-      "WHEN NEW.key_3 != OLD.key_3 THEN RAISE (ABORT,'You modified a "
+      "WHEN NEW.key_3 IS NOT OLD.key_3 THEN RAISE (ABORT,'You modified a "
       "non-modifiable key_3!') END; END";
 
   bool foundTrigger = false;
@@ -2899,8 +2899,255 @@ TEST_F(BtrieveDriverTest, UpgradesCompositeKeysFromVersion3) {
                  "CREATE UNIQUE INDEX key_0_index on data_t(key_0_0, key_0_1)",
                  "CREATE INDEX key_1_index on data_t(key_1_0, key_1_1)",
                  "CREATE TRIGGER non_modifiable BEFORE UPDATE ON data_t BEGIN "
-                 "SELECT CASE WHEN NEW.key_0_0 != OLD.key_0_0 THEN RAISE "
+                 "SELECT CASE WHEN NEW.key_0_0 IS NOT OLD.key_0_0 THEN RAISE "
                  "(ABORT,'You modified a non-modifiable key_0!') WHEN "
-                 "NEW.key_0_1 != OLD.key_0_1 THEN RAISE (ABORT,'You modified a "
-                 "non-modifiable key_0!') END; END"}));
+                 "NEW.key_0_1 IS NOT OLD.key_0_1 THEN RAISE (ABORT,'You "
+                 "modified a non-modifiable key_0!') END; END"}));
+}
+
+#pragma pack(push, 1)
+typedef struct _tagIntStringRecordStruct {
+  int16_t a;
+  char name[8];
+} IntStringRecordStruct;
+#pragma pack(pop)
+
+static_assert(sizeof(IntStringRecordStruct) == 10);
+
+// name is copied with nameLength bytes, or up to its terminator when 0, so
+// callers can put bytes after the terminator
+static std::vector<uint8_t> createIntStringRecord(int16_t a, const char *name,
+                                                  size_t nameLength = 0) {
+  IntStringRecordStruct record;
+  memset(&record, 0, sizeof(record));
+  record.a = a;
+  memcpy(record.name, name, nameLength ? nameLength : strlen(name));
+
+  auto data = reinterpret_cast<const uint8_t *>(&record);
+  return std::vector<uint8_t>(data, data + sizeof(record));
+}
+
+// Creates an in memory database with one composite key over the record's
+// (a INTEGER, name ZSTRING), or (name, a) when stringFirst. The null value is
+// 0, so a segment is null when all zero: a == 0, or name is empty.
+static std::unique_ptr<BtrieveDriver> createIntStringDriver(
+    uint16_t attributes, bool stringFirst = false) {
+  KeyDefinition intSegment(0, 2, 0, KeyDataType::Integer,
+                           UseExtendedDataType | attributes, true, 0, 0, 0, "",
+                           std::vector<char>());
+  KeyDefinition stringSegment(0, 8, 2, KeyDataType::Zstring,
+                              UseExtendedDataType | attributes, true, 0, 0, 0,
+                              "", std::vector<char>());
+  KeyDefinition segments[2] = {stringFirst ? stringSegment : intSegment,
+                               stringFirst ? intSegment : stringSegment};
+
+  auto *database = new SqliteDatabase(SQLITE_OPEN_MEMORY);
+  std::unique_ptr<BtrieveDriver> driver(new BtrieveDriver(database));
+  database
+      ->create(_TEXT("unused.db"),
+               BtrieveDatabase({Key(segments, 2)}, 512, 1,
+                               sizeof(IntStringRecordStruct),
+                               sizeof(IntStringRecordStruct), 0, 512,
+                               RecordType::Fixed, false, 0))
+      ->onRecordsComplete();
+  return driver;
+}
+
+static const struct {
+  int16_t a;
+  const char *name;
+} INT_STRING_RECORDS[] = {
+    {1, ""},       // position 1
+    {-1, "a"},     // position 2
+    {0, ""},       // position 3
+    {-32768, "z"}, // position 4
+    {32767, ""},   // position 5
+    {-256, ""},    // position 6
+    {-1, ""},      // position 7
+    {0, "a"},      // position 8
+    {255, "a"},    // position 9
+    {-32768, ""},  // position 10
+};
+
+static void insertIntStringRecords(BtrieveDriver &driver) {
+  unsigned int position = 1;
+  for (auto &record : INT_STRING_RECORDS) {
+    ASSERT_EQ(driver.insertRecord(
+                  view(createIntStringRecord(record.a, record.name))),
+              std::make_pair(BtrieveError::Success, position++));
+  }
+}
+
+// Negative and positive integers sort by value, -256 (raw bytes 00 FF) before
+// -1 (FF FF), and an empty string sorts first within the same integer.
+TEST_F(BtrieveDriverTest, CompositeIntStringOrdersSignsAndEmptyStrings) {
+  auto driver = createIntStringDriver(Duplicates);
+  insertIntStringRecords(*driver);
+
+  static const unsigned int EXPECTED[] = {10, 4, 6, 7, 2, 3, 8, 1, 9, 5};
+  verifyCompositeOrdering(*driver, 0, EXPECTED, std::size(EXPECTED));
+}
+
+TEST_F(BtrieveDriverTest, CompositeStringIntOrdersEmptyStringsAndSigns) {
+  auto driver = createIntStringDriver(Duplicates, /* stringFirst= */ true);
+  insertIntStringRecords(*driver);
+
+  // ("", ints by value), then ("a", ints by value), then ("z", -32768)
+  static const unsigned int EXPECTED[] = {10, 6, 7, 3, 1, 5, 2, 8, 9, 4};
+  verifyCompositeOrdering(*driver, 0, EXPECTED, std::size(EXPECTED));
+}
+
+TEST_F(BtrieveDriverTest, CompositeIntStringPartialKeySearch) {
+  auto driver = createIntStringDriver(Duplicates);
+  insertIntStringRecords(*driver);
+
+  auto key = createIntStringRecord(-1, "");
+  ASSERT_EQ(driver->performOperation(0, view(key),
+                                     OperationCode::QueryGreaterOrEqual),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 7u);
+
+  ASSERT_EQ(driver->performOperation(0, view(key), OperationCode::QueryEqual),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 7u);
+
+  ASSERT_EQ(driver->performOperation(0, view(key), OperationCode::QueryLess),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 6u);
+
+  key = createIntStringRecord(0, "");
+  ASSERT_EQ(driver->performOperation(0, view(key), OperationCode::QueryLess),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 2u);
+}
+
+// Applications often pass search buffers with leftover bytes after a
+// ZSTRING's terminator, which aren't part of the key.
+TEST_F(BtrieveDriverTest, CompositeSearchIgnoresBytesAfterZstringTerminator) {
+  auto driver = createIntStringDriver(Duplicates);
+  insertIntStringRecords(*driver);
+
+  ASSERT_EQ(
+      driver->performOperation(0, view(createIntStringRecord(-1, "a\0ZZZZ", 7)),
+                               OperationCode::QueryEqual),
+      BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 2u);
+}
+
+// A partial key search leaves trailing segments low. Under NullAnySegment a
+// zeroed segment matches the null value, but the search key must still
+// compare as a value rather than NULL, which matches nothing.
+TEST_F(BtrieveDriverTest, NullAnySegmentPartialKeySearch) {
+  auto driver = createIntStringDriver(Duplicates | NullAnySegment);
+  ASSERT_EQ(driver->insertRecord(view(createIntStringRecord(-5, "b"))),
+            std::make_pair(BtrieveError::Success, 1u));
+  ASSERT_EQ(driver->insertRecord(view(createIntStringRecord(5, "a"))),
+            std::make_pair(BtrieveError::Success, 2u));
+  ASSERT_EQ(driver->insertRecord(view(createIntStringRecord(7, "b"))),
+            std::make_pair(BtrieveError::Success, 3u));
+
+  auto key = createIntStringRecord(5, "");
+  ASSERT_EQ(driver->performOperation(0, view(key),
+                                     OperationCode::QueryGreaterOrEqual),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 2u);
+
+  ASSERT_EQ(driver->performOperation(0, view(key), OperationCode::QueryGreater),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 2u);
+
+  ASSERT_EQ(driver->performOperation(0, view(key), OperationCode::QueryLess),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 1u);
+
+  ASSERT_EQ(
+      driver->performOperation(0, view(key), OperationCode::QueryLessOrEqual),
+      BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 1u);
+}
+
+TEST_F(BtrieveDriverTest, NullAllSegmentsAllZeroKeySearch) {
+  auto driver = createIntStringDriver(Duplicates | NullAllSegments);
+  ASSERT_EQ(driver->insertRecord(view(createIntStringRecord(-5, "a"))),
+            std::make_pair(BtrieveError::Success, 1u));
+  ASSERT_EQ(driver->insertRecord(view(createIntStringRecord(0, "a"))),
+            std::make_pair(BtrieveError::Success, 2u));
+  ASSERT_EQ(driver->insertRecord(view(createIntStringRecord(7, "b"))),
+            std::make_pair(BtrieveError::Success, 3u));
+
+  auto key = createIntStringRecord(0, "");
+  ASSERT_EQ(driver->performOperation(0, view(key),
+                                     OperationCode::QueryGreaterOrEqual),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 2u);
+
+  ASSERT_EQ(driver->performOperation(0, view(key), OperationCode::QueryLess),
+            BtrieveError::Success);
+  ASSERT_EQ(driver->getPosition(), 1u);
+}
+
+// The same applies to a single segment nullable key that isn't a string.
+TEST_F(BtrieveDriverTest, NullableIntegerKeySearchWithNullValue) {
+  KeyDefinition keyDefinition(0, 2, 0, KeyDataType::Integer,
+                              UseExtendedDataType | Duplicates |
+                                  NullAllSegments,
+                              false, 0, 0, 0, "", std::vector<char>());
+
+  auto *database = new SqliteDatabase(SQLITE_OPEN_MEMORY);
+  BtrieveDriver driver(database);
+  database
+      ->create(_TEXT("unused.db"),
+               BtrieveDatabase({Key(&keyDefinition, 1)}, 512, 1,
+                               sizeof(IntStringRecordStruct),
+                               sizeof(IntStringRecordStruct), 0, 512,
+                               RecordType::Fixed, false, 0))
+      ->onRecordsComplete();
+
+  ASSERT_EQ(driver.insertRecord(view(createIntStringRecord(-3, "a"))),
+            std::make_pair(BtrieveError::Success, 1u));
+  ASSERT_EQ(driver.insertRecord(view(createIntStringRecord(4, "b"))),
+            std::make_pair(BtrieveError::Success, 2u));
+
+  auto key = createIntStringRecord(0, "");
+  key.resize(sizeof(int16_t));
+  ASSERT_EQ(driver.performOperation(0, view(key),
+                                    OperationCode::QueryGreaterOrEqual),
+            BtrieveError::Success);
+  ASSERT_EQ(driver.getPosition(), 2u);
+
+  ASSERT_EQ(driver.performOperation(0, view(key), OperationCode::QueryLess),
+            BtrieveError::Success);
+  ASSERT_EQ(driver.getPosition(), 1u);
+}
+
+// A unique nullable key can hold any number of null keys, since Btrieve
+// doesn't index them.
+TEST_F(BtrieveDriverTest, UniqueNullableCompositeKeyAllowsMultipleNulls) {
+  auto driver = createIntStringDriver(NullAnySegment);
+  ASSERT_EQ(driver->insertRecord(view(createIntStringRecord(1, ""))),
+            std::make_pair(BtrieveError::Success, 1u));
+  ASSERT_EQ(driver->insertRecord(view(createIntStringRecord(2, ""))),
+            std::make_pair(BtrieveError::Success, 2u));
+  ASSERT_EQ(driver->insertRecord(view(createIntStringRecord(3, "a"))),
+            std::make_pair(BtrieveError::Success, 3u));
+  ASSERT_EQ(driver->insertRecord(view(createIntStringRecord(3, "a"))),
+            std::make_pair(BtrieveError::DuplicateKeyValue, 0u));
+}
+
+// A null key is stored as NULL columns, which != never compares unequal to.
+TEST_F(BtrieveDriverTest, NonModifiableNullableKeyCantChangeToOrFromNull) {
+  auto driver = createIntStringDriver(Duplicates | NullAllSegments);
+  ASSERT_EQ(driver->insertRecord(view(createIntStringRecord(0, ""))),
+            std::make_pair(BtrieveError::Success, 1u));
+  ASSERT_EQ(driver->insertRecord(view(createIntStringRecord(2, "x"))),
+            std::make_pair(BtrieveError::Success, 2u));
+
+  ASSERT_EQ(driver->updateRecord(1, view(createIntStringRecord(9, "q"))),
+            BtrieveError::NonModifiableKeyValue);
+  ASSERT_EQ(driver->updateRecord(2, view(createIntStringRecord(0, ""))),
+            BtrieveError::NonModifiableKeyValue);
+
+  // updating a null key to null is no change
+  ASSERT_EQ(driver->updateRecord(1, view(createIntStringRecord(0, ""))),
+            BtrieveError::Success);
 }

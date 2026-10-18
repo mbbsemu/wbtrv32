@@ -271,7 +271,8 @@ void SqliteDatabase::upgradeDatabaseFrom2To3() {
 // not nullable, so range queries skipped it. Version 4 stores each segment in
 // its own column and only declared nullable keys as NULL, so data_t is
 // rebuilt and every row's keys are recomputed from its data. Row ids are kept
-// since they're the records' positions.
+// since they're the records' positions. The rebuilt non-modifiable trigger
+// also compares with IS NOT rather than !=, which never fires on NULL keys.
 void SqliteDatabase::upgradeDatabaseFrom3To4() {
   SqliteTransaction transaction(database);
   try {
@@ -550,7 +551,8 @@ void SqliteDatabase::createSqliteTriggers() {
 
   for (auto &key : nonModifiableKeys) {
     for (auto &column : key.getSqliteColumnNames()) {
-      builder << "WHEN NEW." << column << " != OLD." << column
+      // IS NOT, since != is never true when either side is NULL
+      builder << "WHEN NEW." << column << " IS NOT OLD." << column
               << " THEN "
                  "RAISE (ABORT,'You modified a non-modifiable "
               << key.getSqliteKeyName() << "!') ";
@@ -1121,12 +1123,6 @@ BtrieveError SqliteDatabase::getByKeyLast(Query *query) {
   return nextReader(query, CursorDirection::Reverse);
 }
 
-static bool shouldConvertSqliteObjectToEmptyStringForComparison(
-    const BindableValue &value, const btrieve::Key *key) {
-  return value.isNull() && !key->isComposite() &&
-         key->getPrimarySegment().isString();
-}
-
 // Runs a range query comparing the key against the query's key data with
 // opurator, ordered by direction (" ASC" or " DESC").
 BtrieveError SqliteDatabase::getByKeyRange(Query *query, const char *opurator,
@@ -1139,11 +1135,7 @@ BtrieveError SqliteDatabase::getByKeyRange(Query *query, const char *opurator,
       << sqliteKeyComparison(key, opurator) << " ORDER BY "
       << sqliteKeyColumns(key, direction) << ", id" << direction;
 
-  auto values = key.keyDataToSqliteObjects(query->getKeyData());
-
-  if (shouldConvertSqliteObjectToEmptyStringForComparison(values[0], &key)) {
-    values[0] = BindableValue("");
-  }
+  auto values = key.searchKeyDataToSqliteObjects(query->getKeyData());
 
   SqlitePreparedStatement &command = getPreparedStatement(sql.str().c_str());
   for (unsigned int i = 0; i < values.size(); ++i) {

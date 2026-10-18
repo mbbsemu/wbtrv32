@@ -265,10 +265,74 @@ INSTANTIATE_TEST_CASE_P(
         {0, true, true, false},
         {NullAllSegments, false, false, false},
         {NullAllSegments, true, false, false},
+        {NullAllSegments, false, true, false},
         {NullAllSegments, true, true, true},
         {NullAnySegment, false, false, false},
+        {NullAnySegment, true, false, true},
         {NullAnySegment, false, true, true},
         {NullAnySegment, true, true, true}}));
+
+// A search key is never null, even when its bytes match the null value, so it
+// can still be compared against stored keys.
+TEST_P(CompositeNullFixture, CompositeSearchKeyIsNeverNull) {
+  const CompositeNullFixtureType &view = GetParam();
+
+  KeyDefinition keyDefinitions[2] = {
+      KeyDefinition(0, 2, 0, KeyDataType::Integer,
+                    UseExtendedDataType | view.nullAttribute, true, 0, 0, 0,
+                    "", std::vector<char>()),
+      KeyDefinition(0, 4, 2, KeyDataType::Zstring,
+                    UseExtendedDataType | view.nullAttribute, false, 1, 0, 0,
+                    "", std::vector<char>())};
+
+  Key key(keyDefinitions, 2);
+
+  uint8_t keyData[6] = {0};
+  if (!view.firstSegmentNull) {
+    keyData[0] = 0xFF;
+    keyData[1] = 0xFF;
+  }
+  if (!view.secondSegmentNull) {
+    keyData[2] = 'a';
+  }
+
+  auto actual = key.searchKeyDataToSqliteObjects(
+      std::basic_string_view<uint8_t>(keyData, sizeof(keyData)));
+
+  ASSERT_EQ(actual.size(), 2u);
+  ASSERT_FALSE(actual[0].isNull());
+  ASSERT_FALSE(actual[1].isNull());
+  EXPECT_EQ(actual[0].getIntegerValue(), view.firstSegmentNull ? 0 : -1);
+  EXPECT_EQ(actual[1].getStringValue(), view.secondSegmentNull ? "" : "a");
+}
+
+TEST(Key, SingleSearchKeyIsNeverNull) {
+  KeyDefinition keyDefinition(0, 2, 0, KeyDataType::Integer,
+                              UseExtendedDataType | NullAllSegments, false, 0,
+                              0, 0, "", std::vector<char>());
+  Key key(&keyDefinition, 1);
+
+  uint8_t keyData[2] = {0};
+  std::basic_string_view<uint8_t> keyDataView(keyData, sizeof(keyData));
+
+  EXPECT_TRUE(key.keyDataToSqliteObjects(keyDataView)[0].isNull());
+  auto actual = key.searchKeyDataToSqliteObjects(keyDataView)[0];
+  ASSERT_FALSE(actual.isNull());
+  EXPECT_EQ(actual.getIntegerValue(), 0);
+}
+
+TEST(Key, SingleZstringSearchKeyWithNullFirstByteIsEmpty) {
+  KeyDefinition keyDefinition(0, 8, 0, KeyDataType::Zstring,
+                              UseExtendedDataType | NullAllSegments, false, 0,
+                              0, 0, "", std::vector<char>());
+  Key key(&keyDefinition, 1);
+
+  uint8_t keyData[8] = {0, 'x', 'y'};
+  auto actual = key.searchKeyDataToSqliteObjects(
+      std::basic_string_view<uint8_t>(keyData, sizeof(keyData)))[0];
+  ASSERT_FALSE(actual.isNull());
+  EXPECT_EQ(actual.getStringValue(), "");
+}
 
 // Two-segment key shaped like The Major BBS WGSGEN2.DAT key 0: a 30-byte
 // zstring (often empty) followed by a 25-byte zstring module name.

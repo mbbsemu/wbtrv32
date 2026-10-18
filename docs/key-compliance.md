@@ -50,6 +50,8 @@ test both bits: `(attributes & MultipleACS) == MultipleACS`.
 | Duplicates come back in insertion order | Every key query orders by `id` last |
 | An AUTOINCREMENT key can be an integer segment of a higher numbered key | Its single segment key assigns the value before the composite columns are computed |
 | LSTRING ignores bytes past its length, ZSTRING bytes after the first zero | Both convert to TEXT of the real length |
+| Partial key search on a nullable key: low trailing segments may match the null value | Search keys are never converted to NULL (`Key::searchKeyDataToSqliteObjects`), only stored keys are |
+| A non-modifiable key can't change, including to or from null | The trigger compares columns with `IS NOT`, since `!=` is never true against NULL (the version 3 to 4 upgrade recreates it) |
 | Case insensitive key without an ACS (0x400 alone) loads | Fixed: the loader used to treat it as NUMBERED_ACS and threw "Can't load ACS" (`BtrieveDatabase_test.cc` `LoadsCaseInsensitiveKeyWithoutACS`) |
 
 ## Outstanding fixes
@@ -90,6 +92,10 @@ Btrieve doesn't index a record whose key is null: "the key value is not put
 into the index". We store the key columns as NULL instead, so those records
 still appear in Get First/Last and Next/Previous on that key, sorted first.
 Range comparisons already exclude them, since comparing with NULL is false.
+
+This also breaks changing direction on a null key: after Get Last and Get
+Previous reach a null key record, Get Next binds the NULL key into
+`SqliteQuery::changeDirection`'s `>=` and returns end of file.
 
 Add `WHERE <first key column> IS NOT NULL` to key queries for nullable keys
 (First, Last, and the queries in `SqliteQuery::changeDirection`). Check how

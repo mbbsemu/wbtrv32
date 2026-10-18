@@ -87,7 +87,17 @@ class Key {
   // Converts key data to one value per column, parallel to
   // getSqliteColumnNames(). A null key is all nulls.
   std::vector<BindableValue> keyDataToSqliteObjects(
-      std::basic_string_view<uint8_t> keyData) const;
+      std::basic_string_view<uint8_t> keyData) const {
+    return keyDataToSqliteObjects(keyData, true);
+  }
+
+  // Converts a search key for a range comparison. Unlike a stored key it's
+  // never null: a partial key search leaves trailing segments low, which can
+  // match the null value, and SQL comparisons never match NULL.
+  std::vector<BindableValue> searchKeyDataToSqliteObjects(
+      std::basic_string_view<uint8_t> keyData) const {
+    return keyDataToSqliteObjects(keyData, false);
+  }
 
   std::vector<BindableValue> extractKeyInRecordToSqliteObjects(
       std::basic_string_view<uint8_t> record) const {
@@ -112,8 +122,11 @@ class Key {
  private:
   std::vector<uint8_t> applyACS(std::basic_string_view<uint8_t> keyData) const;
 
+  std::vector<BindableValue> keyDataToSqliteObjects(
+      std::basic_string_view<uint8_t> keyData, bool allowNull) const;
+
   BindableValue singleKeyDataToSqliteObject(
-      std::basic_string_view<uint8_t> keyData) const;
+      std::basic_string_view<uint8_t> keyData, bool allowNull) const;
 
   bool isNullCompositeKeyData(std::basic_string_view<uint8_t> keyData) const;
 
