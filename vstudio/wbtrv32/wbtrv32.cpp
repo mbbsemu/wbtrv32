@@ -354,6 +354,19 @@ static BtrieveError Open(BtrieveCommand &command) {
 
   GetFullPathName(btrieve::toWideString(lpszFilename).c_str(),
                   ARRAYSIZE(fullPathFileName), fullPathFileName, nullptr);
+#ifdef WIN32
+  // One spelling per file: expand 8.3 short names (DIALGL~1.DAT) to the long
+  // name, so every way of naming a file reaches the same open driver rather
+  // than a second one on the same database.
+  {
+    wchar_t longPathFileName[MAX_PATH];
+    const DWORD length = GetLongPathNameW(fullPathFileName, longPathFileName,
+                                          ARRAYSIZE(longPathFileName));
+    if (length > 0 && length < ARRAYSIZE(longPathFileName)) {
+      wcscpy_s(fullPathFileName, longPathFileName);
+    }
+  }
+#endif
 
   // see if we've already opened this file
   for (auto iterator = _openFiles.begin(); iterator != _openFiles.end();
@@ -833,8 +846,8 @@ static BtrieveError Create(BtrieveCommand &command) {
                     ARRAYSIZE(fullPathFileName), fullPathFileName, nullptr);
   }
 
-  std::filesystem::path dbPath = std::filesystem::path(fullPathFileName)
-                                     .replace_extension(sql.getFileExtension());
+  std::filesystem::path dbPath =
+      sqlPathFor(fullPathFileName, sql.getFileExtension());
 
   // Key number -1 means fail if the file exists. As with stock Btrieve, that
   // is decided by the .DAT: a .DB left without one belongs to a file that was

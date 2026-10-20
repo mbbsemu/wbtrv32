@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <string>
 
+#include "btrieve/BtrieveDriver.h"
 #include "btrieve/ErrorCode.h"
 #include "btrieve/OperationCode.h"
 #include "util/BcrParser.h"
@@ -83,9 +84,7 @@ int main(int argc, const char **argv) {
     return 1;
   }
 
-  printf("Created %s\n", std::filesystem::path(outputFile)
-                             .replace_extension("db")
-                             .string()
-                             .c_str());
+  printf("Created %s\n",
+         btrieve::sqlPathFor(outputFile, L"db").string().c_str());
   return 0;
 }
