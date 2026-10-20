@@ -580,7 +580,17 @@ static BtrieveError Upsert(
     return BtrieveError::FileNotOpen;
   }
 
-  if (command.keyNumber >= 0) {
+  // An Update's key number only picks the index to keep positioning on
+  // afterwards; the record is the current one. Btrieve saves it even when that
+  // key number is out of range, and callers rely on that, so skip only the
+  // repositioning rather than failing before the write.
+  const bool keepPositioning =
+      command.keyNumber >= 0 &&
+      (command.operation != OperationCode::Update ||
+       static_cast<uint32_t>(command.keyNumber) <
+           btrieveDriver->getKeys().size());
+
+  if (keepPositioning) {
     if (static_cast<uint32_t>(command.keyNumber) >=
         btrieveDriver->getKeys().size()) {
       return BtrieveError::InvalidKeyNumber;
@@ -620,7 +630,7 @@ static BtrieveError Upsert(
     }
   }
 
-  if (command.keyNumber < 0) {
+  if (!keepPositioning) {
     return BtrieveError::Success;
   }
 
