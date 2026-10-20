@@ -278,6 +278,8 @@ TEST(BtrieveDatabase, LoadsMultiAcsDatV6) {
   ASSERT_EQ(database.getKeys().size(), 3u);
 
   ASSERT_STREQ(database.getKeys().at(0).getACSName(), "ALLCAPS");
+  // key 1 has no ACS of its own, so it doesn't inherit key 0's
+  ASSERT_STRNE(database.getKeys().at(1).getACSName(), "ALLCAPS");
   ASSERT_STREQ(database.getKeys().at(2).getACSName(), "LOWER");
 }
 
