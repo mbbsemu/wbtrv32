@@ -46,7 +46,12 @@ const char* errorToString(BtrieveError errorCode) {
     HANDLE_ERROR_CODE(AccessDenied);
     HANDLE_ERROR_CODE(InvalidACS);
     HANDLE_ERROR_CODE(InvalidInterface);
+    HANDLE_ERROR_CODE(OwnerAlreadySet);
+    HANDLE_ERROR_CODE(InvalidOwner);
     HANDLE_ERROR_CODE(FileAlreadyExists);
+    HANDLE_ERROR_CODE(RejectCountReached);
+    HANDLE_ERROR_CODE(IncorrectDescriptor);
+    HANDLE_ERROR_CODE(IncorrectFieldOffset);
     HANDLE_ERROR_CODE(IncompatibleMode);
 
     default:

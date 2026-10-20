@@ -126,6 +126,12 @@ class BtrieveDriver {
 
   std::basic_string<wchar_t> getOpenedFilename() { return openedFilename; }
 
+  std::optional<OwnerInfo> getOwner() { return sqlDatabase->getOwner(); }
+
+  void setOwner(const std::optional<OwnerInfo> &owner) {
+    sqlDatabase->setOwner(owner);
+  }
+
   void beginTransaction() { sqlDatabase->beginTransaction(); }
 
   void commitTransaction() { sqlDatabase->commitTransaction(); }

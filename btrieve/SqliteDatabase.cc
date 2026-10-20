@@ -658,6 +658,43 @@ void SqliteDatabase::setSourceFingerprint(
   command.execute();
 }
 
+// owner_t, like source_t, is optional and needs no version change.
+std::optional<OwnerInfo> SqliteDatabase::getOwner() {
+  {
+    SqlitePreparedStatement command(
+        database,
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND "
+        "name = 'owner_t'");
+    if (!command.executeReader()->read()) {
+      return std::nullopt;
+    }
+  }
+
+  SqlitePreparedStatement command(database, "SELECT name, mode FROM owner_t");
+  std::unique_ptr<SqliteReader> reader = command.executeReader();
+  if (!reader->read()) {
+    return std::nullopt;
+  }
+  return OwnerInfo{reader->getString(0), reader->getInt32(1)};
+}
+
+void SqliteDatabase::setOwner(const std::optional<OwnerInfo> &owner) {
+  SqlitePreparedStatement(database,
+                          "CREATE TABLE IF NOT EXISTS owner_t(name TEXT NOT "
+                          "NULL, mode INTEGER NOT NULL)")
+      .execute();
+  SqlitePreparedStatement(database, "DELETE FROM owner_t").execute();
+  if (!owner) {
+    return;
+  }
+
+  SqlitePreparedStatement command(
+      database, "INSERT INTO owner_t(name, mode) VALUES(@name, @mode)");
+  command.bindParameter(1, BindableValue(owner->name.c_str()));
+  command.bindParameter(2, BindableValue(static_cast<int32_t>(owner->mode)));
+  command.execute();
+}
+
 SqlitePreparedStatement &SqliteDatabase::getPreparedStatement(
     const char *sql) const {
   auto iter = preparedStatements.find(sql);
