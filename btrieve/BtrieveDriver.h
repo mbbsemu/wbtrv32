@@ -128,6 +128,41 @@ class BtrieveDriver {
     sqlDatabase->rollbackTransaction();
   }
 
+  // Btrieve keeps a position, current record and key path per open handle,
+  // not per file. Handles on the same file share one driver, so each handle
+  // owns a Cursor and activates it before every operation: the driver saves
+  // the previous handle's state into its Cursor and puts this one's in place.
+  struct Cursor {
+    unsigned int position = 0;
+    bool currentRecord = false;
+    std::unique_ptr<Query> query;
+  };
+
+  void activate(Cursor *cursor) {
+    if (activeCursor == cursor) {
+      return;
+    }
+    if (activeCursor != nullptr) {
+      activeCursor->position = sqlDatabase->getPosition();
+      activeCursor->currentRecord = sqlDatabase->hasCurrentRecord();
+      activeCursor->query = std::move(previousQuery);
+    }
+    sqlDatabase->setPosition(cursor != nullptr ? cursor->position : 0);
+    if (cursor == nullptr || !cursor->currentRecord) {
+      sqlDatabase->clearCurrentRecord();
+    }
+    previousQuery =
+        cursor != nullptr ? std::move(cursor->query) : std::unique_ptr<Query>();
+    activeCursor = cursor;
+  }
+
+  // Called before a handle's Cursor is destroyed.
+  void release(Cursor *cursor) {
+    if (activeCursor == cursor) {
+      activeCursor = nullptr;
+    }
+  }
+
  private:
   BtrieveError refreshFromChangedSource(const wchar_t *fileName,
                                         const std::filesystem::path &dbPath,
@@ -142,6 +177,7 @@ class BtrieveDriver {
   bool trackSourceFile;
   std::unique_ptr<Query> previousQuery;
   std::basic_string<wchar_t> openedFilename;
+  Cursor *activeCursor = nullptr;
 };
 }  // namespace btrieve
 #endif

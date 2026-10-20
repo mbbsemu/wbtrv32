@@ -47,9 +47,24 @@ static int _logLevel = LogProblems;
 
 using namespace btrieve;
 
-static std::unordered_map<std::basic_string<wchar_t>,
-                          std::shared_ptr<BtrieveDriver>>
-    _openFiles;
+// One entry per open handle (position block). Handles on the same file share
+// its driver, and each has its own Cursor so their positions stay separate.
+struct OpenHandle {
+  std::shared_ptr<BtrieveDriver> driver;
+  std::unique_ptr<BtrieveDriver::Cursor> cursor;
+
+  explicit OpenHandle(std::shared_ptr<BtrieveDriver> driver_)
+      : driver(std::move(driver_)),
+        cursor(std::make_unique<BtrieveDriver::Cursor>()) {}
+  OpenHandle(OpenHandle &&) = default;
+  ~OpenHandle() {
+    if (driver && cursor) {
+      driver->release(cursor.get());
+    }
+  }
+};
+
+static std::unordered_map<std::basic_string<wchar_t>, OpenHandle> _openFiles;
 
 #ifdef LOG_TO_FILE
 // A plain pointer, closed only by processDetach(): a static object with a
@@ -199,7 +214,10 @@ static std::shared_ptr<BtrieveDriver> findOpenDatabase(
   if (iterator == _openFiles.end()) {
     return nullptr;
   }
-  return iterator->second;
+  // every operation comes through here, so this is where the handle's own
+  // position is put in place
+  iterator->second.driver->activate(iterator->second.cursor.get());
+  return iterator->second.driver;
 }
 
 static BtrieveDriver *getOpenDatabase(LPVOID lpPositioningBlock) {
@@ -294,8 +312,10 @@ static void AddToOpenFiles(BtrieveCommand &command,
   wchar_t guidStr[64];
   StringFromGUID2(guid, guidStr, ARRAYSIZE(guidStr));
 
-  _openFiles.emplace(
-      std::make_pair(std::basic_string<wchar_t>(guidStr), driver));
+  // a new handle starts with no current record, as after any Open
+  OpenHandle handle(driver);
+  driver->activate(handle.cursor.get());
+  _openFiles.emplace(std::basic_string<wchar_t>(guidStr), std::move(handle));
 
   // write the GUID in the pos block for other calls
   memset(command.lpPositionBlock, 0, POSBLOCK_LENGTH);
@@ -337,10 +357,10 @@ static BtrieveError Open(BtrieveCommand &command) {
   // see if we've already opened this file
   for (auto iterator = _openFiles.begin(); iterator != _openFiles.end();
        ++iterator) {
-    if (!_wcsicmp(iterator->second->getOpenedFilename().c_str(),
+    if (!_wcsicmp(iterator->second.driver->getOpenedFilename().c_str(),
                   fullPathFileName)) {
-      // already got one? let's reuse it
-      AddToOpenFiles(command, iterator->second);
+      // already got one? share its database, with a position of its own
+      AddToOpenFiles(command, iterator->second.driver);
       return BtrieveError::Success;
     }
   }
