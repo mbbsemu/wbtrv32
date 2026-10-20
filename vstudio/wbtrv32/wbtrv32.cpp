@@ -53,10 +53,14 @@ using namespace btrieve;
 struct OpenHandle {
   std::shared_ptr<BtrieveDriver> driver;
   std::unique_ptr<BtrieveDriver::Cursor> cursor;
+  // The mode this handle was opened in. The shared database itself is always
+  // opened writable; read-only and exclusive are enforced per handle.
+  OpenMode mode;
 
-  explicit OpenHandle(std::shared_ptr<BtrieveDriver> driver_)
+  OpenHandle(std::shared_ptr<BtrieveDriver> driver_, OpenMode mode_)
       : driver(std::move(driver_)),
-        cursor(std::make_unique<BtrieveDriver::Cursor>()) {}
+        cursor(std::make_unique<BtrieveDriver::Cursor>()),
+        mode(mode_) {}
   OpenHandle(OpenHandle &&) = default;
   ~OpenHandle() {
     if (driver && cursor) {
@@ -200,8 +204,8 @@ static bool _inTransaction = false;
 // file's part of it.
 static std::vector<std::shared_ptr<BtrieveDriver>> _transactionFiles;
 
-static std::shared_ptr<BtrieveDriver> findOpenDatabase(
-    LPVOID lpPositioningBlock) {
+// The handle a position block belongs to, without making it the active one.
+static OpenHandle *findHandle(LPVOID lpPositioningBlock) {
   wchar_t guidStr[64];
 
   if (lpPositioningBlock == nullptr) {
@@ -212,13 +216,19 @@ static std::shared_ptr<BtrieveDriver> findOpenDatabase(
                   ARRAYSIZE(guidStr));
 
   auto iterator = _openFiles.find(std::basic_string<wchar_t>(guidStr));
-  if (iterator == _openFiles.end()) {
+  return iterator == _openFiles.end() ? nullptr : &iterator->second;
+}
+
+static std::shared_ptr<BtrieveDriver> findOpenDatabase(
+    LPVOID lpPositioningBlock) {
+  OpenHandle *handle = findHandle(lpPositioningBlock);
+  if (handle == nullptr) {
     return nullptr;
   }
   // every operation comes through here, so this is where the handle's own
   // position is put in place
-  iterator->second.driver->activate(iterator->second.cursor.get());
-  return iterator->second.driver;
+  handle->driver->activate(handle->cursor.get());
+  return handle->driver;
 }
 
 static BtrieveDriver *getOpenDatabase(LPVOID lpPositioningBlock) {
@@ -293,7 +303,8 @@ static void debug(const BtrieveCommand &command, const char *format, ...) {
 }
 
 static void AddToOpenFiles(BtrieveCommand &command,
-                           std::shared_ptr<BtrieveDriver> driver) {
+                           std::shared_ptr<BtrieveDriver> driver,
+                           OpenMode mode = OpenMode::Normal) {
   // if this position block already references an open database (e.g. the
   // caller re-opened without closing first), close that one out first so we
   // don't orphan it in _openFiles -- overwriting the GUID below without doing
@@ -314,7 +325,7 @@ static void AddToOpenFiles(BtrieveCommand &command,
   StringFromGUID2(guid, guidStr, ARRAYSIZE(guidStr));
 
   // a new handle starts with no current record, as after any Open
-  OpenHandle handle(driver);
+  OpenHandle handle(driver, mode);
   driver->activate(handle.cursor.get());
   _openFiles.emplace(std::basic_string<wchar_t>(guidStr), std::move(handle));
 
@@ -369,33 +380,48 @@ static BtrieveError Open(BtrieveCommand &command) {
 #endif
 
   // see if we've already opened this file
-  for (auto iterator = _openFiles.begin(); iterator != _openFiles.end();
-       ++iterator) {
-    if (!_wcsicmp(iterator->second.driver->getOpenedFilename().c_str(),
+  std::shared_ptr<BtrieveDriver> shared;
+  for (const auto &[guid, handle] : _openFiles) {
+    if (!_wcsicmp(handle.driver->getOpenedFilename().c_str(),
                   fullPathFileName)) {
-      // already got one? share its database, with a position of its own
-      AddToOpenFiles(command, iterator->second.driver);
-      return BtrieveError::Success;
+      // exclusive means exclusive: no second open while one handle has it,
+      // and no exclusive open while another handle has the file open
+      if (openMode == OpenMode::ExclusiveAccess ||
+          handle.mode == OpenMode::ExclusiveAccess) {
+        return BtrieveError::IncompatibleMode;
+      }
+      shared = handle.driver;
     }
   }
-  // or closed during the transaction but still part of it (a second
-  // connection could not write while this one holds the write lock)
-  for (auto &driver : _transactionFiles) {
-    if (!_wcsicmp(driver->getOpenedFilename().c_str(), fullPathFileName)) {
-      AddToOpenFiles(command, driver);
-      return BtrieveError::Success;
+  if (!shared) {
+    // or closed during the transaction but still part of it (a second
+    // connection could not write while this one holds the write lock)
+    for (auto &driver : _transactionFiles) {
+      if (!_wcsicmp(driver->getOpenedFilename().c_str(), fullPathFileName)) {
+        shared = driver;
+      }
     }
+  }
+  if (shared) {
+    // already got one? share its database, with a position of its own
+    AddToOpenFiles(command, shared, openMode);
+    return BtrieveError::Success;
   }
 
   std::shared_ptr<BtrieveDriver> driver = std::make_shared<BtrieveDriver>(
       new SqliteDatabase(), trackSourceFiles());
 
-  BtrieveError error = driver->open(fullPathFileName, openMode);
+  // Every handle on the file shares this database, so it's opened writable
+  // whatever this handle asked for; writes through a read-only handle are
+  // refused in handle().
+  BtrieveError error = driver->open(
+      fullPathFileName,
+      openMode == OpenMode::ReadOnly ? OpenMode::Normal : openMode);
   if (error != BtrieveError::Success) {
     return error;
   }
 
-  AddToOpenFiles(command, driver);
+  AddToOpenFiles(command, driver, openMode);
 
   return BtrieveError::Success;
 }
@@ -1052,6 +1078,16 @@ static BtrieveError AbortTransactionOperation() {
 
 // clang-format off
 static BtrieveError handle(BtrieveCommand &command) {
+  // writes through a handle opened read-only are refused, as Btrieve does
+  if (command.operation == OperationCode::Insert ||
+      command.operation == OperationCode::Update ||
+      command.operation == OperationCode::Delete) {
+    const OpenHandle *handle = findHandle(command.lpPositionBlock);
+    if (handle != nullptr && handle->mode == OpenMode::ReadOnly) {
+      return BtrieveError::AccessDenied;
+    }
+  }
+
   switch (command.operation) {
     case OperationCode::Open:
       return ::Open(command);

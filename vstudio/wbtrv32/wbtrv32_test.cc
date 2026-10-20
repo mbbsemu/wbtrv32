@@ -2617,6 +2617,80 @@ TEST_F(wbtrv32Test, FilesDifferingOnlyInExtensionHaveTheirOwnData) {
           0);
 }
 
+// Open modes belong to each handle. A file first opened read-only by one
+// handle must still be writable through a handle opened normally, and a
+// read-only handle must refuse writes (status 46).
+TEST_F(wbtrv32Test, OpenModesArePerHandle) {
+  auto dat = tempPath->copyToTempPath("assets/MBBSEMU.DAT");
+  const std::string fileName = toStdString(dat.c_str());
+  uint8_t readOnly[POSBLOCK_LENGTH], writable[POSBLOCK_LENGTH];
+  memset(readOnly, 0, sizeof(readOnly));
+  memset(writable, 0, sizeof(writable));
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Open, readOnly, nullptr, nullptr,
+                    const_cast<LPVOID>(
+                        reinterpret_cast<LPCVOID>(fileName.c_str())),
+                    -1, -2),
+            btrieve::BtrieveError::Success);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Open, writable, nullptr, nullptr,
+                    const_cast<LPVOID>(
+                        reinterpret_cast<LPCVOID>(fileName.c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
+
+  RECORD record;
+  DWORD length = sizeof(record);
+  char key[32];
+  ASSERT_EQ(btrcall(btrieve::OperationCode::StepFirst, writable, &record,
+                    &length, nullptr, 0, -1),
+            btrieve::BtrieveError::Success);
+  EXPECT_EQ(btrcall(btrieve::OperationCode::Update, writable, &record,
+                    &length, key, sizeof(key), -1),
+            btrieve::BtrieveError::Success);
+
+  length = sizeof(record);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::StepFirst, readOnly, &record,
+                    &length, nullptr, 0, -1),
+            btrieve::BtrieveError::Success);
+  EXPECT_EQ(btrcall(btrieve::OperationCode::Update, readOnly, &record,
+                    &length, key, sizeof(key), -1),
+            btrieve::BtrieveError::AccessDenied);
+  EXPECT_EQ(btrcall(btrieve::OperationCode::Delete, readOnly, nullptr, nullptr,
+                    nullptr, 0, -1),
+            btrieve::BtrieveError::AccessDenied);
+
+  btrcall(btrieve::OperationCode::Close, readOnly, nullptr, nullptr, nullptr,
+          0, 0);
+  btrcall(btrieve::OperationCode::Close, writable, nullptr, nullptr, nullptr,
+          0, 0);
+  memset(posBlock, 0, sizeof(posBlock));
+}
+
+// A file opened in exclusive mode can't be opened again until it's closed,
+// and a file already open can't be opened exclusively (status 88).
+TEST_F(wbtrv32Test, ExclusiveModeExcludesOtherOpens) {
+  auto dat = tempPath->copyToTempPath("assets/MBBSEMU.DAT");
+  const std::string fileName = toStdString(dat.c_str());
+  auto open = [&](uint8_t *handle, int8_t mode) {
+    memset(handle, 0, POSBLOCK_LENGTH);
+    return btrcall(btrieve::OperationCode::Open, handle, nullptr, nullptr,
+                   const_cast<LPVOID>(
+                       reinterpret_cast<LPCVOID>(fileName.c_str())),
+                   -1, mode);
+  };
+  uint8_t first[POSBLOCK_LENGTH], second[POSBLOCK_LENGTH];
+
+  ASSERT_EQ(open(first, -4), btrieve::BtrieveError::Success);
+  EXPECT_EQ(open(second, 0), btrieve::BtrieveError::IncompatibleMode);
+  btrcall(btrieve::OperationCode::Close, first, nullptr, nullptr, nullptr, 0,
+          0);
+  EXPECT_EQ(open(second, 0), btrieve::BtrieveError::Success);
+  EXPECT_EQ(open(first, -4), btrieve::BtrieveError::IncompatibleMode);
+  btrcall(btrieve::OperationCode::Close, second, nullptr, nullptr, nullptr, 0,
+          0);
+  memset(posBlock, 0, sizeof(posBlock));
+}
+
 TEST_F(wbtrv32Test, Version) {
   unsigned char buffer[16];
   memset(buffer, 0xCC, sizeof(buffer));

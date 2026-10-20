@@ -47,6 +47,7 @@ key-only file or a Get operation on a data only file */
   InvalidACS = 48,
   InvalidInterface = 53,
   FileAlreadyExists = 59,
+  IncompatibleMode = 88,
 };
 
 const char* errorToString(BtrieveError error);

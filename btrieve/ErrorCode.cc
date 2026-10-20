@@ -47,6 +47,7 @@ const char* errorToString(BtrieveError errorCode) {
     HANDLE_ERROR_CODE(InvalidACS);
     HANDLE_ERROR_CODE(InvalidInterface);
     HANDLE_ERROR_CODE(FileAlreadyExists);
+    HANDLE_ERROR_CODE(IncompatibleMode);
 
     default:
       static char buf[16];
