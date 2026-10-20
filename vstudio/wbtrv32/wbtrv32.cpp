@@ -748,6 +748,27 @@ static BtrieveError Upsert(
   return ret;
 }
 
+// Version (26) fills 5 bytes: the version and revision (16 bits each) and a
+// product letter. wbtrv32 stands in for Btrieve 6.15; W for the Windows
+// workstation engine hasn't been checked against a real 6.15 one.
+static BtrieveError Version(BtrieveCommand &command) {
+  constexpr DWORD replyLength = 5;
+  if (command.lpDataBuffer == nullptr ||
+      command.lpdwDataBufferLength == nullptr ||
+      *command.lpdwDataBufferLength < replyLength) {
+    return BtrieveError::DataBufferLengthOverrun;
+  }
+
+  const uint16_t version = 6;
+  const uint16_t revision = 15;
+  uint8_t *reply = reinterpret_cast<uint8_t *>(command.lpDataBuffer);
+  memcpy(reply, &version, sizeof(version));
+  memcpy(reply + 2, &revision, sizeof(revision));
+  reply[4] = 'W';
+  *command.lpdwDataBufferLength = replyLength;
+  return BtrieveError::Success;
+}
+
 static void AbortActiveTransaction();
 
 static BtrieveError Stop(const BtrieveCommand &command) {
@@ -1050,6 +1071,8 @@ static BtrieveError handle(BtrieveCommand &command) {
       });
     case OperationCode::Stop:
       return ::Stop(command);
+    case OperationCode::Version:
+      return ::Version(command);
     case OperationCode::Create:
       return ::Create(command);
     case OperationCode::Unlock:

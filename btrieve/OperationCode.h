@@ -58,6 +58,7 @@ enum OperationCode {
   Extend = 0x10,
   GetPosition = 0x16,
   WITH_RECORD_LOCK(GetDirectChunkOrRecord, 0x17),
+  Version = 0x1A,
   SetOwner = 0x1D,
 
   // Step Operations, operates on physical offset not keys
