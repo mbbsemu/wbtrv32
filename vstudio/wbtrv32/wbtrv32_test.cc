@@ -1036,6 +1036,70 @@ TEST_F(wbtrv32Test, QueryDataBufferOverrun) {
             btrieve::BtrieveError::DataBufferLengthOverrun);
 }
 
+// A short data buffer gets as much of the record as fits, and its length,
+// along with status 22.
+TEST_F(wbtrv32Test, ShortDataBufferGetsTheStartOfTheRecord) {
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  ASSERT_FALSE(mbbsEmuDb.empty());
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr, nullptr,
+                    const_cast<LPVOID>(reinterpret_cast<LPCVOID>(
+                        toStdString(mbbsEmuDb.c_str()).c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
+
+  RECORD full;
+  DWORD length = sizeof(full);
+  uint32_t key = 4000;
+  ASSERT_EQ(btrcall(btrieve::OperationCode::AcquireGreater, posBlock, &full,
+                    &length, &key, sizeof(key), 1),
+            btrieve::BtrieveError::Success);
+  uint32_t position;
+  length = sizeof(position);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::GetPosition, posBlock, &position,
+                    &length, nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
+
+  const DWORD shortLength = 10;
+  auto expectStartOfRecord = [&](const RECORD &record, DWORD returned) {
+    EXPECT_EQ(returned, shortLength);
+    EXPECT_EQ(memcmp(&record, &full, shortLength), 0);
+  };
+
+  // by key
+  RECORD record;
+  memset(&record, 0, sizeof(record));
+  length = shortLength;
+  key = 4000;
+  ASSERT_EQ(btrcall(btrieve::OperationCode::AcquireGreater, posBlock, &record,
+                    &length, &key, sizeof(key), 1),
+            btrieve::BtrieveError::DataBufferLengthOverrun);
+  expectStartOfRecord(record, length);
+
+  // by position
+  memset(&record, 0, sizeof(record));
+  memcpy(&record, &position, sizeof(position));
+  length = shortLength;
+  ASSERT_EQ(btrcall(btrieve::OperationCode::GetDirectChunkOrRecord, posBlock,
+                    &record, &length, nullptr, 0, -1),
+            btrieve::BtrieveError::DataBufferLengthOverrun);
+  expectStartOfRecord(record, length);
+
+  // stepping
+  RECORD first;
+  length = sizeof(first);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::StepFirst, posBlock, &first,
+                    &length, nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
+  memset(&record, 0, sizeof(record));
+  length = shortLength;
+  ASSERT_EQ(btrcall(btrieve::OperationCode::StepFirst, posBlock, &record,
+                    &length, nullptr, 0, 0),
+            btrieve::BtrieveError::DataBufferLengthOverrun);
+  EXPECT_EQ(length, shortLength);
+  EXPECT_EQ(memcmp(&record, &first, shortLength), 0);
+}
+
 TEST_F(wbtrv32Test, QueryKeyBufferTooShort) {
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   ASSERT_FALSE(mbbsEmuDb.empty());
