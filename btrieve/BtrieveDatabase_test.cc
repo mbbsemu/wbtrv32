@@ -1,6 +1,7 @@
 #include "BtrieveDatabase.h"
 
 #include <filesystem>
+#include <functional>
 #include <fstream>
 #include <iterator>
 
@@ -257,6 +258,74 @@ TEST(BtrieveDatabase, LoadsFixedDatV6) {
   ASSERT_EQ(database.getKeys()[2].getPrimarySegment().getOffset(), 16);
   ASSERT_EQ(database.getKeys()[2].getPrimarySegment().getPosition(), 17);
   ASSERT_EQ(database.getKeys()[2].getPrimarySegment().getLength(), 16u);
+}
+
+// Every record of a Btrieve file, in the order they're loaded.
+static std::vector<std::string> loadAllRecords(const std::filesystem::path &dat) {
+  std::vector<std::string> records;
+  BtrieveDatabase database;
+  database.parseDatabase(
+      toWideString(dat).c_str(), []() { return true; },
+      [&records](std::basic_string_view<uint8_t> record) {
+        records.emplace_back(reinterpret_cast<const char *>(record.data()),
+                             record.size());
+        return BtrieveDatabase::LoadRecordResult::COUNT;
+      });
+  return records;
+}
+
+// Copies GALTELA.DAT (v6, 4096 byte pages) to the temp directory with a copy
+// of one of its physical pages appended, after edit has changed it.
+static std::filesystem::path galtelaWithExtraPage(
+    const char *name, uint32_t physicalPage,
+    std::function<void(std::vector<char> &)> edit) {
+  const size_t pageLength = 4096;
+  std::ifstream in("assets/GALTELA.DAT", std::ios::binary);
+  std::vector<char> file((std::istreambuf_iterator<char>(in)),
+                         std::istreambuf_iterator<char>());
+  std::vector<char> page(file.begin() + physicalPage * pageLength,
+                         file.begin() + (physicalPage + 1) * pageLength);
+  edit(page);
+  file.insert(file.end(), page.begin(), page.end());
+
+  std::filesystem::path dat(testing::TempDir());
+  dat /= name;
+  std::ofstream out(dat, std::ios::binary | std::ios::trunc);
+  out.write(file.data(), file.size());
+  return dat;
+}
+
+// Btrieve 6 writes each new version of a page to a free physical page, so old
+// copies stay behind. A copy older than the live one must not be read.
+TEST(BtrieveDatabase, LoadsOnlyTheNewestCopyOfAV6DataPage) {
+  const auto original = loadAllRecords("assets/GALTELA.DAT");
+  ASSERT_EQ(original.size(), 73u);
+
+  // physical page 9 holds logical page 12 at usage count 4; add a copy at
+  // usage count 3 with different records
+  const auto dat =
+      galtelaWithExtraPage("OLDCOPY.DAT", 9, [](std::vector<char> &page) {
+        ASSERT_EQ(page[2], 0x0c);
+        ASSERT_EQ(page[4], 0x04);
+        page[4] = 0x03;
+        std::fill(page.begin() + 8, page.end(), 'X');
+      });
+
+  EXPECT_EQ(loadAllRecords(dat), original);
+}
+
+// A data page left behind for a logical page the PAT has since freed holds no
+// live records.
+TEST(BtrieveDatabase, IgnoresV6DataPagesThePATHasFreed) {
+  const auto original = loadAllRecords("assets/GALTELA.DAT");
+
+  // logical page 6 is unallocated in GALTELA.DAT's PAT
+  const auto dat =
+      galtelaWithExtraPage("FREED.DAT", 9, [](std::vector<char> &page) {
+        page[2] = 0x06;
+      });
+
+  EXPECT_EQ(loadAllRecords(dat), original);
 }
 
 TEST(BtrieveDatabase, LoadsMultiAcsDatV6) {
