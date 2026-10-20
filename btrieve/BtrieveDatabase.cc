@@ -323,8 +323,12 @@ void BtrieveDatabase::loadRecords(
 
 finished_loaded:
   if (recordsLoaded != recordCount) {
-    fprintf(stderr, "Database contains %d records but read %d!\n", recordCount,
-            recordsLoaded);
+    char message[128];
+    snprintf(message, sizeof(message),
+             "read %u records, but the file's header says it holds %u",
+             recordsLoaded, recordCount);
+    conversionWarning = message;
+    fprintf(stderr, "%s\n", message);
   }
 }
 

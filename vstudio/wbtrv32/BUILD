@@ -7,7 +7,7 @@ TEST_SRCS = glob(["*_test.cc"])
 
 cc_library(
   name = "libwbtrv32",
-  srcs = ["bad_data.cc", "framework.cc", "wbtrv32.cpp"],
+  srcs = ["bad_data.cc", "framework.cc", "wbtrv32.cpp", "wbtrv32_version.h"],
   hdrs = ["bad_data.h", "framework.h", "wbtrv32.h"],
   visibility = ["//test:__pkg__", "//util:__pkg__"],
   deps = [

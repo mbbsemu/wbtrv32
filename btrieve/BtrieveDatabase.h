@@ -100,6 +100,10 @@ class BtrieveDatabase {
   // Returns the total number of records contained in this Btrieve database.
   unsigned int getRecordCount() const { return recordCount; }
 
+  // After parseDatabase: what didn't add up while loading records (fewer read
+  // than the header says the file holds), or empty.
+  const std::string &getConversionWarning() const { return conversionWarning; }
+
   // Returns whether the records in this database are variable length or fixed.
   bool isVariableLengthRecords() const {
     return recordType == RecordType::Variable ||
@@ -238,6 +242,9 @@ class BtrieveDatabase {
 
   // Whether the database is version 6.0. Otherwise it's 5.0
   bool v6;
+
+  // See getConversionWarning().
+  std::string conversionWarning;
 };
 
 }  // namespace btrieve
