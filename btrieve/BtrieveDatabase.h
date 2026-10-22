@@ -2,6 +2,7 @@
 #define __RECORD_LOADER_H_
 
 #include <functional>
+#include <map>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -40,6 +41,7 @@ class BtrieveDatabase {
       : keys(database.keys),
         deletedRecordOffsets(database.deletedRecordOffsets),
         patPages(database.patPages),
+        v6Pages(database.v6Pages),
         pageLength(database.pageLength),
         pageCount(database.pageCount),
         recordLength(database.recordLength),
@@ -53,6 +55,7 @@ class BtrieveDatabase {
       : keys(std::move(database.keys)),
         deletedRecordOffsets(std::move(database.deletedRecordOffsets)),
         patPages(std::move(database.patPages)),
+        v6Pages(std::move(database.v6Pages)),
         pageLength(database.pageLength),
         pageCount(database.pageCount),
         recordLength(database.recordLength),
@@ -187,6 +190,22 @@ class BtrieveDatabase {
   // lookup were called for the same page.
   int32_t lookupPATEntry(FILE *f, int32_t logicalPage, uint8_t &outType);
 
+  // The physical page a v6 PAT entry points at. Its first byte is the page
+  // number's high byte in some files and a marker (0xFF) in others, so it is
+  // only used when the page it gives is inside the file.
+  uint32_t patEntryPage(const uint8_t *entry) const;
+
+  // v6 only: maps every logical data ('D') and variable ('V') page to the
+  // physical page currently holding it, from the pages' own headers. See
+  // buildV6PageMap() for why the PAT alone isn't trusted for these.
+  void buildV6PageMap(FILE *f);
+
+  struct V6Page {
+    uint32_t physicalPage;
+    uint8_t type;
+    uint16_t usageCount;
+  };
+
   // The list of keys defined in the Btrieve database.
   std::vector<Key> keys;
   // The list of deleted record pointers inside the Btrieve database.
@@ -194,6 +213,8 @@ class BtrieveDatabase {
   std::unordered_set<uint32_t> deletedRecordOffsets;
   // v6 only: the file page of each PAT pair's first page, PAT 1 first.
   std::vector<uint32_t> patPages;
+  // v6 only: logical page -> its current physical copy, in logical order.
+  std::map<uint32_t, V6Page> v6Pages;
 
   // The page length of the Btrieve database. Will be a multiple of 512.
   uint16_t pageLength;
