@@ -532,6 +532,10 @@ void BtrieveDatabase::loadKeyDefinitions(FILE* f, const uint8_t* firstPage,
 
       keyAcsName = &multiAcsName;
       keyAcs = &multiAcs;
+    } else {
+      // a key without its own ACS uses the file's, not the previous key's
+      keyAcsName = &acsName;
+      keyAcs = &acs;
     }
 
     uint16_t offset = toUint16(data + 0x14);
