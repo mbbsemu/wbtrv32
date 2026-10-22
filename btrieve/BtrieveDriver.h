@@ -30,6 +30,13 @@ std::filesystem::path retireDatabase(const std::filesystem::path &datPath,
 void writeDatPlaceholder(const std::filesystem::path &datPath,
                          const std::filesystem::path &dbPath);
 
+// Where a Btrieve file's data lives once converted. NAME.DAT keeps the NAME.db
+// it always had (and NAME.db names itself); any other extension gets
+// NAME.EXT.db, so files that differ only in extension (a .MST master copy
+// beside its .DAT, say) never share one database.
+std::filesystem::path sqlPathFor(const std::filesystem::path &btrieveFile,
+                                 const std::wstring &sqlExtension);
+
 // Size, last write time and contents hash of a file, for
 // SqlDatabase::setSourceFingerprint.
 std::optional<SourceFingerprint> sourceFingerprint(

@@ -4111,3 +4111,14 @@ TEST_F(BtrieveDriverTest, UniqueKeyHoldsTrueNulls) {
                  "CREATE UNIQUE INDEX key_0_unique on data_t(key_0_0, "
                  "key_0_1) WHERE key_0_0 = 0"}));
 }
+
+TEST(BtrieveDriver, SqlPathForGivesEachExtensionItsOwnDatabase) {
+  auto expect = [](const wchar_t *btrieveFile, const wchar_t *database) {
+    EXPECT_EQ(sqlPathFor(btrieveFile, L"db"), std::filesystem::path(database));
+  };
+  expect(L"DIR/NAME.DAT", L"DIR/NAME.db");
+  expect(L"DIR/NAME.dat", L"DIR/NAME.db");
+  expect(L"DIR/NAME", L"DIR/NAME.db");
+  expect(L"DIR/NAME.DB", L"DIR/NAME.db");
+  expect(L"DIR/NAME.MST", L"DIR/NAME.MST.db");
+}

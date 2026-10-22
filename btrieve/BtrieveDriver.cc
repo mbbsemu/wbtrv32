@@ -41,6 +41,28 @@ static std::basic_string<wchar_t> toUpper(
   return ret;
 }
 
+static std::basic_string<wchar_t> toLower(
+    const std::basic_string<wchar_t> &value) {
+  std::basic_string<wchar_t> ret(value);
+  for (size_t i = 0; i < ret.size(); ++i) {
+    ret[i] = tolower(ret[i]);
+  }
+  return ret;
+}
+
+std::filesystem::path sqlPathFor(const std::filesystem::path &btrieveFile,
+                                 const std::wstring &sqlExtension) {
+  const std::wstring extension = toLower(btrieveFile.extension().wstring());
+  std::filesystem::path sqlPath = btrieveFile;
+  if (extension.empty() || extension == L".dat" ||
+      extension == L"." + toLower(sqlExtension)) {
+    return sqlPath.replace_extension(sqlExtension);
+  }
+  sqlPath += L".";
+  sqlPath += sqlExtension;
+  return sqlPath;
+}
+
 // Size and last write time of path, plus a hash of its contents when withHash.
 static std::optional<SourceFingerprint> fingerprint(
     const std::filesystem::path &path, bool withHash) {
@@ -203,16 +225,15 @@ std::optional<SourceFingerprint> sourceFingerprint(
 
 BtrieveError BtrieveDriver::open(const wchar_t *fileName, OpenMode openMode) {
   std::filesystem::path dbPath =
-      std::filesystem::path(fileName).replace_extension(
-          sqlDatabase->getFileExtension());
+      sqlPathFor(fileName, sqlDatabase->getFileExtension());
 
   openedFilename = fileName;
 
   bool dbExists = fileExists(toWideString(dbPath).c_str());
   if (!dbExists) {
     // failed to find db, let's uppercase and try again
-    std::filesystem::path dbPathUpper = dbPath;
-    dbPathUpper.replace_extension(toUpper(sqlDatabase->getFileExtension()));
+    std::filesystem::path dbPathUpper =
+        sqlPathFor(fileName, toUpper(sqlDatabase->getFileExtension()));
     dbExists = fileExists(toWideString(dbPathUpper).c_str());
     if (dbExists) {
       dbPath = dbPathUpper;

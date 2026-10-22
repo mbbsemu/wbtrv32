@@ -2572,6 +2572,51 @@ TEST_F(wbtrv32Test, CallsFromManyThreadsAtOnce) {
   EXPECT_EQ(failures.load(), 0) << firstFailure;
 }
 
+// A .MST master copy beside its .DAT is a different file, with its own data.
+TEST_F(wbtrv32Test, FilesDifferingOnlyInExtensionHaveTheirOwnData) {
+  const std::filesystem::path folder(tempPath->getTempPath());
+  for (const wchar_t *name : {L"SAME.DAT", L"SAME.MST"}) {
+    std::filesystem::copy_file("assets/MBBSEMU.DAT", folder / name);
+  }
+
+  uint8_t master[POSBLOCK_LENGTH];
+  memset(master, 0, sizeof(master));
+  const std::string datName = (folder / "SAME.DAT").string();
+  const std::string mstName = (folder / "SAME.MST").string();
+  for (const auto &[handle, name] :
+       {std::make_pair(posBlock, &datName), std::make_pair(master, &mstName)}) {
+    ASSERT_EQ(btrcall(btrieve::OperationCode::Open, handle, nullptr, nullptr,
+                      const_cast<char *>(name->c_str()), -1, 0),
+              btrieve::BtrieveError::Success);
+  }
+  EXPECT_TRUE(std::filesystem::exists(folder / "SAME.db"));
+  EXPECT_TRUE(std::filesystem::exists(folder / "SAME.MST.db"));
+
+  // deleting from the master leaves the .DAT's records alone
+  RECORD record;
+  DWORD length = sizeof(record);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::StepFirst, master, &record,
+                    &length, nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Delete, master, nullptr, nullptr,
+                    nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
+
+  auto recordCount = [&](uint8_t *handle) {
+    char buffer[512];
+    DWORD length = sizeof(buffer);
+    EXPECT_EQ(btrcall(btrieve::OperationCode::Stat, handle, buffer, &length,
+                      nullptr, 0, 0),
+              btrieve::BtrieveError::Success);
+    return reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount;
+  };
+  EXPECT_EQ(recordCount(master), 3u);
+  EXPECT_EQ(recordCount(posBlock), 4u);
+
+  btrcall(btrieve::OperationCode::Close, master, nullptr, nullptr, nullptr, 0,
+          0);
+}
+
 TEST_F(wbtrv32Test, Version) {
   unsigned char buffer[16];
   memset(buffer, 0xCC, sizeof(buffer));
