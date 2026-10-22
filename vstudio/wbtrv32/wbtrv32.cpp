@@ -152,6 +152,13 @@ static void debug(const BtrieveCommand &command, const char *format, ...) {
   len = vsnprintf(buf, sizeof(buf) - 2, format, args);
   va_end(args);
 
+  // vsnprintf returns the length it wanted, not what fit
+  if (len < 0) {
+    len = 0;
+  } else if (len > static_cast<int>(sizeof(buf)) - 3) {
+    len = static_cast<int>(sizeof(buf)) - 3;
+  }
+
   // append cr/lf
   buf[len] = '\r';
   buf[len + 1] = '\n';
@@ -994,6 +1001,8 @@ extern "C" WBTRV32_EXPORT int __stdcall BTRCALL(WORD wOperation,
   } catch (const BtrieveException &ex) {
     // make sure we don't leak the exception back to our caller
     error = ex.getError();
+    debug(btrieveCommand, "%s failed: %s", toString(btrieveCommand.operation),
+          ex.getErrorMessage().c_str());
   } catch (...) {
     // BtrieveException doesn't derive from std::exception, so a stray
     // std::exception (e.g. std::out_of_range from a malformed record) would

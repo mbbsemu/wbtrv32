@@ -41,6 +41,9 @@
     </CopyFileToFolders>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="..\..\btrieve\BtrieveException_test.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\btrieve\LRUCache_test.cc">
       <Filter>Source Files</Filter>
     </ClCompile>

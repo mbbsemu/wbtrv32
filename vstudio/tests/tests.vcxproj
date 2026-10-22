@@ -146,6 +146,7 @@ copy /Y $(SolutionDir)..\bin\wbtrv32\$(Platform)\$(Configuration)\wbtrv32.pdb $(
   <ItemGroup>
     <ClCompile Include="..\..\btrieve\BtrieveDatabase_test.cc" />
     <ClCompile Include="..\..\btrieve\BtrieveDriver_test.cc" />
+    <ClCompile Include="..\..\btrieve\BtrieveException_test.cc" />
     <ClCompile Include="..\..\btrieve\Key_test.cc" />
     <ClCompile Include="..\..\btrieve\LRUCache_test.cc" />
     <ClCompile Include="..\..\btrieve\SqliteUtil_test.cc" />

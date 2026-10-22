@@ -27,7 +27,7 @@ class BtrieveException {
   }
 
   BtrieveException(const BtrieveException &ex)
-      : errorMessage(ex.errorMessage) {}
+      : error(ex.error), errorMessage(ex.errorMessage) {}
 
   const std::string &getErrorMessage() const { return errorMessage; }
 
