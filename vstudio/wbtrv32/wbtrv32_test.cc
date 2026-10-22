@@ -2448,7 +2448,10 @@ TEST_F(wbtrv32Test, HandlesOnTheSameFileKeepSeparatePositions) {
               btrieve::BtrieveError::Success);
   };
   auto positionOf = [&](uint8_t *handle) {
-    uint32_t position = 0;
+    // No initializer: MSVC 14.51's optimizer (x64 Release) carried a "= 0"
+    // here past the btrcall that writes it, so callers saw 0 for positions
+    // the DLL had returned correctly. A failed call still fails the EXPECT.
+    uint32_t position;
     DWORD size = sizeof(position);
     EXPECT_EQ(btrcall(btrieve::OperationCode::GetPosition, handle, &position,
                       &size, nullptr, 0, 0),

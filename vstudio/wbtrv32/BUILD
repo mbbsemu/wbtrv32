@@ -80,6 +80,11 @@ cc_test(
   name = "tests",
   srcs = TEST_SRCS + ["framework.h","wbtrv32.h"],
   data = ["//assets:test_dats", ":wbtrv32"],
+  # CoCreateGuid/StringFromGUID2, as for the DLL itself
+  linkopts = select({
+    "@platforms//os:windows": ["-lole32"],
+    "//conditions:default": [],
+  }),
   deps = [
     ":libwbtrv32",
     "//btrieve",
