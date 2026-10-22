@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <ctime>
 #include <filesystem>
+#include <mutex>
 
 #include "btrieve/BtrieveDriver.h"
 #include "btrieve/ErrorCode.h"
@@ -1124,6 +1125,12 @@ extern "C" WBTRV32_EXPORT int __stdcall BTRCALL(WORD wOperation,
                                                 LPVOID lpKeyBuffer,
                                                 BYTE bKeyLength,
                                                 CHAR sbKeyNumber) {
+  // One call at a time, as the Btrieve requester does: the table of open
+  // handles, each handle's cursor swap, the transaction and the log are all
+  // shared, and a host may call from more than one thread.
+  static std::mutex callLock;
+  std::lock_guard<std::mutex> lock(callLock);
+
   BtrieveCommand btrieveCommand;
   BtrieveError error;
 

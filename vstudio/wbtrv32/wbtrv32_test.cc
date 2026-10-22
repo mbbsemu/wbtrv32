@@ -1,8 +1,10 @@
 #include "wbtrv32.h"
 
+#include <atomic>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <thread>
 
 #include "../../btrieve/AttributeMask.h"
 #include "../../btrieve/BtrieveDriver.h"
@@ -2512,6 +2514,62 @@ TEST_F(wbtrv32Test, HandlesOnTheSameFileKeepSeparatePositions) {
 
   btrcall(btrieve::OperationCode::Close, second, nullptr, nullptr, nullptr, 0,
           0);
+}
+
+// Calls may arrive from several threads at once (a host's server threads);
+// each handle must still see only its own position, and the table of open
+// handles must survive.
+TEST_F(wbtrv32Test, CallsFromManyThreadsAtOnce) {
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  ASSERT_FALSE(mbbsEmuDb.empty());
+  const std::string fileName = toStdString(mbbsEmuDb.c_str());
+
+  std::atomic<int> failures{0};
+  std::string firstFailure;
+  std::vector<std::thread> threads;
+  for (int t = 0; t < 8; ++t) {
+    threads.emplace_back([&]() {
+      for (int round = 0; round < 50; ++round) {
+        uint8_t handle[POSBLOCK_LENGTH];
+        memset(handle, 0, sizeof(handle));
+        const int openStatus =
+            btrcall(btrieve::OperationCode::Open, handle, nullptr, nullptr,
+                    const_cast<LPVOID>(
+                        reinterpret_cast<LPCVOID>(fileName.c_str())),
+                    -1, 0);
+        if (openStatus != btrieve::BtrieveError::Success) {
+          if (++failures == 1) {
+            firstFailure = "open status " + std::to_string(openStatus);
+          }
+          continue;
+        }
+        RECORD record;
+        DWORD length = sizeof(record);
+        int steps = 0;
+        int status = btrcall(btrieve::OperationCode::StepFirst, handle,
+                             &record, &length, nullptr, 0, -1);
+        while (status == btrieve::BtrieveError::Success) {
+          ++steps;
+          length = sizeof(record);
+          status = btrcall(btrieve::OperationCode::StepNext, handle, &record,
+                           &length, nullptr, 0, -1);
+        }
+        // every thread walks the whole file: 4 records, then end of file
+        if (steps != 4 || status != btrieve::BtrieveError::EndOfFile) {
+          if (++failures == 1) {
+            firstFailure = "steps " + std::to_string(steps) + " status " +
+                           std::to_string(status);
+          }
+        }
+        btrcall(btrieve::OperationCode::Close, handle, nullptr, nullptr,
+                nullptr, 0, 0);
+      }
+    });
+  }
+  for (auto &thread : threads) {
+    thread.join();
+  }
+  EXPECT_EQ(failures.load(), 0) << firstFailure;
 }
 
 TEST_F(wbtrv32Test, Version) {
