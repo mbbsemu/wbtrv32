@@ -2428,6 +2428,92 @@ TEST_F(wbtrv32Test, CreateSingleKey) {
                                    0, 0, "", std::vector<char>()));
 }
 
+// Btrieve keeps a separate position for every open handle, even on the same
+// file: moving one must not move the other.
+TEST_F(wbtrv32Test, HandlesOnTheSameFileKeepSeparatePositions) {
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  ASSERT_FALSE(mbbsEmuDb.empty());
+  const std::string fileName = toStdString(mbbsEmuDb.c_str());
+
+  uint8_t second[POSBLOCK_LENGTH];
+  memset(second, 0, sizeof(second));
+
+  auto open = [&](uint8_t *handle) {
+    ASSERT_EQ(btrcall(btrieve::OperationCode::Open, handle, nullptr, nullptr,
+                      const_cast<LPVOID>(
+                          reinterpret_cast<LPCVOID>(fileName.c_str())),
+                      -1, 0),
+              btrieve::BtrieveError::Success);
+  };
+  auto positionOf = [&](uint8_t *handle) {
+    uint32_t position = 0;
+    DWORD size = sizeof(position);
+    EXPECT_EQ(btrcall(btrieve::OperationCode::GetPosition, handle, &position,
+                      &size, nullptr, 0, 0),
+              btrieve::BtrieveError::Success);
+    return position;
+  };
+
+  RECORD record;
+  DWORD length = sizeof(record);
+  open(posBlock);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::StepLast, posBlock, &record,
+                    &length, nullptr, 0, -1),
+            btrieve::BtrieveError::Success);
+  const uint32_t last = positionOf(posBlock);
+
+  // a second open of the file has no current record, and leaves the first
+  // handle's alone
+  open(second);
+  uint32_t position;
+  length = sizeof(position);
+  EXPECT_EQ(btrcall(btrieve::OperationCode::GetPosition, second, &position,
+                    &length, nullptr, 0, 0),
+            btrieve::BtrieveError::InvalidPositioning);
+  EXPECT_EQ(positionOf(posBlock), last);
+
+  length = sizeof(record);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::StepFirst, second, &record,
+                    &length, nullptr, 0, -1),
+            btrieve::BtrieveError::Success);
+  const uint32_t first = positionOf(second);
+  ASSERT_NE(first, last);
+
+  // walk the first handle by key and by position
+  char key[32];
+  length = sizeof(record);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::AcquireFirst, posBlock, &record,
+                    &length, key, sizeof(key), 1),
+            btrieve::BtrieveError::Success);
+  length = sizeof(record);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::AcquireNext, posBlock, &record,
+                    &length, key, sizeof(key), 1),
+            btrieve::BtrieveError::Success);
+  length = sizeof(record);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::StepNext, posBlock, &record,
+                    &length, nullptr, 0, -1),
+            btrieve::BtrieveError::Success);
+
+  // the second handle hasn't moved
+  EXPECT_EQ(positionOf(second), first);
+
+  // and stepping it goes to the record after its own position
+  length = sizeof(record);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::StepNext, second, &record,
+                    &length, nullptr, 0, -1),
+            btrieve::BtrieveError::Success);
+  EXPECT_EQ(positionOf(second), first + 1);
+
+  // Get Next on the second handle has no key path of its own yet
+  length = sizeof(record);
+  EXPECT_EQ(btrcall(btrieve::OperationCode::AcquireNext, second, &record,
+                    &length, key, sizeof(key), 1),
+            btrieve::BtrieveError::InvalidPositioning);
+
+  btrcall(btrieve::OperationCode::Close, second, nullptr, nullptr, nullptr, 0,
+          0);
+}
+
 TEST_F(wbtrv32Test, Version) {
   unsigned char buffer[16];
   memset(buffer, 0xCC, sizeof(buffer));
