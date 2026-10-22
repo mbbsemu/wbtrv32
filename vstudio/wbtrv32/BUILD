@@ -13,6 +13,13 @@ cc_library(
   deps = [
     "//btrieve",
     "//btrieve:sqlite_database",
+    "@abseil-cpp//absl/base:log_severity",
+    "@abseil-cpp//absl/log",
+    "@abseil-cpp//absl/log:globals",
+    "@abseil-cpp//absl/log:initialize",
+    "@abseil-cpp//absl/log:log_entry",
+    "@abseil-cpp//absl/log:log_sink",
+    "@abseil-cpp//absl/log:log_sink_registry",
   ],
 )
 
@@ -24,7 +31,8 @@ cc_shared_library(
   deps = [":libwbtrv32"],
   additional_linker_inputs = select({
     "@platforms//os:windows": [":wbtrv32_res"],
-    "//conditions:default": [],
+    "@platforms//os:macos": [],
+    "//conditions:default": ["wbtrv32.lds"],
   }),
   shared_lib_name = select({
     "@platforms//os:windows": "wbtrv32.dll",
@@ -46,9 +54,19 @@ cc_shared_library(
     # pulls in ole32.lib implicitly via $(CoreLibraryDependencies), which
     # Bazel has no equivalent of, so link it explicitly.
     # zig's linker takes the compiled .res directly, like MSVC's link.exe.
-    "@platforms//os:windows": ["-lole32", "$(location :wbtrv32_res)"],
+    # Abseil's stack trace symbolizer needs dbghelp.dll, which its BUILD
+    # files only link for MSVC.
+    "@platforms//os:windows": [
+      "-lole32",
+      "-ldbghelp",
+      "$(location :wbtrv32_res)",
+    ],
     "@platforms//os:macos": [],
-    "//conditions:default": ["-lstdc++"],
+    # wbtrv32.lds does wbtrv32.def's job on Linux.
+    "//conditions:default": [
+      "-lstdc++",
+      "-Wl,--version-script=$(location wbtrv32.lds)",
+    ],
   }),
 )
 

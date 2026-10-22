@@ -3,11 +3,18 @@
 #include "wbtrv32.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <cstdlib>
-#include <ctime>
 #include <filesystem>
 #include <mutex>
 
+#include "absl/base/log_severity.h"
+#include "absl/log/globals.h"
+#include "absl/log/initialize.h"
+#include "absl/log/log.h"
+#include "absl/log/log_entry.h"
+#include "absl/log/log_sink.h"
+#include "absl/log/log_sink_registry.h"
 #include "btrieve/BtrieveDriver.h"
 #include "btrieve/ErrorCode.h"
 #include "btrieve/OperationCode.h"
@@ -21,12 +28,10 @@
 //
 // #define DEBUG_ATTACH
 
-// Define this to log errors to wbtrv32.log
-#define LOG_TO_FILE
-
 // How much goes to wbtrv32.log. Set with LogLevel= in the [wbtrv32] section of
 // wbtrv32.ini in the current directory, or the WBTRV32_LOGLEVEL environment
-// variable, which wins.
+// variable, which wins. Each level maps onto Abseil's: problems are
+// LOG(WARNING) and above, routine statuses LOG(INFO), and opens VLOG(1).
 enum LogLevel : int {
   LogOff = 0,
   // failures and conversion problems, but not the statuses applications get
@@ -35,8 +40,6 @@ enum LogLevel : int {
   LogAllStatuses = 2,  // every non-zero status
   LogEverything = 3,   // also every open
 };
-
-static int _logLevel = LogProblems;
 
 #ifdef DEBUG_ATTACH
 #include "Psapi.h"
@@ -74,12 +77,27 @@ struct OpenHandle {
 
 static std::unordered_map<std::basic_string<wchar_t>, OpenHandle> _openFiles;
 
-#ifdef LOG_TO_FILE
-// A plain pointer, closed only by processDetach(): a static object with a
+// Sends Abseil's log messages to wbtrv32.log.
+class FileLogSink final : public absl::LogSink {
+ public:
+  explicit FileLogSink(FILE *file) : file_(file) {}
+  ~FileLogSink() override { fclose(file_); }
+
+  void Send(const absl::LogEntry &entry) override {
+    const absl::string_view line = entry.text_message_with_prefix();
+    // one call, so lines from different threads don't interleave
+    fprintf(file_, "%.*s\r\n", static_cast<int>(line.size()), line.data());
+    fflush(file_);
+  }
+
+ private:
+  FILE *file_;
+};
+
+// A plain pointer, deleted only by processDetach(): a static object with a
 // destructor would be destroyed at exit before the Linux .so destructor below
 // runs processDetach(), which would then close the log a second time.
-static FILE *_logFile = nullptr;
-#endif
+static FileLogSink *_logSink = nullptr;
 
 static int readLogLevel() {
 #ifdef WIN32
@@ -110,29 +128,8 @@ static int readLogLevel() {
   return LogProblems;
 }
 
-#ifdef LOG_TO_FILE
-static void writeLogTimestamp() {
-  if (!_logFile) {
-    return;
-  }
-  const time_t now = time(nullptr);
-  struct tm local;
-#ifdef WIN32
-  localtime_s(&local, &now);
-#else
-  localtime_r(&now, &local);
-#endif
-  char stamp[32];
-  const size_t len =
-      strftime(stamp, sizeof(stamp), "%Y-%m-%d %H:%M:%S ", &local);
-  fwrite(stamp, 1, len, _logFile);
-}
-
 // Every log starts by saying which build wrote it, and for which program.
-static void writeVersionStamp() {
-  if (!_logFile) {
-    return;
-  }
+static void logVersionStamp(int logLevel) {
   char program[MAX_PATH] = "?";
   char library[MAX_PATH] = "?";
 #ifdef WIN32
@@ -144,13 +141,10 @@ static void writeVersionStamp() {
     GetModuleFileNameA(self, library, ARRAYSIZE(library));
   }
 #endif
-  writeLogTimestamp();
-  fprintf(_logFile, "wbtrv32 %s (built %s %s) %s loaded by %s, log level %d\r\n",
-          WBTRV32_VERSION_STR, __DATE__, __TIME__, library, program,
-          _logLevel);
-  fflush(_logFile);
+  LOG(INFO) << "wbtrv32 " << WBTRV32_VERSION_STR << " (built " << __DATE__
+            << " " << __TIME__ << ") " << library << " loaded by " << program
+            << ", log level " << logLevel;
 }
-#endif  // LOG_TO_FILE
 
 #ifndef WIN32
 // DllMain (dllmain.cpp) is a Windows-only entry point and is never invoked
@@ -175,28 +169,43 @@ void wbtrv32::processAttach() {
   }
 #endif
 
-  _logLevel = readLogLevel();
+  const int logLevel = readLogLevel();
 
-#ifdef LOG_TO_FILE
-  if (_logLevel == LogOff) {
-    return;
-  }
+  // We're a guest in someone else's process: log only to our own file (and,
+  // through Abseil's own sink, to an attached Windows debugger), never to the
+  // host's stderr.
+  absl::InitializeLog();
+  absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfinity);
+
+  if (logLevel != LogOff) {
 #ifdef WIN32
-  _logFile = _wfsopen(L"wbtrv32.log", L"ab", _SH_DENYWR);
+    FILE *file = _wfsopen(L"wbtrv32.log", L"ab", _SH_DENYWR);
 #else
-  _logFile = fopen("/tmp/wbtrv32.log", "ab");
+    FILE *file = fopen("/tmp/wbtrv32.log", "ab");
 #endif  // WIN32
-  writeVersionStamp();
-#endif  // LOG_TO_FILE
+    if (file != nullptr) {
+      _logSink = new FileLogSink(file);
+      absl::AddLogSink(_logSink);
+    }
+    // before the level below is set, so it's never filtered out
+    absl::SetMinLogLevel(absl::LogSeverityAtLeast::kInfo);
+    logVersionStamp(logLevel);
+  }
+
+  absl::SetMinLogLevel(logLevel >= LogAllStatuses
+                           ? absl::LogSeverityAtLeast::kInfo
+                       : logLevel >= LogProblems
+                           ? absl::LogSeverityAtLeast::kWarning
+                           : absl::LogSeverityAtLeast::kInfinity);
+  absl::SetGlobalVLogLevel(logLevel >= LogEverything ? 1 : 0);
 }
 
 void wbtrv32::processDetach() {
-#ifdef LOG_TO_FILE
-  if (_logFile) {
-    fclose(_logFile);
-    _logFile = nullptr;
+  if (_logSink) {
+    absl::RemoveLogSink(_logSink);
+    delete _logSink;
+    _logSink = nullptr;
   }
-#endif
 }
 
 // Btrieve transactions span every file the client writes until End or Abort.
@@ -252,57 +261,15 @@ struct BtrieveCommand {
   int8_t keyNumber;
 };
 
-static void debug(const BtrieveCommand &command, const char *format, ...) {
-  BtrieveDriver *driver = getOpenDatabase(command.lpPositionBlock);
-  char buf[256];
-  int len;
-
-#ifdef LOG_TO_FILE
-  writeLogTimestamp();
-#endif
-
-  if (driver != nullptr) {
-    len = snprintf(
-        buf, sizeof(buf), "[%s]: ",
-        btrieve::toStdString(driver->getOpenedFilename().c_str()).c_str());
-
-#ifdef WIN32
-    OutputDebugStringA(buf);
-#endif
-
-#ifdef LOG_TO_FILE
-    if (_logFile) {
-      fwrite(buf, 1, len, _logFile);
-    }
-#endif
+// Names the file a command is on, to start its log message.
+static std::string logPrefix(const BtrieveCommand &command) {
+  const OpenHandle *handle = findHandle(command.lpPositionBlock);
+  if (handle == nullptr) {
+    return {};
   }
-
-  va_list args;
-  va_start(args, format);
-  len = vsnprintf(buf, sizeof(buf) - 2, format, args);
-  va_end(args);
-
-  // vsnprintf returns the length it wanted, not what fit
-  if (len < 0) {
-    len = 0;
-  } else if (len > static_cast<int>(sizeof(buf)) - 3) {
-    len = static_cast<int>(sizeof(buf)) - 3;
-  }
-
-  // append cr/lf
-  buf[len] = '\r';
-  buf[len + 1] = '\n';
-  buf[len + 2] = 0;
-#ifdef WIN32
-  OutputDebugStringA(buf);
-#endif
-
-#ifdef LOG_TO_FILE
-  if (_logFile) {
-    fwrite(buf, 1, len + 2, _logFile);
-    fflush(_logFile);
-  }
-#endif
+  return "[" +
+         btrieve::toStdString(handle->driver->getOpenedFilename().c_str()) +
+         "]: ";
 }
 
 static void AddToOpenFiles(BtrieveCommand &command,
@@ -407,10 +374,8 @@ static BtrieveError Open(BtrieveCommand &command) {
       reinterpret_cast<const char *>(command.lpKeyBuffer);
   auto openMode = static_cast<OpenMode>(command.keyNumber);
 
-  if (_logLevel >= LogEverything) {
-    debug(command, "Attempting to open %s with openMode %d", lpszFilename,
-          openMode);
-  }
+  VLOG(1) << logPrefix(command) << "Attempting to open " << lpszFilename
+          << " with openMode " << static_cast<int>(openMode);
 
   resolveFileName(lpszFilename, fullPathFileName, ARRAYSIZE(fullPathFileName));
 #ifdef WIN32
@@ -1803,10 +1768,9 @@ extern "C" WBTRV32_EXPORT int __stdcall BTRCALL(WORD wOperation,
   } catch (const BtrieveException &ex) {
     // make sure we don't leak the exception back to our caller
     error = ex.getError();
-    if (_logLevel >= LogProblems) {
-      debug(btrieveCommand, "%s failed: %s",
-            toString(btrieveCommand.operation), ex.getErrorMessage().c_str());
-    }
+    LOG(ERROR) << logPrefix(btrieveCommand)
+               << toString(btrieveCommand.operation)
+               << " failed: " << ex.getErrorMessage();
   } catch (...) {
     // BtrieveException doesn't derive from std::exception, so a stray
     // std::exception (e.g. std::out_of_range from a malformed record) would
@@ -1820,11 +1784,15 @@ extern "C" WBTRV32_EXPORT int __stdcall BTRCALL(WORD wOperation,
   const bool routine = error == BtrieveError::KeyValueNotFound ||
                        error == BtrieveError::EndOfFile ||
                        error == BtrieveError::DataBufferLengthOverrun;
-  if (error != BtrieveError::Success &&
-      _logLevel >= (routine ? LogAllStatuses : LogProblems)) {
-    debug(btrieveCommand, "handled %s [key %d], returned %s",
-          toString(btrieveCommand.operation), btrieveCommand.keyNumber,
-          errorToString(error));
+  const absl::LogSeverity severity =
+      routine ? absl::LogSeverity::kInfo : absl::LogSeverity::kWarning;
+  // Abseil only drops a message below the minimum level after building it,
+  // so check first rather than look up the file name for nothing
+  if (error != BtrieveError::Success && severity >= absl::MinLogLevel()) {
+    LOG(LEVEL(severity)) << logPrefix(btrieveCommand) << "handled "
+        << toString(btrieveCommand.operation) << " [key "
+        << static_cast<int>(btrieveCommand.keyNumber) << "], returned "
+        << errorToString(error);
   }
 
   return error;

@@ -1,0 +1,49 @@
+Build Abseil's time zone code for macOS without CoreFoundation.
+
+Our macOS builds cross-compile with zig (hermetic_cc_toolchain), whose macOS
+sysroot has no frameworks. cctz only uses CoreFoundation to name the local
+time zone; without it, it falls back to /etc/localtime, which macOS has.
+
+diff -ru a/absl/time/internal/cctz/BUILD.bazel b/absl/time/internal/cctz/BUILD.bazel
+--- a/absl/time/internal/cctz/BUILD.bazel
++++ b/absl/time/internal/cctz/BUILD.bazel
+@@ -42,6 +42,10 @@
+ 
+ cc_library(
+     name = "time_zone",
++    local_defines = select({
++        "@platforms//os:osx": ["ABSL_CCTZ_NO_COREFOUNDATION"],
++        "//conditions:default": [],
++    }),
+     srcs = [
+         "src/time_zone_fixed.cc",
+         "src/time_zone_fixed.h",
+@@ -72,7 +76,6 @@
+     ],
+     copts = ABSL_DEFAULT_COPTS,
+     linkopts = ABSL_DEFAULT_LINKOPTS + select({
+-        "@platforms//os:osx": ["-Wl,-framework,CoreFoundation"],
+         "@platforms//os:ios": ["-Wl,-framework,CoreFoundation"],
+         "//conditions:default": [],
+     }),
+diff -ru a/absl/time/internal/cctz/src/time_zone_lookup.cc b/absl/time/internal/cctz/src/time_zone_lookup.cc
+--- a/absl/time/internal/cctz/src/time_zone_lookup.cc
++++ b/absl/time/internal/cctz/src/time_zone_lookup.cc
+@@ -19,7 +19,7 @@
+ #include <sys/system_properties.h>
+ #endif
+ 
+-#if defined(__APPLE__)
++#if defined(__APPLE__) && !defined(ABSL_CCTZ_NO_COREFOUNDATION)
+ #include <CoreFoundation/CFTimeZone.h>
+ 
+ #include <vector>
+@@ -108,7 +108,7 @@
+     zone = sysprop;
+   }
+ #endif
+-#if defined(__APPLE__)
++#if defined(__APPLE__) && !defined(ABSL_CCTZ_NO_COREFOUNDATION)
+   std::vector<char> buffer;
+   CFTimeZoneRef tz_default = CFTimeZoneCopyDefault();
+   if (CFStringRef tz_name = CFTimeZoneGetName(tz_default)) {

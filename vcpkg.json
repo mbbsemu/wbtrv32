@@ -1,0 +1,7 @@
+{
+  "$comment": "Libraries for the Visual Studio build (vstudio/vstudio.sln); Bazel gets the same ones from MODULE.bazel.",
+  "name": "wbtrv32",
+  "dependencies": [
+    "abseil"
+  ]
+}
