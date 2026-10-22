@@ -352,6 +352,42 @@ TEST(BtrieveDatabase, LoadsMultiAcsDatV6) {
   ASSERT_STREQ(database.getKeys().at(2).getACSName(), "LOWER");
 }
 
+// Fewer records than the file's header claims is reported, so the conversion
+// log can show it where the sysop will see it.
+TEST(BtrieveDatabase, WarnsWhenRecordsAreMissing) {
+  {
+    BtrieveDatabase database;
+    database.parseDatabase(
+        _TEXT("assets/MBBSEMU.DAT"), []() { return true; },
+        [](std::basic_string_view<uint8_t> record) {
+          return BtrieveDatabase::LoadRecordResult::COUNT;
+        });
+    EXPECT_EQ(database.getConversionWarning(), "");
+  }
+
+  std::filesystem::path dat(testing::TempDir());
+  dat /= "MISSING.DAT";
+  std::filesystem::copy_file("assets/MBBSEMU.DAT", dat,
+                             std::filesystem::copy_options::overwrite_existing);
+  // the record count's low word is at 0x1C in this v5 file: claim 5, not 4
+  {
+    std::fstream file(dat, std::ios::in | std::ios::out | std::ios::binary);
+    file.seekg(0x1C);
+    ASSERT_EQ(file.get(), 4);
+    file.seekp(0x1C);
+    file.put(5);
+  }
+
+  BtrieveDatabase database;
+  database.parseDatabase(
+      toWideString(dat).c_str(), []() { return true; },
+      [](std::basic_string_view<uint8_t> record) {
+        return BtrieveDatabase::LoadRecordResult::COUNT;
+      });
+  EXPECT_EQ(database.getConversionWarning(),
+            "read 4 records, but the file's header says it holds 5");
+}
+
 // NOCASE_KEY (0x400) shares a bit with NUMBERED_ACS (0x420), so a case
 // insensitive key without an ACS must not be treated as having one.
 TEST(BtrieveDatabase, LoadsCaseInsensitiveKeyWithoutACS) {

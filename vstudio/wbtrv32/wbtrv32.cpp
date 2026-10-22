@@ -3,6 +3,8 @@
 #include "wbtrv32.h"
 
 #include <algorithm>
+#include <cstdlib>
+#include <ctime>
 #include <filesystem>
 
 #include "btrieve/BtrieveDriver.h"
@@ -11,6 +13,7 @@
 #include "btrieve/SqliteDatabase.h"
 #include "btrieve/Text.h"
 #include "framework.h"
+#include "wbtrv32_version.h"
 
 // Define this to pop up a messagebox when wbtrv32.dll is loaded, to allow you
 // to attach a debugger on startup
@@ -19,6 +22,20 @@
 
 // Define this to log errors to wbtrv32.log
 #define LOG_TO_FILE
+
+// How much goes to wbtrv32.log. Set with LogLevel= in the [wbtrv32] section of
+// wbtrv32.ini in the current directory, or the WBTRV32_LOGLEVEL environment
+// variable, which wins.
+enum LogLevel : int {
+  LogOff = 0,
+  // failures and conversion problems, but not the statuses applications get
+  // as routine answers (key not found, end of file, partial read)
+  LogProblems = 1,
+  LogAllStatuses = 2,  // every non-zero status
+  LogEverything = 3,   // also every open
+};
+
+static int _logLevel = LogProblems;
 
 #ifdef DEBUG_ATTACH
 #include "Psapi.h"
@@ -40,6 +57,77 @@ static std::unordered_map<std::basic_string<wchar_t>,
 // runs processDetach(), which would then close the log a second time.
 static FILE *_logFile = nullptr;
 #endif
+
+static int readLogLevel() {
+#ifdef WIN32
+  // as in trackSourceFiles(), the CRT's getenv copy may miss a value set with
+  // SetEnvironmentVariable
+  wchar_t fromEnvironment[16];
+  const DWORD length = GetEnvironmentVariableW(
+      L"WBTRV32_LOGLEVEL", fromEnvironment, ARRAYSIZE(fromEnvironment));
+  if (length > 0 && length < ARRAYSIZE(fromEnvironment)) {
+    return std::clamp(_wtoi(fromEnvironment), int{LogOff},
+                      int{LogEverything});
+  }
+
+  // GetPrivateProfileInt looks in the Windows directory unless given a path
+  wchar_t iniPath[MAX_PATH];
+  if (GetFullPathNameW(L"wbtrv32.ini", ARRAYSIZE(iniPath), iniPath,
+                       nullptr) != 0) {
+    return std::clamp(static_cast<int>(GetPrivateProfileIntW(
+                          L"wbtrv32", L"LogLevel", LogProblems, iniPath)),
+                      int{LogOff}, int{LogEverything});
+  }
+#else
+  const char *fromEnvironment = getenv("WBTRV32_LOGLEVEL");
+  if (fromEnvironment != nullptr && *fromEnvironment != 0) {
+    return std::clamp(atoi(fromEnvironment), int{LogOff}, int{LogEverything});
+  }
+#endif
+  return LogProblems;
+}
+
+#ifdef LOG_TO_FILE
+static void writeLogTimestamp() {
+  if (!_logFile) {
+    return;
+  }
+  const time_t now = time(nullptr);
+  struct tm local;
+#ifdef WIN32
+  localtime_s(&local, &now);
+#else
+  localtime_r(&now, &local);
+#endif
+  char stamp[32];
+  const size_t len =
+      strftime(stamp, sizeof(stamp), "%Y-%m-%d %H:%M:%S ", &local);
+  fwrite(stamp, 1, len, _logFile);
+}
+
+// Every log starts by saying which build wrote it, and for which program.
+static void writeVersionStamp() {
+  if (!_logFile) {
+    return;
+  }
+  char program[MAX_PATH] = "?";
+  char library[MAX_PATH] = "?";
+#ifdef WIN32
+  GetModuleFileNameA(nullptr, program, ARRAYSIZE(program));
+  HMODULE self = nullptr;
+  if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                             GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                         reinterpret_cast<LPCSTR>(&readLogLevel), &self)) {
+    GetModuleFileNameA(self, library, ARRAYSIZE(library));
+  }
+#endif
+  writeLogTimestamp();
+  fprintf(_logFile, "wbtrv32 %s (built %s %s) %s loaded by %s, log level %d\r\n",
+          WBTRV32_VERSION_STR, __DATE__, __TIME__, library, program,
+          _logLevel);
+  fflush(_logFile);
+}
+#endif  // LOG_TO_FILE
 
 #ifndef WIN32
 // DllMain (dllmain.cpp) is a Windows-only entry point and is never invoked
@@ -64,12 +152,18 @@ void wbtrv32::processAttach() {
   }
 #endif
 
+  _logLevel = readLogLevel();
+
 #ifdef LOG_TO_FILE
+  if (_logLevel == LogOff) {
+    return;
+  }
 #ifdef WIN32
   _logFile = _wfsopen(L"wbtrv32.log", L"ab", _SH_DENYWR);
 #else
   _logFile = fopen("/tmp/wbtrv32.log", "ab");
 #endif  // WIN32
+  writeVersionStamp();
 #endif  // LOG_TO_FILE
 }
 
@@ -130,6 +224,10 @@ static void debug(const BtrieveCommand &command, const char *format, ...) {
   BtrieveDriver *driver = getOpenDatabase(command.lpPositionBlock);
   char buf[256];
   int len;
+
+#ifdef LOG_TO_FILE
+  writeLogTimestamp();
+#endif
 
   if (driver != nullptr) {
     len = snprintf(
@@ -228,8 +326,10 @@ static BtrieveError Open(BtrieveCommand &command) {
       reinterpret_cast<const char *>(command.lpKeyBuffer);
   auto openMode = static_cast<OpenMode>(command.keyNumber);
 
-  debug(command, "Attempting to open %s with openMode %d", lpszFilename,
-        openMode);
+  if (_logLevel >= LogEverything) {
+    debug(command, "Attempting to open %s with openMode %d", lpszFilename,
+          openMode);
+  }
 
   GetFullPathName(btrieve::toWideString(lpszFilename).c_str(),
                   ARRAYSIZE(fullPathFileName), fullPathFileName, nullptr);
@@ -1004,8 +1104,10 @@ extern "C" WBTRV32_EXPORT int __stdcall BTRCALL(WORD wOperation,
   } catch (const BtrieveException &ex) {
     // make sure we don't leak the exception back to our caller
     error = ex.getError();
-    debug(btrieveCommand, "%s failed: %s", toString(btrieveCommand.operation),
-          ex.getErrorMessage().c_str());
+    if (_logLevel >= LogProblems) {
+      debug(btrieveCommand, "%s failed: %s",
+            toString(btrieveCommand.operation), ex.getErrorMessage().c_str());
+    }
   } catch (...) {
     // BtrieveException doesn't derive from std::exception, so a stray
     // std::exception (e.g. std::out_of_range from a malformed record) would
@@ -1014,7 +1116,13 @@ extern "C" WBTRV32_EXPORT int __stdcall BTRCALL(WORD wOperation,
     error = BtrieveError::UnrecoverableError;
   }
 
-  if (error != BtrieveError::Success) {
+  // Not found, end of file and a partial read into a short buffer are how
+  // applications ask questions, not problems; by default they go unlogged.
+  const bool routine = error == BtrieveError::KeyValueNotFound ||
+                       error == BtrieveError::EndOfFile ||
+                       error == BtrieveError::DataBufferLengthOverrun;
+  if (error != BtrieveError::Success &&
+      _logLevel >= (routine ? LogAllStatuses : LogProblems)) {
     debug(btrieveCommand, "handled %s [key %d], returned %s",
           toString(btrieveCommand.operation), btrieveCommand.keyNumber,
           errorToString(error));

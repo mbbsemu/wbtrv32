@@ -166,6 +166,11 @@ static std::string statusText(BtrieveError error) {
   return "status " + std::to_string(static_cast<int>(error));
 }
 
+static std::string withWarning(const std::string &line,
+                               const std::string &warning) {
+  return warning.empty() ? line : line + "; " + warning;
+}
+
 std::filesystem::path retireDatabase(const std::filesystem::path &datPath,
                                      const std::filesystem::path &dbPath,
                                      const std::string &reason) {
@@ -225,18 +230,21 @@ BtrieveError BtrieveDriver::open(const wchar_t *fileName, OpenMode openMode) {
   // lost. To rebuild from an unchanged .DAT, delete the .DB.
 
   BtrieveError error;
+  std::string warning;
 
   if (!dbExists && !fileExists(fileName)) {
     // neither exists; nothing to convert or log
-    error = convert(fileName, dbPath, openMode);
+    error = convert(fileName, dbPath, openMode, warning);
   } else if (!dbExists) {
-    error = convert(fileName, dbPath, openMode);
+    error = convert(fileName, dbPath, openMode, warning);
     logConversion(
         fileName,
         error == BtrieveError::Success
-            ? displayName(fileName) + " converted to " + displayName(dbPath) +
-                  " (" + std::to_string(sqlDatabase->getRecordCount()) +
-                  " records)"
+            ? withWarning(displayName(fileName) + " converted to " +
+                              displayName(dbPath) + " (" +
+                              std::to_string(sqlDatabase->getRecordCount()) +
+                              " records)",
+                          warning)
             : displayName(fileName) + " could not be converted (" +
                   statusText(error) + ")");
   } else {
@@ -310,8 +318,9 @@ BtrieveError BtrieveDriver::refreshFromChangedSource(
   }
 
   BtrieveError error;
+  std::string warning;
   try {
-    error = convert(fileName, dbPath, openMode);
+    error = convert(fileName, dbPath, openMode, warning);
   } catch (...) {
     error = BtrieveError::IOError;
   }
@@ -321,9 +330,12 @@ BtrieveError BtrieveDriver::refreshFromChangedSource(
                             "\\" + displayName(oldDb);
   if (error == BtrieveError::Success) {
     logConversion(fileName,
-                  displayName(fileName) + " has changed and was converted (" +
-                      std::to_string(sqlDatabase->getRecordCount()) +
-                      " records); " + moved);
+                  withWarning(displayName(fileName) +
+                                  " has changed and was converted (" +
+                                  std::to_string(
+                                      sqlDatabase->getRecordCount()) +
+                                  " records); " + moved,
+                              warning));
     return error;
   }
 
@@ -347,7 +359,7 @@ BtrieveError BtrieveDriver::refreshFromChangedSource(
 
 BtrieveError BtrieveDriver::convert(const wchar_t *fileName,
                                     const std::filesystem::path &dbPath,
-                                    OpenMode openMode) {
+                                    OpenMode openMode, std::string &warning) {
   BtrieveDatabase btrieveDatabase;
   std::unique_ptr<RecordLoader> recordLoader;
   BtrieveError error = btrieveDatabase.parseDatabase(
@@ -361,6 +373,7 @@ BtrieveError BtrieveDriver::convert(const wchar_t *fileName,
         return recordLoader->onRecordLoaded(record);
       },
       [&recordLoader]() { recordLoader->onRecordsComplete(); });
+  warning = btrieveDatabase.getConversionWarning();
 
   if (error == BtrieveError::Success && trackSourceFile) {
     if (auto source = fingerprint(fileName, true)) {

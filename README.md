@@ -72,6 +72,9 @@ Originally developed as part of [The Major BBS Emulation Project](https://github
 - **Database Management**:
     -   Use standard SQLite tools for database maintenance and inspection.
     -   Backup the SQLite database regularly to prevent data loss.
+- **Logging**:
+    - Problems go to `wbtrv32.log` in the current directory (`/tmp/wbtrv32.log` outside Windows), each line time stamped, after a first line naming the build and the program that loaded it.
+    - Set how much with `LogLevel=` under `[wbtrv32]` in `wbtrv32.ini` in the current directory, or the `WBTRV32_LOGLEVEL` environment variable, which wins: `0` nothing, `1` problems only (the default), `2` every non-zero status, including the routine key not found (4), end of file (9) and short buffer (22), `3` every open as well.
 - **Creating Databases from Description Files**:
     - `create_database` is the equivalent of `butil -create`: it reads a Btrieve [description file](https://docs.actian.com/psql/psqlv13/index.html#page/advops%2Fdescfile.htm) (`.BCR`) and issues a Btrieve Create through wbtrv32, producing an empty `.db` database.
     - ```

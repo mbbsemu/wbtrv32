@@ -133,8 +133,10 @@ class BtrieveDriver {
                                         const std::filesystem::path &dbPath,
                                         OpenMode openMode);
 
+  // warning receives anything that didn't add up during the conversion.
   BtrieveError convert(const wchar_t *fileName,
-                       const std::filesystem::path &dbPath, OpenMode openMode);
+                       const std::filesystem::path &dbPath, OpenMode openMode,
+                       std::string &warning);
 
   std::unique_ptr<SqlDatabase> sqlDatabase;
   bool trackSourceFile;
