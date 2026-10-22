@@ -1,8 +1,18 @@
 bazel_dep(name = "platforms", version = "1.1.0")
+bazel_dep(name = "abseil-cpp", version = "20260526.0")
 bazel_dep(name = "gflags", version = "2.3.1")
 bazel_dep(name = "googletest", version = "1.18.0")
 bazel_dep(name = "rules_cc", version = "0.2.22")
 bazel_dep(name = "rules_shell", version = "0.6.1")
+
+# zig's macOS sysroot (see hermetic_cc_toolchain below) has no CoreFoundation,
+# which Abseil's time zone code only uses to name the local zone.
+single_version_override(
+    module_name = "abseil-cpp",
+    version = "20260526.0",
+    patches = ["//patches:abseil_cctz_no_corefoundation.patch"],
+    patch_strip = 1,
+)
 
 # Fully hermetic GCC + sysroot toolchains used only for cross-compiling to
 # arm32/arm64 linux; native x64 builds keep using the local auto-detected

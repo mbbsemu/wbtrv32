@@ -7,3 +7,4 @@ vstudio/packages/
 vstudio/.vs/
 vstudio/**/*.user
 nuget/dist/
+vcpkg_installed/

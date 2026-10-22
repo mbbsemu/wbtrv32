@@ -37,6 +37,11 @@ jobs:
       run: |
         msbuild ${{env.SOLUTION_FILE_PATH}} /p:PlatformToolset=v143 /p:WindowsTargetPlatformVersion=10.0.20348.0 /t:Restore
         
+    # wbtrv32.vcxproj gets Abseil from vcpkg (see vcpkg.json), which the
+    # runner image ships but doesn't hook into MSBuild until asked.
+    - name: Integrate vcpkg with MSBuild
+      run: vcpkg integrate install
+
     - name: Restore NuGet packages
       working-directory: ${{env.GITHUB_WORKSPACE}}
       run: nuget restore ${{env.SOLUTION_FILE_PATH}}

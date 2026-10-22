@@ -46,7 +46,7 @@ Originally developed as part of [The Major BBS Emulation Project](https://github
 - **Development Tools** (if building from source):
     - [Bazel](https://bazel.build/) (via [Bazelisk](https://github.com/bazelbuild/bazelisk) is recommended) drives the build on all platforms.
     - A C++20-capable compiler. Bazel will fetch hermetic toolchains for cross-compilation automatically (see below); a native compiler (GCC/Clang on Linux/macOS, or Visual Studio's MSVC on Windows) is only needed to build for your host platform.
-    - Windows builds can alternatively be produced with Visual Studio 2022 or newer via `vstudio/vstudio.sln`.
+    - Windows builds can alternatively be produced with Visual Studio 2022 or newer via `vstudio/vstudio.sln`, which needs [vcpkg](https://vcpkg.io) (included with Visual Studio's C++ workload) for Abseil.
 
 ### Installation
 1. **Backup Original DLL**:
@@ -73,7 +73,7 @@ Originally developed as part of [The Major BBS Emulation Project](https://github
     -   Use standard SQLite tools for database maintenance and inspection.
     -   Backup the SQLite database regularly to prevent data loss.
 - **Logging**:
-    - Problems go to `wbtrv32.log` in the current directory (`/tmp/wbtrv32.log` outside Windows), each line time stamped, after a first line naming the build and the program that loaded it.
+    - Problems go to `wbtrv32.log` in the current directory (`/tmp/wbtrv32.log` outside Windows), after a first line naming the build and the program that loaded it. Logging uses the [Abseil logging library](https://abseil.io/docs/cpp/guides/logging), so each line starts with its severity (`I`nfo, `W`arning, `E`rror), date, time, thread and source line, e.g. `W1022 11:08:37.573535 4242 wbtrv32.cpp:1788] [C:\BBSV10\BBSUSR.DAT]: handled Update [key 0], returned DuplicateKeyValue`. With a debugger attached on Windows, lines also go to its output window.
     - Set how much with `LogLevel=` under `[wbtrv32]` in `wbtrv32.ini` in the current directory, or the `WBTRV32_LOGLEVEL` environment variable, which wins: `0` nothing, `1` problems only (the default), `2` every non-zero status, including the routine key not found (4), end of file (9) and short buffer (22), `3` every open as well.
 - **Creating Databases from Description Files**:
     - `create_database` is the equivalent of `butil -create`: it reads a Btrieve [description file](https://docs.actian.com/psql/psqlv13/index.html#page/advops%2Fdescfile.htm) (`.BCR`) and issues a Btrieve Create through wbtrv32, producing an empty `.db` database.
@@ -126,6 +126,7 @@ bazel build //nuget:package
 
 5. **Windows via Visual Studio** (alternative to Bazel on Windows):
     - Open `vstudio/vstudio.sln` in Visual Studio 2022 or newer and build the `wbtrv32` project. This is the same solution used by the project's CI.
+    - The `wbtrv32` project gets [Abseil](https://abseil.io) from vcpkg in manifest mode (`vcpkg.json` at the top of the repository), building it on first use. If you've never used vcpkg with MSBuild, run `vcpkg integrate install` once from a Developer Command Prompt.
 
 6. **Bumping the DLL version**: the version shown in the DLL's Properties > Details lives in `nuget/BUILD`, alongside the NuGet package version it shares. Bazel builds stamp it into the DLL directly; the Visual Studio build reads the checked-in `vstudio/wbtrv32/wbtrv32_version.h`, so after editing it refresh that copy with:
 ```
