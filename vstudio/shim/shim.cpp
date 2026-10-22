@@ -65,6 +65,8 @@ BTRCALLPTR comparative;
 CRITICAL_SECTION lock;
 FILE* logFile;
 bool trace;
+// Deliberately never freed: detach() still reads it at process exit, after
+// static objects may already have been destroyed.
 std::map<WORD, OpStats>* stats;
 
 const char* opName(WORD op) {
@@ -391,9 +393,13 @@ extern "C" int __stdcall BTRCALL(WORD wOperation, LPVOID lpPositionBlock,
   const WORD op = wOperation % 100;  // strip record-lock bias
   LPMYPOSBLOCK posBlock = nullptr;
   LPCLIENTPOSBLOCK clientPosBlock = nullptr;
+  // Open and Create's new state, owned here until a successful Open hands it
+  // to the caller's position block
+  std::unique_ptr<MYPOSBLOCK> newPosBlock;
 
   if (op == Open || op == Create) {
-    posBlock = new MYPOSBLOCK();
+    newPosBlock = std::make_unique<MYPOSBLOCK>();
+    posBlock = newPosBlock.get();
     if (lpKeyBuffer != nullptr) {
       strncpy_s(posBlock->filename, reinterpret_cast<const char*>(lpKeyBuffer),
                 _TRUNCATE);
@@ -536,26 +542,22 @@ extern "C" int __stdcall BTRCALL(WORD wOperation, LPVOID lpPositionBlock,
     }
   }
 
-  if (op == Open || op == Create) {
-    if (op == Open && responseAuthoritative != 0) {
-      // the caller never sees this file as open: release the comparative side
-      if (responseComparative == 0) {
-        DWORD zero = 0;
-        comparative(Close, posBlock->comparative, nullptr, &zero, nullptr, 0,
-                    0);
-      }
-      delete posBlock;
-    } else if (op == Create) {
-      // Create leaves nothing open; the caller opens the file afterwards
-      delete posBlock;
-    } else {
-      memset(lpPositionBlock, 0, 128);
-      clientPosBlock = reinterpret_cast<LPCLIENTPOSBLOCK>(lpPositionBlock);
-      clientPosBlock->magic = magicValue;
-      clientPosBlock->lpMyPosBlock = posBlock;
+  // A failed Open, and Create (which leaves nothing open; the caller opens the
+  // file afterwards), leave newPosBlock to be freed here.
+  if (op == Open && responseAuthoritative != 0) {
+    // the caller never sees this file as open: release the comparative side
+    if (responseComparative == 0) {
+      DWORD zero = 0;
+      comparative(Close, posBlock->comparative, nullptr, &zero, nullptr, 0, 0);
     }
+  } else if (op == Open) {
+    memset(lpPositionBlock, 0, 128);
+    clientPosBlock = reinterpret_cast<LPCLIENTPOSBLOCK>(lpPositionBlock);
+    clientPosBlock->magic = magicValue;
+    clientPosBlock->lpMyPosBlock = newPosBlock.release();
   } else if (op == Close && posBlock != nullptr && responseAuthoritative == 0) {
     memset(lpPositionBlock, 0, 128);
+    // taken back from the caller's position block, where Open left it
     delete posBlock;
   }
 

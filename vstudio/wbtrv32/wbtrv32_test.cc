@@ -2419,7 +2419,7 @@ TEST_F(wbtrv32Test, CreateSingleKey) {
   path /= "test.db";
   ASSERT_TRUE(FileExists(toWideString(path).c_str()));
 
-  btrieve::BtrieveDriver driver(new btrieve::SqliteDatabase());
+  btrieve::BtrieveDriver driver(std::make_unique<btrieve::SqliteDatabase>());
   ASSERT_EQ(driver.open(toWideString(path).c_str()),
             btrieve::BtrieveError::Success);
 
@@ -2518,6 +2518,60 @@ TEST_F(wbtrv32Test, HandlesOnTheSameFileKeepSeparatePositions) {
                     &length, key, sizeof(key), 1),
             btrieve::BtrieveError::InvalidPositioning);
 
+  btrcall(btrieve::OperationCode::Close, second, nullptr, nullptr, nullptr, 0,
+          0);
+}
+
+// Closing the handle whose position is in place must leave the file's other
+// handles where they were, and a handle opened afterwards starts with none.
+TEST_F(wbtrv32Test, ClosingTheActiveHandleKeepsTheOthersPositions) {
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  ASSERT_FALSE(mbbsEmuDb.empty());
+  const std::string fileName = toStdString(mbbsEmuDb.c_str());
+
+  uint8_t second[POSBLOCK_LENGTH];
+  memset(second, 0, sizeof(second));
+  uint8_t third[POSBLOCK_LENGTH];
+  memset(third, 0, sizeof(third));
+
+  auto open = [&](uint8_t *handle) {
+    ASSERT_EQ(btrcall(btrieve::OperationCode::Open, handle, nullptr, nullptr,
+                      const_cast<LPVOID>(
+                          reinterpret_cast<LPCVOID>(fileName.c_str())),
+                      -1, 0),
+              btrieve::BtrieveError::Success);
+  };
+  auto step = [&](btrieve::OperationCode operation, uint8_t *handle) {
+    RECORD record;
+    DWORD length = sizeof(record);
+    EXPECT_EQ(btrcall(operation, handle, &record, &length, nullptr, 0, -1),
+              btrieve::BtrieveError::Success);
+    return +record.int1;
+  };
+
+  open(posBlock);
+  open(second);
+  ASSERT_EQ(step(btrieve::OperationCode::StepFirst, second), 3444);
+  // posBlock's position is now the one in place
+  ASSERT_EQ(step(btrieve::OperationCode::StepLast, posBlock), -615634567);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Close, posBlock, nullptr, nullptr,
+                    nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
+
+  // second carries on from its own first record
+  EXPECT_EQ(step(btrieve::OperationCode::StepNext, second), 7776);
+
+  open(third);
+  uint32_t position;
+  DWORD length = sizeof(position);
+  EXPECT_EQ(btrcall(btrieve::OperationCode::GetPosition, third, &position,
+                    &length, nullptr, 0, 0),
+            btrieve::BtrieveError::InvalidPositioning);
+  EXPECT_EQ(step(btrieve::OperationCode::StepNext, second), 1052234073);
+
+  btrcall(btrieve::OperationCode::Close, third, nullptr, nullptr, nullptr, 0,
+          0);
   btrcall(btrieve::OperationCode::Close, second, nullptr, nullptr, nullptr, 0,
           0);
 }
@@ -2699,8 +2753,8 @@ TEST_F(wbtrv32Test, ExclusiveModeExcludesOtherOpens) {
 
 namespace {
 // Opens a fresh copy of the MBBSEMU test database under its own name.
-std::string copyOfTestDatabase(TempPath *tempPath, const wchar_t *name) {
-  auto source = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+std::string copyOfTestDatabase(TempPath &tempPath, const wchar_t *name) {
+  auto source = tempPath.copyToTempPath("assets/MBBSEMU.DB");
   std::filesystem::path target(source);
   target.replace_filename(name);
   std::filesystem::copy_file(std::filesystem::path(source), target,
@@ -2712,7 +2766,7 @@ std::string copyOfTestDatabase(TempPath *tempPath, const wchar_t *name) {
 // Set Directory changes where relative names are looked up; Get Directory
 // reports it.
 TEST_F(wbtrv32Test, SetAndGetDirectory) {
-  const std::string db = copyOfTestDatabase(tempPath, L"INDIR.DB");
+  const std::string db = copyOfTestDatabase(*tempPath, L"INDIR.DB");
   const std::string folder =
       toStdString(std::filesystem::path(db).parent_path().c_str());
 
@@ -2745,7 +2799,7 @@ TEST_F(wbtrv32Test, SetAndGetDirectory) {
 // Set Owner protects a file with an owner name: mode 0 needs the name to open
 // it at all, mode 1 allows read-only access without it. Clear Owner removes it.
 TEST_F(wbtrv32Test, OwnerNames) {
-  const std::string db = copyOfTestDatabase(tempPath, L"OWNED.DB");
+  const std::string db = copyOfTestDatabase(*tempPath, L"OWNED.DB");
   auto open = [&](uint8_t *handle, const char *owner, int8_t mode = 0) {
     memset(handle, 0, POSBLOCK_LENGTH);
     char name[16] = {};
@@ -2871,7 +2925,7 @@ std::vector<int32_t> repliedInts(const std::vector<uint8_t> &reply) {
 // Step Next Extended with filters: only matching records come back, with just
 // the requested fields; AND/OR and case-insensitive comparisons work.
 TEST_F(wbtrv32Test, StepNextExtendedFilters) {
-  const std::string db = copyOfTestDatabase(tempPath, L"EXT.DB");
+  const std::string db = copyOfTestDatabase(*tempPath, L"EXT.DB");
   ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr, nullptr,
                     const_cast<LPVOID>(reinterpret_cast<LPCVOID>(db.c_str())),
                     -1, 0),
@@ -2983,7 +3037,7 @@ TEST_F(wbtrv32Test, StepNextExtendedFilters) {
 // Get Next Extended walks a key path: after Get First on key 1, it returns
 // the remaining records in that key's order.
 TEST_F(wbtrv32Test, GetNextExtendedFollowsTheKeyPath) {
-  const std::string db = copyOfTestDatabase(tempPath, L"EXTKEY.DB");
+  const std::string db = copyOfTestDatabase(*tempPath, L"EXTKEY.DB");
   ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr, nullptr,
                     const_cast<LPVOID>(reinterpret_cast<LPCVOID>(db.c_str())),
                     -1, 0),
@@ -3026,7 +3080,7 @@ TEST_F(wbtrv32Test, GetNextExtendedFollowsTheKeyPath) {
 // Reset gives up everything the client holds, as Stop does; Extend has
 // nothing to do for a database in one SQLite file.
 TEST_F(wbtrv32Test, ResetAndExtend) {
-  const std::string db = copyOfTestDatabase(tempPath, L"RESET.DB");
+  const std::string db = copyOfTestDatabase(*tempPath, L"RESET.DB");
   ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr, nullptr,
                     const_cast<LPVOID>(reinterpret_cast<LPCVOID>(db.c_str())),
                     -1, 0),
@@ -3157,7 +3211,7 @@ TEST_F(wbtrv32Test, CreateSingleKeyWithAcs) {
   path /= "test.db";
   ASSERT_TRUE(FileExists(toWideString(path).c_str()));
 
-  btrieve::BtrieveDriver driver(new btrieve::SqliteDatabase());
+  btrieve::BtrieveDriver driver(std::make_unique<btrieve::SqliteDatabase>());
   ASSERT_EQ(driver.open(toWideString(path).c_str()),
             btrieve::BtrieveError::Success);
 
@@ -3256,7 +3310,7 @@ TEST_F(wbtrv32Test, CreateMultipleKeysWithAcs) {
   path /= "test.db";
   ASSERT_TRUE(FileExists(toWideString(path).c_str()));
 
-  btrieve::BtrieveDriver driver(new btrieve::SqliteDatabase());
+  btrieve::BtrieveDriver driver(std::make_unique<btrieve::SqliteDatabase>());
   ASSERT_EQ(driver.open(toWideString(path).c_str()),
             btrieve::BtrieveError::Success);
 
@@ -4197,7 +4251,7 @@ TEST_F(wbtrv32CreateTest, CreateWithoutDatMovesOldDbAside) {
 
   auto old = retired();
   ASSERT_EQ(old.size(), 1u);
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
   ASSERT_EQ(driver.open(toWideString(old[0]).c_str()),
             btrieve::BtrieveError::Success);
   EXPECT_EQ(driver.getRecordCount(), 1u);

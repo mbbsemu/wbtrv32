@@ -75,7 +75,7 @@ TEST_F(BtrieveDriverTest, LoadsAndConverts) {
   {
     std::string acsName;
     std::vector<char> blankACS;
-    BtrieveDriver driver(new SqliteDatabase());
+    BtrieveDriver driver(std::make_unique<SqliteDatabase>());
 
     auto mbbsEmuDat = tempPath->copyToTempPath("assets/MBBSEMU.DAT");
     driver.open(mbbsEmuDat.c_str());
@@ -221,7 +221,7 @@ TEST_F(BtrieveDriverTest, LoadsAndConverts) {
 TEST_F(BtrieveDriverTest, LoadsPreexistingSqliteDatabase) {
   std::string acsName;
   std::vector<char> blankACS;
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
 
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
@@ -271,7 +271,7 @@ typedef struct _tagMBBSEmuRecordStruct {
 static_assert(sizeof(MBBSEmuRecordStruct) == 74);
 
 TEST_F(BtrieveDriverTest, StepNext) {
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
 
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
@@ -336,7 +336,7 @@ TEST_F(BtrieveDriverTest, StepNext) {
 }
 
 TEST_F(BtrieveDriverTest, StepPrevious) {
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
 
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
@@ -401,7 +401,7 @@ TEST_F(BtrieveDriverTest, StepPrevious) {
 }
 
 TEST_F(BtrieveDriverTest, RandomAccess) {
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
 
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
@@ -443,7 +443,7 @@ TEST_F(BtrieveDriverTest, RandomAccess) {
 }
 
 TEST_F(BtrieveDriverTest, RandomInvalidAccess) {
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
 
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
@@ -468,7 +468,7 @@ TEST_F(BtrieveDriverTest, RandomInvalidAccess) {
 }
 
 TEST_F(BtrieveDriverTest, GetRecordCount) {
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
 
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
@@ -484,7 +484,7 @@ TEST_F(BtrieveDriverTest, NewerDatDoesNotReplaceExistingDb) {
   auto mbbsEmuDat = tempPath->copyToTempPath("assets/MBBSEMU.DAT");
 
   {
-    BtrieveDriver driver(new SqliteDatabase());
+    BtrieveDriver driver(std::make_unique<SqliteDatabase>());
     ASSERT_EQ(driver.open(mbbsEmuDat.c_str()), BtrieveError::Success);
     ASSERT_EQ(driver.getRecordCount(), 4u);
 
@@ -497,16 +497,16 @@ TEST_F(BtrieveDriverTest, NewerDatDoesNotReplaceExistingDb) {
       mbbsEmuDat, std::filesystem::file_time_type::clock::now() +
                       std::chrono::hours(1));
 
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
   ASSERT_EQ(driver.open(mbbsEmuDat.c_str()), BtrieveError::Success);
   ASSERT_EQ(driver.getRecordCount(), 0u);
 }
 
 // Puts a different Btrieve file (MBMGEPLT.DAT, 22 records) where dat is, with
 // a newer timestamp, as a module upgrade would.
-static void replaceWithDifferentDat(TempPath *tempPath,
+static void replaceWithDifferentDat(TempPath &tempPath,
                                     const std::filesystem::path &dat) {
-  auto other = tempPath->copyToTempPath("assets/MBMGEPLT.DAT");
+  auto other = tempPath.copyToTempPath("assets/MBMGEPLT.DAT");
   std::filesystem::copy_file(other, dat,
                              std::filesystem::copy_options::overwrite_existing);
   std::filesystem::remove(other);
@@ -546,15 +546,15 @@ TEST_F(BtrieveDriverTest, ChangedDatIsConvertedAndOldDbKept) {
   auto mbbsEmuDat = tempPath->copyToTempPath("assets/MBBSEMU.DAT");
 
   {
-    BtrieveDriver driver(new SqliteDatabase());
+    BtrieveDriver driver(std::make_unique<SqliteDatabase>());
     ASSERT_EQ(driver.open(mbbsEmuDat.c_str()), BtrieveError::Success);
     ASSERT_EQ(driver.deleteAll(), BtrieveError::Success);
   }
 
-  replaceWithDifferentDat(tempPath, mbbsEmuDat);
+  replaceWithDifferentDat(*tempPath, mbbsEmuDat);
 
   {
-    BtrieveDriver driver(new SqliteDatabase());
+    BtrieveDriver driver(std::make_unique<SqliteDatabase>());
     ASSERT_EQ(driver.open(mbbsEmuDat.c_str()), BtrieveError::Success);
     EXPECT_EQ(driver.getRecordCount(), 22u);
   }
@@ -562,7 +562,7 @@ TEST_F(BtrieveDriverTest, ChangedDatIsConvertedAndOldDbKept) {
   auto retired = retiredDatabases(mbbsEmuDat);
   ASSERT_EQ(retired.size(), 1u);
   {
-    BtrieveDriver driver(new SqliteDatabase());
+    BtrieveDriver driver(std::make_unique<SqliteDatabase>());
     ASSERT_EQ(driver.open(toWideString(retired[0]).c_str()), BtrieveError::Success);
     EXPECT_EQ(driver.getRecordCount(), 0u);
   }
@@ -572,11 +572,11 @@ TEST_F(BtrieveDriverTest, ChangedDatIsConvertedAndOldDbKept) {
 
   // converted once: opening again keeps the live data
   {
-    BtrieveDriver driver(new SqliteDatabase());
+    BtrieveDriver driver(std::make_unique<SqliteDatabase>());
     ASSERT_EQ(driver.open(mbbsEmuDat.c_str()), BtrieveError::Success);
     ASSERT_EQ(driver.deleteAll(), BtrieveError::Success);
   }
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
   ASSERT_EQ(driver.open(mbbsEmuDat.c_str()), BtrieveError::Success);
   EXPECT_EQ(driver.getRecordCount(), 0u);
   EXPECT_EQ(retiredDatabases(mbbsEmuDat).size(), 1u);
@@ -587,10 +587,10 @@ TEST_F(BtrieveDriverTest, ChangedDatIsConvertedAndOldDbKept) {
 TEST_F(BtrieveDriverTest, DbWithoutFingerprintAdoptsDat) {
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   auto mbbsEmuDat = tempPath->copyToTempPath("assets/MBBSEMU.DAT");
-  replaceWithDifferentDat(tempPath, mbbsEmuDat);
+  replaceWithDifferentDat(*tempPath, mbbsEmuDat);
 
   {
-    BtrieveDriver driver(new SqliteDatabase());
+    BtrieveDriver driver(std::make_unique<SqliteDatabase>());
     ASSERT_EQ(driver.open(mbbsEmuDat.c_str()), BtrieveError::Success);
     EXPECT_EQ(driver.getRecordCount(), 4u);
   }
@@ -602,7 +602,7 @@ TEST_F(BtrieveDriverTest, DbWithoutFingerprintAdoptsDat) {
   std::filesystem::last_write_time(
       original, std::filesystem::file_time_type::clock::now() +
                     std::chrono::hours(2));
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
   ASSERT_EQ(driver.open(mbbsEmuDat.c_str()), BtrieveError::Success);
   EXPECT_EQ(driver.getRecordCount(), 4u);
   EXPECT_EQ(retiredDatabases(mbbsEmuDat).size(), 1u);
@@ -613,7 +613,7 @@ TEST_F(BtrieveDriverTest, UnconvertibleDatKeepsExistingDb) {
   auto mbbsEmuDat = tempPath->copyToTempPath("assets/MBBSEMU.DAT");
 
   {
-    BtrieveDriver driver(new SqliteDatabase());
+    BtrieveDriver driver(std::make_unique<SqliteDatabase>());
     ASSERT_EQ(driver.open(mbbsEmuDat.c_str()), BtrieveError::Success);
     ASSERT_EQ(driver.deleteAll(), BtrieveError::Success);
   }
@@ -624,7 +624,7 @@ TEST_F(BtrieveDriverTest, UnconvertibleDatKeepsExistingDb) {
     junk << std::string(4096, 'x');
   }
 
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
   ASSERT_EQ(driver.open(mbbsEmuDat.c_str()), BtrieveError::Success);
   EXPECT_EQ(driver.getRecordCount(), 0u);
   EXPECT_TRUE(retiredDatabases(mbbsEmuDat).empty());
@@ -638,21 +638,21 @@ TEST_F(BtrieveDriverTest, ChangedDatIgnoredWhenTrackingOff) {
   auto mbbsEmuDat = tempPath->copyToTempPath("assets/MBBSEMU.DAT");
 
   {
-    BtrieveDriver driver(new SqliteDatabase(), false);
+    BtrieveDriver driver(std::make_unique<SqliteDatabase>(), false);
     ASSERT_EQ(driver.open(mbbsEmuDat.c_str()), BtrieveError::Success);
     ASSERT_EQ(driver.deleteAll(), BtrieveError::Success);
   }
 
-  replaceWithDifferentDat(tempPath, mbbsEmuDat);
+  replaceWithDifferentDat(*tempPath, mbbsEmuDat);
 
-  BtrieveDriver driver(new SqliteDatabase(), false);
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>(), false);
   ASSERT_EQ(driver.open(mbbsEmuDat.c_str()), BtrieveError::Success);
   EXPECT_EQ(driver.getRecordCount(), 0u);
   EXPECT_TRUE(retiredDatabases(mbbsEmuDat).empty());
 }
 
 TEST_F(BtrieveDriverTest, DeleteAll) {
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
 
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
@@ -672,7 +672,7 @@ TEST_F(BtrieveDriverTest, DeleteAll) {
 #endif
 
 TEST_F(BtrieveDriverTest, Delete) {
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
 
   auto mbbsEmuDb =
       tempPath->copyToTempPath("assets" PATH_SEPARATOR "MBBSEMU.DB");
@@ -698,7 +698,7 @@ TEST_F(BtrieveDriverTest, Delete) {
 }
 
 TEST_F(BtrieveDriverTest, RecordDeleteOneIteration) {
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
 
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
@@ -756,7 +756,7 @@ TEST_F(BtrieveDriverTest, RecordDeleteOneIteration) {
 }
 
 TEST_F(BtrieveDriverTest, InsertionTest) {
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
 
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
@@ -787,7 +787,7 @@ TEST_F(BtrieveDriverTest, InsertionTest) {
 }
 
 TEST_F(BtrieveDriverTest, InsertionTestManualAutoincrementedValue) {
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
 
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
@@ -819,7 +819,7 @@ TEST_F(BtrieveDriverTest, InsertionTestManualAutoincrementedValue) {
 }
 
 TEST_F(BtrieveDriverTest, InsertionTestSubSize) {
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
 
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
@@ -851,7 +851,7 @@ TEST_F(BtrieveDriverTest, InsertionTestSubSize) {
 }
 
 TEST_F(BtrieveDriverTest, InsertionConstraintFailure) {
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
 
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
@@ -871,7 +871,7 @@ TEST_F(BtrieveDriverTest, InsertionConstraintFailure) {
 }
 
 TEST_F(BtrieveDriverTest, UpdateTest) {
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
 
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
@@ -904,7 +904,7 @@ TEST_F(BtrieveDriverTest, UpdateTest) {
 }
 
 TEST_F(BtrieveDriverTest, UpdateTestSubSize) {
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
 
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
@@ -942,7 +942,7 @@ TEST_F(BtrieveDriverTest, UpdateTestSubSize) {
 }
 
 TEST_F(BtrieveDriverTest, UpdateConstraintFailedTest) {
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
 
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
@@ -977,7 +977,7 @@ TEST_F(BtrieveDriverTest, UpdateConstraintFailedTest) {
 }
 
 TEST_F(BtrieveDriverTest, UpdateTestNonModifiableKeyModifiedFailed) {
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
 
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
@@ -1011,7 +1011,7 @@ TEST_F(BtrieveDriverTest, UpdateTestNonModifiableKeyModifiedFailed) {
 }
 
 TEST_F(BtrieveDriverTest, UpdateInvalidKeyNumber) {
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
 
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
@@ -1033,7 +1033,7 @@ TEST_F(BtrieveDriverTest, UpdateInvalidKeyNumber) {
 }
 
 TEST_F(BtrieveDriverTest, SeekByKeyStringDuplicates) {
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
 
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
@@ -1064,7 +1064,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyStringDuplicates) {
 }
 
 TEST_F(BtrieveDriverTest, SeekByKeyStringDuplicatesUpAndDown) {
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
 
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
@@ -1120,7 +1120,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyStringDuplicatesUpAndDown) {
 }
 
 TEST_F(BtrieveDriverTest, SeekByKeyString) {
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
 
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
@@ -1167,7 +1167,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyString) {
 }
 
 TEST_F(BtrieveDriverTest, SeekByKeyInteger) {
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
 
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
@@ -1211,7 +1211,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyInteger) {
 }
 
 TEST_F(BtrieveDriverTest, SeekByKeyNotFound) {
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
 
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
@@ -1229,7 +1229,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyNotFound) {
 }
 
 TEST_F(BtrieveDriverTest, SeekByKeyFirstString) {
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
 
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
@@ -1290,7 +1290,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyFirstString) {
 }
 
 TEST_F(BtrieveDriverTest, SeekByKeyFirstInteger) {
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
 
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
@@ -1353,7 +1353,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyFirstInteger) {
 }
 
 TEST_F(BtrieveDriverTest, SeekByKeyFirstNotFound) {
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
 
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
@@ -1374,7 +1374,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyFirstNotFound) {
 }
 
 TEST_F(BtrieveDriverTest, SeekByKeyLastString) {
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
 
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
@@ -1441,7 +1441,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyLastString) {
 }
 
 TEST_F(BtrieveDriverTest, SeekByKeyLastInteger) {
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
 
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
@@ -1504,7 +1504,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyLastInteger) {
 }
 
 TEST_F(BtrieveDriverTest, SeekByKeyLastNotFound) {
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
 
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
@@ -1525,7 +1525,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyLastNotFound) {
 }
 
 TEST_F(BtrieveDriverTest, SeekByKeyGreaterString) {
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
 
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
@@ -1562,7 +1562,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyGreaterString) {
 }
 
 TEST_F(BtrieveDriverTest, SeekByKeyGreaterInteger) {
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
 
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
@@ -1600,7 +1600,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyGreaterInteger) {
 }
 
 TEST_F(BtrieveDriverTest, SeekByKeyGreaterNotFound) {
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
 
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
@@ -1614,7 +1614,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyGreaterNotFound) {
 }
 
 TEST_F(BtrieveDriverTest, SeekByKeyGreaterOrEqualString) {
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
 
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
@@ -1663,7 +1663,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyGreaterOrEqualString) {
 }
 
 TEST_F(BtrieveDriverTest, SeekByKeyGreaterOrEqualInteger) {
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
 
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
@@ -1713,7 +1713,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyGreaterOrEqualInteger) {
 }
 
 TEST_F(BtrieveDriverTest, SeekByKeyGreaterOrEqualNotFound) {
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
 
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
@@ -1727,7 +1727,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyGreaterOrEqualNotFound) {
 }
 
 TEST_F(BtrieveDriverTest, SeekByKeyLessString) {
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
 
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
@@ -1753,7 +1753,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyLessString) {
 }
 
 TEST_F(BtrieveDriverTest, SeekByKeyLessInteger) {
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
 
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
@@ -1791,7 +1791,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyLessInteger) {
 }
 
 TEST_F(BtrieveDriverTest, SeekByKeyLessNotFound) {
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
 
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
@@ -1805,7 +1805,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyLessNotFound) {
 }
 
 TEST_F(BtrieveDriverTest, SeekByKeyLessOrEqualString) {
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
 
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
@@ -1843,7 +1843,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyLessOrEqualString) {
 }
 
 TEST_F(BtrieveDriverTest, SeekByKeyLessOrEqualInteger) {
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
 
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
@@ -1893,7 +1893,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyLessOrEqualInteger) {
 }
 
 TEST_F(BtrieveDriverTest, SeekByKeyLessOrEqualNotFound) {
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
 
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
@@ -1907,7 +1907,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyLessOrEqualNotFound) {
 }
 
 TEST_F(BtrieveDriverTest, SeekByKeyEqualWithDuplicates) {
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
 
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
@@ -1938,7 +1938,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyEqualWithDuplicates) {
 }
 
 TEST_F(BtrieveDriverTest, SeekByKeyEqualWithDuplicatesUpAndDown) {
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
 
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
@@ -2090,7 +2090,7 @@ static void verifyMbmgepltKey2Ordering(BtrieveDriver &driver) {
 }
 
 TEST_F(BtrieveDriverTest, SeekByKeyDuplicatesOrderedByPosition) {
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
 
   auto dat = tempPath->copyToTempPath("assets/MBMGEPLT.DAT");
   ASSERT_EQ(driver.open(dat.c_str()), BtrieveError::Success);
@@ -2106,7 +2106,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyDuplicatesOrderedByPositionWithoutIndex) {
   auto dat = tempPath->copyToTempPath("assets/MBMGEPLT.DAT");
 
   {
-    BtrieveDriver driver(new SqliteDatabase());
+    BtrieveDriver driver(std::make_unique<SqliteDatabase>());
     ASSERT_EQ(driver.open(dat.c_str()), BtrieveError::Success);
   }
 
@@ -2122,7 +2122,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyDuplicatesOrderedByPositionWithoutIndex) {
             SQLITE_OK);
   sqlite3_close(db);
 
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
   ASSERT_EQ(driver.open(dat.c_str()), BtrieveError::Success);
 
   verifyMbmgepltKey2Ordering(driver);
@@ -2202,8 +2202,9 @@ static BtrieveDatabase createACSBtrieveDatabase(KeyDataType stringKeyDataType) {
 }
 
 TEST_F(BtrieveDriverTest, ACSSeekByKey_Zstring) {
-  SqliteDatabase *database = new SqliteDatabase(SQLITE_OPEN_MEMORY);
-  BtrieveDriver driver(database);
+  auto ownedDatabase = std::make_unique<SqliteDatabase>(SQLITE_OPEN_MEMORY);
+  SqliteDatabase *database = ownedDatabase.get();
+  BtrieveDriver driver(std::move(ownedDatabase));
 
   auto recordLoader = database->create(
       _TEXT("unused.db"), createACSBtrieveDatabase(KeyDataType::Zstring));
@@ -2234,8 +2235,9 @@ TEST_F(BtrieveDriverTest, ACSSeekByKey_Zstring) {
 }
 
 TEST_F(BtrieveDriverTest, ACSSeekByKey_String) {
-  SqliteDatabase *database = new SqliteDatabase(SQLITE_OPEN_MEMORY);
-  BtrieveDriver driver(database);
+  auto ownedDatabase = std::make_unique<SqliteDatabase>(SQLITE_OPEN_MEMORY);
+  SqliteDatabase *database = ownedDatabase.get();
+  BtrieveDriver driver(std::move(ownedDatabase));
 
   auto recordLoader = database->create(
       _TEXT("unused.db"), createACSBtrieveDatabase(KeyDataType::String));
@@ -2272,8 +2274,9 @@ TEST_F(BtrieveDriverTest, ACSSeekByKey_String) {
 }
 
 TEST_F(BtrieveDriverTest, ACSSeekByKey_Lstring) {
-  SqliteDatabase *database = new SqliteDatabase(SQLITE_OPEN_MEMORY);
-  BtrieveDriver driver(database);
+  auto ownedDatabase = std::make_unique<SqliteDatabase>(SQLITE_OPEN_MEMORY);
+  SqliteDatabase *database = ownedDatabase.get();
+  BtrieveDriver driver(std::move(ownedDatabase));
 
   auto recordLoader = database->create(
       _TEXT("unused.db"), createACSBtrieveDatabase(KeyDataType::Lstring));
@@ -2316,8 +2319,9 @@ TEST_F(BtrieveDriverTest, ACSSeekByKey_Lstring) {
 }
 
 TEST_F(BtrieveDriverTest, ACSInsertDuplicateFails) {
-  SqliteDatabase *database = new SqliteDatabase(SQLITE_OPEN_MEMORY);
-  BtrieveDriver driver(database);
+  auto ownedDatabase = std::make_unique<SqliteDatabase>(SQLITE_OPEN_MEMORY);
+  SqliteDatabase *database = ownedDatabase.get();
+  BtrieveDriver driver(std::move(ownedDatabase));
 
   auto recordLoader = database->create(
       _TEXT("unused.db"), createACSBtrieveDatabase(KeyDataType::Zstring));
@@ -2341,8 +2345,9 @@ TEST_F(BtrieveDriverTest, ACSInsertDuplicateFails) {
 }
 
 TEST_F(BtrieveDriverTest, FloatSeekByKey) {
-  SqliteDatabase *database = new SqliteDatabase(SQLITE_OPEN_MEMORY);
-  BtrieveDriver driver(database);
+  auto ownedDatabase = std::make_unique<SqliteDatabase>(SQLITE_OPEN_MEMORY);
+  SqliteDatabase *database = ownedDatabase.get();
+  BtrieveDriver driver(std::move(ownedDatabase));
 
   auto recordLoader = database->create(
       _TEXT("unused.db"), createACSBtrieveDatabase(KeyDataType::Zstring));
@@ -2401,8 +2406,9 @@ static BtrieveDatabase createKeylessBtrieveDatabase() {
 }
 
 TEST_F(BtrieveDriverTest, KeylessDatabaseEnumeration) {
-  SqliteDatabase *database = new SqliteDatabase(SQLITE_OPEN_MEMORY);
-  BtrieveDriver driver(database);
+  auto ownedDatabase = std::make_unique<SqliteDatabase>(SQLITE_OPEN_MEMORY);
+  SqliteDatabase *database = ownedDatabase.get();
+  BtrieveDriver driver(std::move(ownedDatabase));
 
   auto recordLoader =
       database->create(_TEXT("unused.db"), createKeylessBtrieveDatabase());
@@ -2464,8 +2470,9 @@ TEST_F(BtrieveDriverTest, KeylessDatabaseEnumeration) {
 }
 
 TEST_F(BtrieveDriverTest, KeylessDataQueryFails) {
-  SqliteDatabase *database = new SqliteDatabase(SQLITE_OPEN_MEMORY);
-  BtrieveDriver driver(database);
+  auto ownedDatabase = std::make_unique<SqliteDatabase>(SQLITE_OPEN_MEMORY);
+  SqliteDatabase *database = ownedDatabase.get();
+  BtrieveDriver driver(std::move(ownedDatabase));
 
   auto recordLoader =
       database->create(_TEXT("unused.db"), createKeylessBtrieveDatabase());
@@ -2483,7 +2490,7 @@ TEST_F(BtrieveDriverTest, KeylessDataQueryFails) {
 }
 
 TEST_F(BtrieveDriverTest, SeekByKeyChangeKeyNumbers) {
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
 
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
@@ -2515,7 +2522,7 @@ TEST_F(BtrieveDriverTest, SeekByKeyChangeKeyNumbers) {
 }
 
 TEST_F(BtrieveDriverTest, SeekByKeyInvalidKey) {
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
 
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   driver.open(mbbsEmuDb.c_str());
@@ -2671,8 +2678,9 @@ class CompositeKeyTest : public BtrieveDriverTest {
   virtual void SetUp() override {
     BtrieveDriverTest::SetUp();
 
-    database = new SqliteDatabase(SQLITE_OPEN_MEMORY);
-    driver.reset(new BtrieveDriver(database));
+    auto ownedDatabase = std::make_unique<SqliteDatabase>(SQLITE_OPEN_MEMORY);
+    database = ownedDatabase.get();
+    driver = std::make_unique<BtrieveDriver>(std::move(ownedDatabase));
 
     auto recordLoader =
         database->create(_TEXT("unused.db"), createCompositeBtrieveDatabase());
@@ -2681,7 +2689,7 @@ class CompositeKeyTest : public BtrieveDriverTest {
     insertCompositeRecords(*driver);
   }
 
-  SqliteDatabase *database;
+  SqliteDatabase *database;  // owned by driver
   std::unique_ptr<BtrieveDriver> driver;
 };
 
@@ -2867,7 +2875,7 @@ TEST_F(BtrieveDriverTest, UpgradesCompositeKeysFromVersion3) {
   sqlite3_close(db);
 
   {
-    BtrieveDriver driver(new SqliteDatabase());
+    BtrieveDriver driver(std::make_unique<SqliteDatabase>());
     ASSERT_EQ(driver.open(toWideString(dbPath.c_str()).c_str()),
               BtrieveError::Success);
 
@@ -2953,8 +2961,9 @@ static std::unique_ptr<BtrieveDriver> createIntStringDriver(
   KeyDefinition segments[2] = {stringFirst ? stringSegment : intSegment,
                                stringFirst ? intSegment : stringSegment};
 
-  auto *database = new SqliteDatabase(SQLITE_OPEN_MEMORY);
-  std::unique_ptr<BtrieveDriver> driver(new BtrieveDriver(database));
+  auto ownedDatabase = std::make_unique<SqliteDatabase>(SQLITE_OPEN_MEMORY);
+  SqliteDatabase *database = ownedDatabase.get();
+  auto driver = std::make_unique<BtrieveDriver>(std::move(ownedDatabase));
   database
       ->create(_TEXT("unused.db"),
                BtrieveDatabase({Key(segments, 2)}, 512, 1,
@@ -3105,8 +3114,9 @@ TEST_F(BtrieveDriverTest, NullableIntegerKeySearchWithNullValue) {
                                   NullAllSegments,
                               false, 0, 0, 0, "", std::vector<char>());
 
-  auto *database = new SqliteDatabase(SQLITE_OPEN_MEMORY);
-  BtrieveDriver driver(database);
+  auto ownedDatabase = std::make_unique<SqliteDatabase>(SQLITE_OPEN_MEMORY);
+  SqliteDatabase *database = ownedDatabase.get();
+  BtrieveDriver driver(std::move(ownedDatabase));
   database
       ->create(_TEXT("unused.db"),
                BtrieveDatabase({Key(&keyDefinition, 1)}, 512, 1,
@@ -3290,8 +3300,9 @@ TEST_F(BtrieveDriverTest, ZstringKeyWithBytesAfterTerminatorIsIndexed) {
                                   NullAllSegments,
                               false, 0, 0, 0, "", std::vector<char>());
 
-  auto *database = new SqliteDatabase(SQLITE_OPEN_MEMORY);
-  BtrieveDriver driver(database);
+  auto ownedDatabase = std::make_unique<SqliteDatabase>(SQLITE_OPEN_MEMORY);
+  SqliteDatabase *database = ownedDatabase.get();
+  BtrieveDriver driver(std::move(ownedDatabase));
   database
       ->create(_TEXT("unused.db"),
                BtrieveDatabase({Key(&keyDefinition, 1)}, 512, 1,
@@ -3458,8 +3469,9 @@ TEST_F(BtrieveDriverTest, CompositeIntACSLstring) {
 // made of segments.
 static std::unique_ptr<BtrieveDriver> createIntStringDriverWithKey(
     std::vector<KeyDefinition> segments) {
-  auto *database = new SqliteDatabase(SQLITE_OPEN_MEMORY);
-  std::unique_ptr<BtrieveDriver> driver(new BtrieveDriver(database));
+  auto ownedDatabase = std::make_unique<SqliteDatabase>(SQLITE_OPEN_MEMORY);
+  SqliteDatabase *database = ownedDatabase.get();
+  auto driver = std::make_unique<BtrieveDriver>(std::move(ownedDatabase));
   database
       ->create(_TEXT("unused.db"),
                BtrieveDatabase({Key(segments.data(), segments.size())}, 512, 1,
@@ -3730,7 +3742,7 @@ TEST_F(BtrieveDriverTest, ConvertsCaseInsensitiveKey) {
     file.put(0x05);
   }
 
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
   ASSERT_EQ(driver.open(dat.c_str()), BtrieveError::Success);
 
   std::vector<uint8_t> key(32, 0);
@@ -3752,8 +3764,9 @@ static std::unique_ptr<BtrieveDriver> verifyKeyTypeOrder(
     KeyDataType type, uint16_t length, const KeyValues &ordered) {
   KeyDefinition keyDefinition(0, length, 0, type, UseExtendedDataType, false,
                               0, 0, 0, "", std::vector<char>());
-  auto *database = new SqliteDatabase(SQLITE_OPEN_MEMORY);
-  std::unique_ptr<BtrieveDriver> driver(new BtrieveDriver(database));
+  auto ownedDatabase = std::make_unique<SqliteDatabase>(SQLITE_OPEN_MEMORY);
+  SqliteDatabase *database = ownedDatabase.get();
+  auto driver = std::make_unique<BtrieveDriver>(std::move(ownedDatabase));
   database
       ->create(_TEXT("unused.db"),
                BtrieveDatabase({Key(&keyDefinition, 1)}, 512, 1,
@@ -3993,9 +4006,10 @@ static std::unique_ptr<BtrieveDriver> createNullableNameDriver(
                     UseExtendedDataType | keyAttributes, false, 0, 1, 0, "",
                     std::vector<char>())};
 
-  auto *database = new SqliteDatabase(
+  auto ownedDatabase = std::make_unique<SqliteDatabase>(
       path == _TEXT("unused.db") ? SQLITE_OPEN_MEMORY : 0);
-  std::unique_ptr<BtrieveDriver> driver(new BtrieveDriver(database));
+  SqliteDatabase *database = ownedDatabase.get();
+  auto driver = std::make_unique<BtrieveDriver>(std::move(ownedDatabase));
   database
       ->create(path.c_str(),
                BtrieveDatabase({Key(segments, 2)}, 512, 1,
