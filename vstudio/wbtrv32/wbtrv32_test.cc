@@ -1664,9 +1664,11 @@ TEST_F(wbtrv32Test, UpdateWithInvalidKey) {
   strcpy(record.string1, "Sysop");
   strcpy(record.string2, "stringValue");
 
+  // Btrieve saves the record even though key 4 doesn't exist: the key number
+  // only chooses the index to keep positioning on
   ASSERT_EQ(btrcall(btrieve::OperationCode::Update, posBlock, &record,
                     &dwDataBufferLength, key, sizeof(key), 4),
-            btrieve::BtrieveError::InvalidKeyNumber);
+            btrieve::BtrieveError::Success);
 
   dwDataBufferLength = sizeof(buffer);
   ASSERT_EQ(btrcall(btrieve::OperationCode::Stat, posBlock, buffer,
@@ -1675,7 +1677,7 @@ TEST_F(wbtrv32Test, UpdateWithInvalidKey) {
 
   ASSERT_EQ(reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 4u);
 
-  // requery just to make sure the data wasn't updated
+  // requery to make sure the data was updated
   memset(&record, 0, sizeof(record));
 
   *reinterpret_cast<uint32_t*>(&record) = 4;
@@ -1684,7 +1686,7 @@ TEST_F(wbtrv32Test, UpdateWithInvalidKey) {
                     &record, &dwDataBufferLength, nullptr, 0, -1),
             btrieve::BtrieveError::Success);
 
-  ASSERT_EQ(record.int1, -615634567);
+  ASSERT_EQ(record.int1, -7000);
   ASSERT_EQ(record.int2, 4);
   ASSERT_STREQ(record.string1, "Sysop");
   ASSERT_STREQ(record.string2, "stringValue");
