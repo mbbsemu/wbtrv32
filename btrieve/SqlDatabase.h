@@ -3,6 +3,7 @@
 
 #include <memory>
 #include <optional>
+#include <string>
 
 #include "BtrieveDatabase.h"
 #include "ErrorCode.h"
@@ -30,6 +31,14 @@ struct SourceFingerprint {
   int64_t size;
   int64_t modified;
   int64_t hash;
+};
+
+// A file's owner name (Set Owner) and what it allows without the name: mode 0
+// or 2 nothing, 1 or 3 read-only access. Modes 2 and 3 also ask Btrieve to
+// encrypt the file, which the database isn't.
+struct OwnerInfo {
+  std::string name;
+  int mode;
 };
 
 // An interface that abstracts a SQL-compatible implementation of
@@ -64,6 +73,12 @@ class SqlDatabase {
   virtual std::optional<SourceFingerprint> getSourceFingerprint() = 0;
 
   virtual void setSourceFingerprint(const SourceFingerprint &fingerprint) = 0;
+
+  // The file's owner, if it has one.
+  virtual std::optional<OwnerInfo> getOwner() = 0;
+
+  // Gives the file an owner, or with std::nullopt removes it.
+  virtual void setOwner(const std::optional<OwnerInfo> &owner) = 0;
 
   // A client transaction: every Insert/Update/Delete until commit or rollback
   // is kept or discarded together. Closing with one open rolls it back.

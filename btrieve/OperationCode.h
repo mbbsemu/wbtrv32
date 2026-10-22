@@ -56,10 +56,14 @@ enum OperationCode {
   // Information Operations
   Stat = 0xF,
   Extend = 0x10,
+  SetDirectory = 0x11,
+  GetDirectory = 0x12,
   GetPosition = 0x16,
   WITH_RECORD_LOCK(GetDirectChunkOrRecord, 0x17),
   Version = 0x1A,
+  Reset = 0x1C,
   SetOwner = 0x1D,
+  ClearOwner = 0x1E,
 
   // Step Operations, operates on physical offset not keys
   //[AcquiresData]
@@ -72,6 +76,10 @@ enum OperationCode {
   //[UsesPreviousQuery]
   WITH_RECORD_LOCK(StepNext, 0x18),
 
+  // Extended operations: filtered reads of many records in one call
+  WITH_RECORD_LOCK(GetNextExtended, 0x24),
+  WITH_RECORD_LOCK(GetPreviousExtended, 0x25),
+
   //[AcquiresData]
   //[UsesPreviousQuery]
   WITH_RECORD_LOCK(StepNextExtended, 0x26),
@@ -83,6 +91,7 @@ enum OperationCode {
   //[AcquiresData]
   //[UsesPreviousQuery]
   WITH_RECORD_LOCK(StepPreviousExtended, 0x27),
+  InsertExtended = 0x28,
 
   // Query Operations
   //[QueryOnly]

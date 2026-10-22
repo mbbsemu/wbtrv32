@@ -56,6 +56,9 @@ struct OpenHandle {
   // The mode this handle was opened in. The shared database itself is always
   // opened writable; read-only and exclusive are enforced per handle.
   OpenMode mode;
+  // false if the file has an owner and this handle was opened without the
+  // owner name (only possible where the owner allows read-only access)
+  bool ownerRights = true;
 
   OpenHandle(std::shared_ptr<BtrieveDriver> driver_, OpenMode mode_)
       : driver(std::move(driver_)),
@@ -304,7 +307,8 @@ static void debug(const BtrieveCommand &command, const char *format, ...) {
 
 static void AddToOpenFiles(BtrieveCommand &command,
                            std::shared_ptr<BtrieveDriver> driver,
-                           OpenMode mode = OpenMode::Normal) {
+                           OpenMode mode = OpenMode::Normal,
+                           bool ownerRights = true) {
   // if this position block already references an open database (e.g. the
   // caller re-opened without closing first), close that one out first so we
   // don't orphan it in _openFiles -- overwriting the GUID below without doing
@@ -326,6 +330,7 @@ static void AddToOpenFiles(BtrieveCommand &command,
 
   // a new handle starts with no current record, as after any Open
   OpenHandle handle(driver, mode);
+  handle.ownerRights = ownerRights;
   driver->activate(handle.cursor.get());
   _openFiles.emplace(std::basic_string<wchar_t>(guidStr), std::move(handle));
 
@@ -351,6 +356,50 @@ static bool trackSourceFiles() {
 #endif  // WIN32
 }
 
+// The directory set with Set Directory (17); empty for the process's own.
+static std::filesystem::path _btrieveDirectory;
+
+// Full path of a file name as an application gave it: relative names are
+// taken from the Set Directory directory when one was set.
+static void resolveFileName(const char *name, wchar_t *fullPath,
+                            DWORD fullPathLength) {
+  std::filesystem::path path(btrieve::toWideString(name));
+  if (!_btrieveDirectory.empty() && path.is_relative()) {
+    path = _btrieveDirectory / path;
+  }
+  GetFullPathName(path.wstring().c_str(), fullPathLength, fullPath, nullptr);
+}
+
+// The owner name an Open or Set Owner supplied in its data buffer, if any.
+static std::string suppliedOwnerName(const BtrieveCommand &command) {
+  if (command.lpDataBuffer == nullptr ||
+      command.lpdwDataBufferLength == nullptr ||
+      *command.lpdwDataBufferLength == 0) {
+    return std::string();
+  }
+  const char *name = reinterpret_cast<const char *>(command.lpDataBuffer);
+  return std::string(name, strnlen(name, *command.lpdwDataBufferLength));
+}
+
+// Checks an Open against the file's owner. Returns InvalidOwner (51) when the
+// owner name is required and wasn't given; otherwise the open goes ahead,
+// read-only when that's all the owner allows without the name.
+static BtrieveError checkOwner(const BtrieveCommand &command,
+                               BtrieveDriver &driver, OpenMode &mode,
+                               bool &ownerRights) {
+  ownerRights = true;
+  const std::optional<OwnerInfo> owner = driver.getOwner();
+  if (!owner || suppliedOwnerName(command) == owner->name) {
+    return BtrieveError::Success;
+  }
+  if (owner->mode == 1 || owner->mode == 3) {
+    mode = OpenMode::ReadOnly;
+    ownerRights = false;
+    return BtrieveError::Success;
+  }
+  return BtrieveError::InvalidOwner;
+}
+
 static BtrieveError Open(BtrieveCommand &command) {
   wchar_t fullPathFileName[MAX_PATH];
 
@@ -363,8 +412,7 @@ static BtrieveError Open(BtrieveCommand &command) {
           openMode);
   }
 
-  GetFullPathName(btrieve::toWideString(lpszFilename).c_str(),
-                  ARRAYSIZE(fullPathFileName), fullPathFileName, nullptr);
+  resolveFileName(lpszFilename, fullPathFileName, ARRAYSIZE(fullPathFileName));
 #ifdef WIN32
   // One spelling per file: expand 8.3 short names (DIALGL~1.DAT) to the long
   // name, so every way of naming a file reaches the same open driver rather
@@ -404,7 +452,12 @@ static BtrieveError Open(BtrieveCommand &command) {
   }
   if (shared) {
     // already got one? share its database, with a position of its own
-    AddToOpenFiles(command, shared, openMode);
+    bool ownerRights;
+    BtrieveError error = checkOwner(command, *shared, openMode, ownerRights);
+    if (error != BtrieveError::Success) {
+      return error;
+    }
+    AddToOpenFiles(command, shared, openMode, ownerRights);
     return BtrieveError::Success;
   }
 
@@ -421,7 +474,13 @@ static BtrieveError Open(BtrieveCommand &command) {
     return error;
   }
 
-  AddToOpenFiles(command, driver, openMode);
+  bool ownerRights;
+  error = checkOwner(command, *driver, openMode, ownerRights);
+  if (error != BtrieveError::Success) {
+    return error;
+  }
+
+  AddToOpenFiles(command, driver, openMode, ownerRights);
 
   return BtrieveError::Success;
 }
@@ -851,6 +910,520 @@ static BtrieveError Unlock(const BtrieveCommand &command) {
   return BtrieveError::Success;
 }
 
+// Set Owner (29): gives the open file an owner name, from the data buffer.
+// The key number says what's allowed without it.
+static BtrieveError SetOwner(BtrieveCommand &command) {
+  const OpenHandle *handle = findHandle(command.lpPositionBlock);
+  if (handle == nullptr) {
+    return BtrieveError::FileNotOpen;
+  }
+  if (handle->driver->getOwner()) {
+    return BtrieveError::OwnerAlreadySet;
+  }
+  const std::string name = suppliedOwnerName(command);
+  if (command.keyNumber < 0 || command.keyNumber > 3 || name.empty()) {
+    return BtrieveError::InvalidOwner;
+  }
+  handle->driver->setOwner(OwnerInfo{name, command.keyNumber});
+  return BtrieveError::Success;
+}
+
+// Clear Owner (30): removes the owner name, through a handle opened with it.
+static BtrieveError ClearOwner(BtrieveCommand &command) {
+  const OpenHandle *handle = findHandle(command.lpPositionBlock);
+  if (handle == nullptr) {
+    return BtrieveError::FileNotOpen;
+  }
+  if (!handle->ownerRights) {
+    return BtrieveError::InvalidOwner;
+  }
+  handle->driver->setOwner(std::nullopt);
+  return BtrieveError::Success;
+}
+
+// Set Directory (17): later relative file names are taken from the directory
+// in the key buffer.
+static BtrieveError SetDirectory(BtrieveCommand &command) {
+  if (command.lpKeyBuffer == nullptr) {
+    return BtrieveError::InvalidFileName;
+  }
+  wchar_t fullPath[MAX_PATH];
+  GetFullPathName(
+      toWideString(reinterpret_cast<const char *>(command.lpKeyBuffer)).c_str(),
+      ARRAYSIZE(fullPath), fullPath, nullptr);
+  std::error_code error;
+  if (!std::filesystem::is_directory(fullPath, error)) {
+    return BtrieveError::InvalidFileName;
+  }
+  _btrieveDirectory = fullPath;
+  return BtrieveError::Success;
+}
+
+// Get Directory (18): the current directory, NUL terminated, in the key
+// buffer. (The key number names a drive; there is one current directory.)
+static BtrieveError GetDirectory(BtrieveCommand &command) {
+  std::error_code error;
+  const std::string directory = toStdString(
+      _btrieveDirectory.empty() ? std::filesystem::current_path(error)
+                                : _btrieveDirectory);
+  if (command.lpKeyBuffer == nullptr ||
+      command.lpKeyBufferLength < directory.size() + 1) {
+    return BtrieveError::KeyBufferTooShort;
+  }
+  memcpy(command.lpKeyBuffer, directory.c_str(), directory.size() + 1);
+  return BtrieveError::Success;
+}
+
+// --- Extended operations (Get/Step Next/Previous Extended, Insert Extended) ---
+//
+// The data buffer holds a descriptor:
+//   header     uint16 descriptor length, char[2] "EG" (start with the next
+//              record) or "UC" (start with the current one)
+//   filter     uint16 maximum reject count (0 = 4095), uint16 term count,
+//              then each term: uint8 type, uint16 length, uint16 offset,
+//              uint8 comparison (1 = 2 > 3 < 4 <> 5 >= 6 <=, +32 compare with
+//              the file's alternate collating sequence, +64 compare with
+//              another field whose offset follows instead of a value, +128
+//              case insensitive), uint8 connector (0 last, 1 AND, 2 OR), then
+//              the value (length bytes) or a uint16 field offset
+//   extractor  uint16 records wanted, uint16 field count, then each field:
+//              uint16 length, uint16 offset
+// and receives: uint16 record count, then per record uint16 length, uint32
+// position and the extracted bytes. Terms are evaluated left to right.
+
+namespace {
+struct FilterTerm {
+  uint8_t type;
+  uint16_t length;
+  uint16_t offset;
+  uint8_t comparison;
+  uint8_t connector;
+  std::vector<uint8_t> value;  // empty when comparing with another field
+  uint16_t otherOffset;
+};
+
+struct ExtractField {
+  uint16_t length;
+  uint16_t offset;
+};
+
+struct ExtendedDescriptor {
+  bool startWithCurrent;
+  uint16_t maxRejects;
+  std::vector<FilterTerm> terms;
+  uint16_t recordsWanted;
+  std::vector<ExtractField> fields;
+};
+
+uint16_t readU16(const uint8_t *p) {
+  return static_cast<uint16_t>(p[0] | p[1] << 8);
+}
+
+bool parseDescriptor(const uint8_t *buffer, DWORD bufferLength,
+                     ExtendedDescriptor &descriptor) {
+  if (bufferLength < 8) {
+    return false;
+  }
+  const uint16_t length = readU16(buffer);
+  if (length < 8 || length > bufferLength) {
+    return false;
+  }
+  if (memcmp(buffer + 2, "EG", 2) == 0) {
+    descriptor.startWithCurrent = false;
+  } else if (memcmp(buffer + 2, "UC", 2) == 0) {
+    descriptor.startWithCurrent = true;
+  } else {
+    return false;
+  }
+  size_t at = 4;
+  auto need = [&](size_t bytes) { return at + bytes <= length; };
+
+  if (!need(4)) {
+    return false;
+  }
+  descriptor.maxRejects = readU16(buffer + at);
+  if (descriptor.maxRejects == 0) {
+    descriptor.maxRejects = 4095;
+  }
+  const uint16_t termCount = readU16(buffer + at + 2);
+  at += 4;
+  for (uint16_t i = 0; i < termCount; ++i) {
+    if (!need(7)) {
+      return false;
+    }
+    FilterTerm term;
+    term.type = buffer[at];
+    term.length = readU16(buffer + at + 1);
+    term.offset = readU16(buffer + at + 3);
+    term.comparison = buffer[at + 5];
+    term.connector = buffer[at + 6];
+    at += 7;
+    const uint8_t code = term.comparison & 0x1F;
+    if (code < 1 || code > 6 || term.connector > 2) {
+      return false;
+    }
+    if (term.comparison & 64) {
+      if (!need(2)) {
+        return false;
+      }
+      term.otherOffset = readU16(buffer + at);
+      at += 2;
+    } else {
+      if (!need(term.length)) {
+        return false;
+      }
+      term.value.assign(buffer + at, buffer + at + term.length);
+      term.otherOffset = 0;
+      at += term.length;
+    }
+    descriptor.terms.push_back(std::move(term));
+  }
+  if (!descriptor.terms.empty() && descriptor.terms.back().connector != 0) {
+    return false;  // the last term must say it's the last
+  }
+
+  if (!need(4)) {
+    return false;
+  }
+  descriptor.recordsWanted = readU16(buffer + at);
+  const uint16_t fieldCount = readU16(buffer + at + 2);
+  at += 4;
+  if (descriptor.recordsWanted == 0 || fieldCount == 0) {
+    return false;
+  }
+  for (uint16_t i = 0; i < fieldCount; ++i) {
+    if (!need(4)) {
+      return false;
+    }
+    descriptor.fields.push_back(
+        {readU16(buffer + at), readU16(buffer + at + 2)});
+    at += 4;
+  }
+  return true;
+}
+
+// <0, 0 or >0 comparing two fields of the given Btrieve type and length.
+int compareField(uint8_t type, const uint8_t *a, const uint8_t *b,
+                 uint16_t length, bool caseInsensitive, const char *acs) {
+  auto compareBytes = [&](const uint8_t *x, size_t xLength, const uint8_t *y,
+                          size_t yLength) {
+    const size_t n = std::min(xLength, yLength);
+    for (size_t i = 0; i < n; ++i) {
+      int cx = x[i], cy = y[i];
+      if (acs != nullptr) {
+        cx = static_cast<uint8_t>(acs[cx]);
+        cy = static_cast<uint8_t>(acs[cy]);
+      } else if (caseInsensitive) {
+        cx = toupper(cx);
+        cy = toupper(cy);
+      }
+      if (cx != cy) {
+        return cx < cy ? -1 : 1;
+      }
+    }
+    return xLength == yLength ? 0 : (xLength < yLength ? -1 : 1);
+  };
+  auto littleEndian = [&](const uint8_t *p) {
+    uint64_t value = 0;
+    for (int i = std::min<int>(length, 8) - 1; i >= 0; --i) {
+      value = value << 8 | p[i];
+    }
+    return value;
+  };
+
+  switch (type) {
+    case KeyDataType::Integer:
+    case KeyDataType::AutoInc:
+    case KeyDataType::Currency: {
+      // sign extend from the field's length
+      const int bits = std::min<int>(length, 8) * 8;
+      auto signedValue = [&](const uint8_t *p) {
+        uint64_t value = littleEndian(p);
+        if (bits < 64 && (value >> (bits - 1)) & 1) {
+          value |= ~uint64_t{0} << bits;
+        }
+        return static_cast<int64_t>(value);
+      };
+      const int64_t x = signedValue(a), y = signedValue(b);
+      return x == y ? 0 : (x < y ? -1 : 1);
+    }
+    case KeyDataType::Unsigned:
+    case KeyDataType::UnsignedBinary:
+    case KeyDataType::Logical:
+    case KeyDataType::Timestamp:
+    case KeyDataType::Date:  // day, month, uint16 year: little endian order
+    case KeyDataType::Time:  // hundredths, seconds, minutes, hours
+    case KeyDataType::OldBinary: {
+      const uint64_t x = littleEndian(a), y = littleEndian(b);
+      return x == y ? 0 : (x < y ? -1 : 1);
+    }
+    case KeyDataType::Float: {
+      double x, y;
+      if (length == 4) {
+        float fx, fy;
+        memcpy(&fx, a, 4);
+        memcpy(&fy, b, 4);
+        x = fx;
+        y = fy;
+      } else if (length == 8) {
+        memcpy(&x, a, 8);
+        memcpy(&y, b, 8);
+      } else {
+        return compareBytes(a, length, b, length);
+      }
+      return x == y ? 0 : (x < y ? -1 : 1);
+    }
+    case KeyDataType::Zstring:
+      return compareBytes(a, strnlen(reinterpret_cast<const char *>(a), length),
+                          b, strnlen(reinterpret_cast<const char *>(b), length));
+    case KeyDataType::Lstring: {
+      if (length == 0) {
+        return 0;
+      }
+      const size_t xLength = std::min<size_t>(a[0], length - 1u);
+      const size_t yLength = std::min<size_t>(b[0], length - 1u);
+      return compareBytes(a + 1, xLength, b + 1, yLength);
+    }
+    default:  // strings and everything else, byte for byte
+      return compareBytes(a, length, b, length);
+  }
+}
+
+bool termMatches(const FilterTerm &term, const std::vector<uint8_t> &record,
+                 const char *acs) {
+  if (static_cast<size_t>(term.offset) + term.length > record.size()) {
+    return false;
+  }
+  const uint8_t *field = record.data() + term.offset;
+  const uint8_t *other;
+  if (term.comparison & 64) {
+    if (static_cast<size_t>(term.otherOffset) + term.length > record.size()) {
+      return false;
+    }
+    other = record.data() + term.otherOffset;
+  } else {
+    other = term.value.data();
+  }
+  const int order =
+      compareField(term.type, field, other, term.length,
+                   (term.comparison & 128) != 0,
+                   (term.comparison & 32) != 0 ? acs : nullptr);
+  switch (term.comparison & 0x1F) {
+    case 1:
+      return order == 0;
+    case 2:
+      return order > 0;
+    case 3:
+      return order < 0;
+    case 4:
+      return order != 0;
+    case 5:
+      return order >= 0;
+    case 6:
+      return order <= 0;
+  }
+  return false;
+}
+
+bool recordMatches(const ExtendedDescriptor &descriptor,
+                   const std::vector<uint8_t> &record, const char *acs) {
+  if (descriptor.terms.empty()) {
+    return true;
+  }
+  bool result = termMatches(descriptor.terms[0], record, acs);
+  for (size_t i = 1; i < descriptor.terms.size(); ++i) {
+    const bool next = termMatches(descriptor.terms[i], record, acs);
+    result = descriptor.terms[i - 1].connector == 1 ? (result && next)
+                                                    : (result || next);
+  }
+  return result;
+}
+}  // namespace
+
+// Get Next/Previous Extended (36, 37) along a key path, Step Next/Previous
+// Extended (38, 39) in physical order.
+static BtrieveError ExtendedGet(BtrieveCommand &command, bool byKey,
+                                bool forward) {
+  BtrieveDriver *driver = getOpenDatabase(command.lpPositionBlock);
+  if (driver == nullptr) {
+    return BtrieveError::FileNotOpen;
+  }
+  if (command.lpDataBuffer == nullptr ||
+      command.lpdwDataBufferLength == nullptr) {
+    return BtrieveError::IncorrectDescriptor;
+  }
+  uint8_t *buffer = reinterpret_cast<uint8_t *>(command.lpDataBuffer);
+  const DWORD bufferLength = *command.lpdwDataBufferLength;
+
+  ExtendedDescriptor descriptor;
+  if (!parseDescriptor(buffer, bufferLength, descriptor)) {
+    return BtrieveError::IncorrectDescriptor;
+  }
+  if (byKey && (command.keyNumber < 0 ||
+                static_cast<size_t>(command.keyNumber) >=
+                    driver->getKeys().size())) {
+    return BtrieveError::InvalidKeyNumber;
+  }
+
+  // the ACS for "+32" comparisons: the first one the file's keys use
+  const char *acs = nullptr;
+  for (const auto &key : driver->getKeys()) {
+    for (const auto &segment : key.getSegments()) {
+      if (acs == nullptr && segment.requiresACS()) {
+        acs = segment.getACS();
+      }
+    }
+  }
+
+  const OperationCode move =
+      byKey ? (forward ? OperationCode::AcquireNext
+                       : OperationCode::AcquirePrevious)
+            : (forward ? OperationCode::StepNext : OperationCode::StepPrevious);
+
+  std::vector<uint8_t> output(2, 0);
+  uint16_t returned = 0;
+  uint16_t rejected = 0;
+  std::vector<uint8_t> lastRecord;
+  BtrieveError status = BtrieveError::Success;
+  bool first = true;
+
+  while (true) {
+    if (!(first && descriptor.startWithCurrent)) {
+      BtrieveError moved = driver->performOperation(
+          byKey ? command.keyNumber : -1, std::basic_string_view<uint8_t>(),
+          move);
+      if (moved != BtrieveError::Success) {
+        status = moved == BtrieveError::KeyValueNotFound
+                     ? BtrieveError::EndOfFile
+                     : moved;
+        break;
+      }
+    }
+    first = false;
+
+    auto record = driver->getRecord();
+    if (!record.first) {
+      status = BtrieveError::EndOfFile;
+      break;
+    }
+    const std::vector<uint8_t> &data = record.second.getData();
+    lastRecord = data;
+
+    if (!recordMatches(descriptor, data, acs)) {
+      if (++rejected >= descriptor.maxRejects) {
+        status = BtrieveError::RejectCountReached;
+        break;
+      }
+      continue;
+    }
+
+    // extract the requested fields
+    std::vector<uint8_t> extracted;
+    for (const auto &field : descriptor.fields) {
+      if (static_cast<size_t>(field.offset) + field.length > data.size()) {
+        status = BtrieveError::IncorrectFieldOffset;
+        break;
+      }
+      extracted.insert(extracted.end(), data.begin() + field.offset,
+                       data.begin() + field.offset + field.length);
+    }
+    if (status != BtrieveError::Success) {
+      break;
+    }
+    if (output.size() + 6 + extracted.size() > bufferLength) {
+      status = BtrieveError::DataBufferLengthOverrun;
+      break;
+    }
+    const uint16_t length = static_cast<uint16_t>(extracted.size());
+    const uint32_t position = driver->getPosition();
+    output.push_back(static_cast<uint8_t>(length));
+    output.push_back(static_cast<uint8_t>(length >> 8));
+    for (int i = 0; i < 4; ++i) {
+      output.push_back(static_cast<uint8_t>(position >> (8 * i)));
+    }
+    output.insert(output.end(), extracted.begin(), extracted.end());
+    rejected = 0;
+    if (++returned == descriptor.recordsWanted) {
+      break;
+    }
+  }
+
+  output[0] = static_cast<uint8_t>(returned);
+  output[1] = static_cast<uint8_t>(returned >> 8);
+  memcpy(buffer, output.data(), output.size());
+  *command.lpdwDataBufferLength = static_cast<DWORD>(output.size());
+
+  // the key buffer gets the key of the last record looked at
+  if (byKey && !lastRecord.empty() && command.lpKeyBuffer != nullptr) {
+    auto key = driver->getKeys()
+                   .at(command.keyNumber)
+                   .extractKeyDataFromRecord(std::basic_string_view<uint8_t>(
+                       lastRecord.data(), lastRecord.size()));
+    if (key.size() <= command.lpKeyBufferLength) {
+      memcpy(command.lpKeyBuffer, key.data(), key.size());
+    }
+  }
+  return status;
+}
+
+// Insert Extended (40): the data buffer holds a uint16 record count, then each
+// record as a uint16 length and its bytes. Returns the uint16 count inserted
+// and each new record's uint32 position, stopping at the first that fails.
+static BtrieveError InsertExtended(BtrieveCommand &command) {
+  BtrieveDriver *driver = getOpenDatabase(command.lpPositionBlock);
+  if (driver == nullptr) {
+    return BtrieveError::FileNotOpen;
+  }
+  if (command.lpDataBuffer == nullptr ||
+      command.lpdwDataBufferLength == nullptr ||
+      *command.lpdwDataBufferLength < 2) {
+    return BtrieveError::IncorrectDescriptor;
+  }
+  uint8_t *buffer = reinterpret_cast<uint8_t *>(command.lpDataBuffer);
+  const DWORD bufferLength = *command.lpdwDataBufferLength;
+  const std::vector<uint8_t> input(buffer, buffer + bufferLength);
+
+  const uint16_t count = readU16(input.data());
+  std::vector<uint32_t> positions;
+  size_t at = 2;
+  BtrieveError status = BtrieveError::Success;
+  for (uint16_t i = 0; i < count; ++i) {
+    if (at + 2 > input.size()) {
+      status = BtrieveError::IncorrectDescriptor;
+      break;
+    }
+    const uint16_t length = readU16(input.data() + at);
+    at += 2;
+    if (at + length > input.size()) {
+      status = BtrieveError::IncorrectDescriptor;
+      break;
+    }
+    auto inserted = driver->insertRecord(
+        std::basic_string_view<uint8_t>(input.data() + at, length));
+    at += length;
+    if (inserted.first != BtrieveError::Success) {
+      status = inserted.first;
+      break;
+    }
+    positions.push_back(inserted.second);
+    driver->setPosition(inserted.second);
+  }
+
+  std::vector<uint8_t> output(2 + 4 * positions.size());
+  output[0] = static_cast<uint8_t>(positions.size());
+  output[1] = static_cast<uint8_t>(positions.size() >> 8);
+  for (size_t i = 0; i < positions.size(); ++i) {
+    for (int b = 0; b < 4; ++b) {
+      output[2 + 4 * i + b] = static_cast<uint8_t>(positions[i] >> (8 * b));
+    }
+  }
+  if (output.size() <= bufferLength) {
+    memcpy(buffer, output.data(), output.size());
+    *command.lpdwDataBufferLength = static_cast<DWORD>(output.size());
+  }
+  return status;
+}
+
 static BtrieveError Create(BtrieveCommand &command) {
   const char *lpszFileName =
       reinterpret_cast<const char *>(command.lpKeyBuffer);
@@ -868,8 +1441,8 @@ static BtrieveError Create(BtrieveCommand &command) {
   if (inMemory) {
     fullPathFileName[0] = 0;
   } else {
-    GetFullPathName(toWideString(lpszFileName).c_str(),
-                    ARRAYSIZE(fullPathFileName), fullPathFileName, nullptr);
+    resolveFileName(lpszFileName, fullPathFileName,
+                    ARRAYSIZE(fullPathFileName));
   }
 
   std::filesystem::path dbPath =
@@ -1080,6 +1653,7 @@ static BtrieveError AbortTransactionOperation() {
 static BtrieveError handle(BtrieveCommand &command) {
   // writes through a handle opened read-only are refused, as Btrieve does
   if (command.operation == OperationCode::Insert ||
+      command.operation == OperationCode::InsertExtended ||
       command.operation == OperationCode::Update ||
       command.operation == OperationCode::Delete) {
     const OpenHandle *handle = findHandle(command.lpPositionBlock);
@@ -1143,6 +1717,32 @@ static BtrieveError handle(BtrieveCommand &command) {
       return ::Stop(command);
     case OperationCode::Version:
       return ::Version(command);
+    case OperationCode::SetDirectory:
+      return ::SetDirectory(command);
+    case OperationCode::GetDirectory:
+      return ::GetDirectory(command);
+    case OperationCode::SetOwner:
+      return ::SetOwner(command);
+    case OperationCode::ClearOwner:
+      return ::ClearOwner(command);
+    CASE_WITH_RECORD_LOCK(OperationCode::GetNextExtended):
+      return ::ExtendedGet(command, true, true);
+    CASE_WITH_RECORD_LOCK(OperationCode::GetPreviousExtended):
+      return ::ExtendedGet(command, true, false);
+    CASE_WITH_RECORD_LOCK(OperationCode::StepNextExtended):
+      return ::ExtendedGet(command, false, true);
+    CASE_WITH_RECORD_LOCK(OperationCode::StepPreviousExtended):
+      return ::ExtendedGet(command, false, false);
+    case OperationCode::InsertExtended:
+      JoinTransaction(command);
+      return ::InsertExtended(command);
+    // Extend spreads a file over a second disk; one SQLite file has no use
+    // for that, and the file's data is unaffected either way.
+    case OperationCode::Extend:
+      return BtrieveError::Success;
+    // Reset gives up everything this client holds, as Stop does.
+    case OperationCode::Reset:
+      return ::Stop(command);
     case OperationCode::Create:
       return ::Create(command);
     case OperationCode::Unlock:

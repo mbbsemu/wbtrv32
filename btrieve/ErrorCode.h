@@ -45,8 +45,13 @@ key-only file or a Get operation on a data only file */
   InvalidKeyPath = 44,
   AccessDenied = 46,
   InvalidACS = 48,
+  OwnerAlreadySet = 50,
+  InvalidOwner = 51,
   InvalidInterface = 53,
   FileAlreadyExists = 59,
+  RejectCountReached = 60,
+  IncorrectDescriptor = 62,
+  IncorrectFieldOffset = 65,
   IncompatibleMode = 88,
 };
 

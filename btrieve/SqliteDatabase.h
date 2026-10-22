@@ -36,6 +36,10 @@ class SqliteDatabase : public SqlDatabase {
   virtual void setSourceFingerprint(
       const SourceFingerprint &fingerprint) override;
 
+  virtual std::optional<OwnerInfo> getOwner() override;
+
+  virtual void setOwner(const std::optional<OwnerInfo> &owner) override;
+
   virtual void beginTransaction() override;
   virtual void commitTransaction() override;
   virtual void rollbackTransaction() override;
