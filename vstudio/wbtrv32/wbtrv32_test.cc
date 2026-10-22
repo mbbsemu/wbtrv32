@@ -2428,6 +2428,25 @@ TEST_F(wbtrv32Test, CreateSingleKey) {
                                    0, 0, "", std::vector<char>()));
 }
 
+TEST_F(wbtrv32Test, Version) {
+  unsigned char buffer[16];
+  memset(buffer, 0xCC, sizeof(buffer));
+
+  DWORD dwDataBufferLength = 4;
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Version, nullptr, buffer,
+                    &dwDataBufferLength, nullptr, 0, 0),
+            btrieve::BtrieveError::DataBufferLengthOverrun);
+
+  dwDataBufferLength = sizeof(buffer);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Version, nullptr, buffer,
+                    &dwDataBufferLength, nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
+  EXPECT_EQ(dwDataBufferLength, 5u);
+  EXPECT_EQ(*reinterpret_cast<uint16_t *>(buffer), 6);
+  EXPECT_EQ(*reinterpret_cast<uint16_t *>(buffer + 2), 15);
+  EXPECT_EQ(buffer[4], 'W');
+}
+
 TEST_F(wbtrv32Test, CreateInMemory) {
   unsigned char buffer[1024];
   uint8_t posBlock[128];

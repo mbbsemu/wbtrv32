@@ -106,6 +106,7 @@ const char* toString(OperationCode operationCode) {
     HANDLE_OPERATION_CODE(Extend);
     HANDLE_OPERATION_CODE(GetPosition);
     HANDLE_OPERATION_CODE_WITH_RECORD_LOCK(GetDirectChunkOrRecord);
+    HANDLE_OPERATION_CODE(Version);
     HANDLE_OPERATION_CODE(SetOwner);
     HANDLE_OPERATION_CODE_WITH_RECORD_LOCK(StepFirst);
     HANDLE_OPERATION_CODE_WITH_RECORD_LOCK(StepLast);
