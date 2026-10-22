@@ -399,6 +399,23 @@ static BtrieveError Delete(BtrieveCommand &command) {
                                          OperationCode::Delete);
 }
 
+// Like Btrieve, a record longer than the caller's buffer still fills the
+// buffer with as much as fits before returning status 22: callers read the
+// leading fields of long variable-length records that way rather than sizing
+// their buffer to the whole record.
+static BtrieveError copyRecordToDataBuffer(BtrieveCommand &command,
+                                           const std::vector<uint8_t> &data) {
+  const DWORD available = *command.lpdwDataBufferLength;
+  const DWORD length = static_cast<DWORD>(
+      std::min<size_t>(data.size(), static_cast<size_t>(available)));
+
+  memcpy(command.lpDataBuffer, data.data(), length);
+  *command.lpdwDataBufferLength = length;
+
+  return data.size() > available ? BtrieveError::DataBufferLengthOverrun
+                                 : BtrieveError::Success;
+}
+
 static BtrieveError Step(BtrieveCommand &command) {
   auto btrieveDriver = getOpenDatabase(command.lpPositionBlock);
   if (btrieveDriver == nullptr) {
@@ -419,16 +436,7 @@ static BtrieveError Step(BtrieveCommand &command) {
   }
 
   // Btrieve keeps the record current even when it does not fit
-  if (*command.lpdwDataBufferLength < record.second.getData().size()) {
-    return BtrieveError::DataBufferLengthOverrun;
-  }
-
-  *command.lpdwDataBufferLength =
-      static_cast<DWORD>(record.second.getData().size());
-  memcpy(command.lpDataBuffer, record.second.getData().data(),
-         record.second.getData().size());
-
-  return BtrieveError::Success;
+  return copyRecordToDataBuffer(command, record.second.getData());
 }
 
 static BtrieveError GetPosition(BtrieveCommand &command) {
@@ -508,15 +516,7 @@ static BtrieveError GetDirectRecord(BtrieveCommand &command) {
   }
 
   // logical currency stays established when the record does not fit
-  if (*command.lpdwDataBufferLength < record.second.getData().size()) {
-    return BtrieveError::DataBufferLengthOverrun;
-  }
-
-  memcpy(command.lpDataBuffer, record.second.getData().data(),
-         record.second.getData().size());
-  *command.lpdwDataBufferLength = record.second.getData().size();
-
-  return BtrieveError::Success;
+  return copyRecordToDataBuffer(command, record.second.getData());
 }
 
 static BtrieveError Query(BtrieveCommand &command) {
@@ -564,14 +564,7 @@ static BtrieveError Query(BtrieveCommand &command) {
   memcpy(command.lpKeyBuffer, keyDataVector.data(), keyDataVector.size());
 
   if (acquiresData(command.operation)) {
-    if (*command.lpdwDataBufferLength < record.second.getData().size()) {
-      return BtrieveError::DataBufferLengthOverrun;
-    }
-
-    memcpy(command.lpDataBuffer, record.second.getData().data(),
-           record.second.getData().size());
-
-    *command.lpdwDataBufferLength = record.second.getData().size();
+    return copyRecordToDataBuffer(command, record.second.getData());
   }
 
   return BtrieveError::Success;
