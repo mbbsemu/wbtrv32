@@ -76,11 +76,11 @@ class SqlitePreparedStatement {
       } break;
       case BindableValue::Type::Blob:
         const std::vector<uint8_t> &blob = value.getBlobValue();
-        uint8_t *copy = reinterpret_cast<uint8_t *>(malloc(blob.size()));
-        memcpy(copy, blob.data(), blob.size());
-
-        errorCode = sqlite3_bind_blob(statement.get(), parameter, copy,
-                                      static_cast<int>(blob.size()), ::free);
+        // sqlite binds a null pointer as NULL, not as an empty blob
+        static const uint8_t empty = 0;
+        errorCode = sqlite3_bind_blob(
+            statement.get(), parameter, blob.empty() ? &empty : blob.data(),
+            static_cast<int>(blob.size()), SQLITE_TRANSIENT);
         if (errorCode != SQLITE_OK) {
           throwException(errorCode);
         }

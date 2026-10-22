@@ -1,6 +1,7 @@
 #ifndef __TEST_BASE_H_
 #define __TEST_BASE_H_
 
+#include <memory>
 #include <string>
 
 #include "Text.h"
@@ -26,19 +27,17 @@ class TempPath {
 
 class TestBase : public ::testing::Test {
  protected:
-  TempPath *tempPath;
+  std::unique_ptr<TempPath> tempPath;
 
  public:
-  TestBase() : tempPath(nullptr) {}
-
   virtual ~TestBase() = default;
 
   virtual void SetUp() {
-    tempPath = new TempPath();
+    tempPath = std::make_unique<TempPath>();
     ASSERT_TRUE(tempPath->create());
   }
 
-  virtual void TearDown() { delete tempPath; }
+  virtual void TearDown() { tempPath.reset(); }
 };
 
 #endif

@@ -84,9 +84,9 @@ class SqliteCreationRecordLoader : public RecordLoader {
   void createSqliteInsertionCommand() {
     std::string insertSql = buildInsertSql(keys, "data_t", false);
 
-    transaction.reset(new SqliteTransaction(this->database));
-    insertionCommand.reset(
-        new SqlitePreparedStatement(this->database, insertSql.c_str()));
+    transaction = std::make_unique<SqliteTransaction>(this->database);
+    insertionCommand = std::make_unique<SqlitePreparedStatement>(
+        this->database, insertSql.c_str());
   }
 
  private:
@@ -421,8 +421,8 @@ std::unique_ptr<RecordLoader> SqliteDatabase::create(
   createSqliteDataIndices();
   createSqliteTriggers();
 
-  auto recordLoader = std::unique_ptr<SqliteCreationRecordLoader>(
-      new SqliteCreationRecordLoader(this->database, database));
+  auto recordLoader =
+      std::make_unique<SqliteCreationRecordLoader>(this->database, database);
   recordLoader->createSqliteInsertionCommand();
   return recordLoader;
 }
@@ -596,7 +596,7 @@ void SqliteDatabase::close() {
 }
 
 void SqliteDatabase::beginTransaction() {
-  clientTransaction.reset(new SqliteTransaction(database));
+  clientTransaction = std::make_unique<SqliteTransaction>(database);
 }
 
 void SqliteDatabase::commitTransaction() {
@@ -1103,7 +1103,7 @@ BtrieveError SqliteDatabase::updateRecord(
 std::unique_ptr<Query> SqliteDatabase::newQuery(
     unsigned int position, const Key *key,
     std::basic_string_view<uint8_t> keyData) {
-  return std::unique_ptr<Query>(new SqliteQuery(this, position, key, keyData));
+  return std::make_unique<SqliteQuery>(this, position, key, keyData);
 }
 
 BtrieveError SqliteDatabase::nextReader(Query *query,

@@ -17,8 +17,7 @@ class LRUCache {
     auto pos = keyValuesMap.find(key);
     if (pos == keyValuesMap.end()) {
       orderedKeys.push_front(key);
-      keyValuesMap[key] = {std::shared_ptr<V>(new V(value)),
-                           orderedKeys.begin()};
+      keyValuesMap[key] = {std::make_shared<V>(value), orderedKeys.begin()};
       if (keyValuesMap.size() > maxSize) {
         keyValuesMap.erase(orderedKeys.back());
         orderedKeys.pop_back();
@@ -30,7 +29,7 @@ class LRUCache {
       orderedKeys.push_front(key);
 
       // update the values in keyValuesMap
-      pos->second.first = std::shared_ptr<V>(new V(value));
+      pos->second.first = std::make_shared<V>(value);
       pos->second.second = orderedKeys.begin();
 
       return *(pos->second.first);

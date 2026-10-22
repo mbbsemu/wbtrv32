@@ -110,7 +110,7 @@ class SqliteTransaction {
     }
 
     if (!*cached) {
-      cached->reset(new SqlitePreparedStatement(database, sql));
+      *cached = std::make_unique<SqlitePreparedStatement>(database, sql);
     }
 
     int errorCode = (*cached)->step();

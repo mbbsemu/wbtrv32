@@ -55,7 +55,8 @@ using namespace btrieve;
 // its driver, and each has its own Cursor so their positions stay separate.
 struct OpenHandle {
   std::shared_ptr<BtrieveDriver> driver;
-  std::unique_ptr<BtrieveDriver::Cursor> cursor;
+  // shared only so the driver can tell, through a weak_ptr, when it's gone
+  std::shared_ptr<BtrieveDriver::Cursor> cursor;
   // The mode this handle was opened in. The shared database itself is always
   // opened writable; read-only and exclusive are enforced per handle.
   OpenMode mode;
@@ -65,14 +66,8 @@ struct OpenHandle {
 
   OpenHandle(std::shared_ptr<BtrieveDriver> driver_, OpenMode mode_)
       : driver(std::move(driver_)),
-        cursor(std::make_unique<BtrieveDriver::Cursor>()),
+        cursor(std::make_shared<BtrieveDriver::Cursor>()),
         mode(mode_) {}
-  OpenHandle(OpenHandle &&) = default;
-  ~OpenHandle() {
-    if (driver && cursor) {
-      driver->release(cursor.get());
-    }
-  }
 };
 
 static std::unordered_map<std::basic_string<wchar_t>, OpenHandle> _openFiles;
@@ -239,7 +234,7 @@ static std::shared_ptr<BtrieveDriver> findOpenDatabase(
   }
   // every operation comes through here, so this is where the handle's own
   // position is put in place
-  handle->driver->activate(handle->cursor.get());
+  handle->driver->activate(handle->cursor);
   return handle->driver;
 }
 
@@ -298,7 +293,7 @@ static void AddToOpenFiles(BtrieveCommand &command,
   // a new handle starts with no current record, as after any Open
   OpenHandle handle(driver, mode);
   handle.ownerRights = ownerRights;
-  driver->activate(handle.cursor.get());
+  driver->activate(handle.cursor);
   _openFiles.emplace(std::basic_string<wchar_t>(guidStr), std::move(handle));
 
   // write the GUID in the pos block for other calls
@@ -427,7 +422,7 @@ static BtrieveError Open(BtrieveCommand &command) {
   }
 
   std::shared_ptr<BtrieveDriver> driver = std::make_shared<BtrieveDriver>(
-      new SqliteDatabase(), trackSourceFiles());
+      std::make_unique<SqliteDatabase>(), trackSourceFiles());
 
   // Every handle on the file shares this database, so it's opened writable
   // whatever this handle asked for; writes through a read-only handle are
@@ -1524,7 +1519,7 @@ static BtrieveError Create(BtrieveCommand &command) {
   }
 
   // this is the in-memory create path
-  std::unique_ptr<SqliteDatabase> sqliteDatabase(new SqliteDatabase());
+  auto sqliteDatabase = std::make_unique<SqliteDatabase>();
   std::unique_ptr<RecordLoader> recordLoader =
       sqliteDatabase->create(nullptr, database);
   // create() leaves a transaction open (via createSqliteInsertionCommand)
@@ -1534,7 +1529,7 @@ static BtrieveError Create(BtrieveCommand &command) {
   recordLoader->onRecordsComplete();
 
   AddToOpenFiles(command,
-                 std::make_shared<BtrieveDriver>(sqliteDatabase.release()));
+                 std::make_shared<BtrieveDriver>(std::move(sqliteDatabase)));
 
   return BtrieveError::Success;
 }

@@ -79,7 +79,7 @@ void expectParseError(const char *text, const char *expectedMessage) {
 TEST_F(BcrParserTest, CreatesDatabaseMatchingVariableDat) {
   bcr::Description description = bcr::parseFile("assets/VARIABLE.BCR");
 
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
   createAndOpen(description, "variable", driver);
 
   BtrieveDatabase expected;
@@ -168,7 +168,7 @@ TEST_F(BcrParserTest, ParsesKeyTypesAndSegments) {
   EXPECT_EQ(key2.type, KeyDataType::Float);
   EXPECT_EQ(key2.nullKey, bcr::NullKey::AnySegment);
 
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
   createAndOpen(description, "segments", driver);
 
   ASSERT_EQ(driver.getKeys().size(), 3u);
@@ -206,7 +206,7 @@ TEST_F(BcrParserTest, SharedAcsAtEndOfFile) {
       "name=UPPER.ALT\n");
   EXPECT_EQ(description.acsFileName, "UPPER.ALT");
 
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
   createAndOpen(description, "sharedacs", driver);
 
   ASSERT_EQ(driver.getKeys().size(), 2u);
@@ -241,7 +241,7 @@ TEST_F(BcrParserTest, PerKeyAcs) {
   EXPECT_EQ(keySpecs[2].attributes & MultipleACS, MultipleACS);
   EXPECT_EQ(keySpecs[2].acsNumber, 1);
 
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
   createAndOpen(description, "perkeyacs", driver);
 
   ASSERT_EQ(driver.getKeys().size(), 3u);
@@ -270,7 +270,7 @@ TEST_F(BcrParserTest, CreateFailsIfFileExists) {
   bcr::Description description =
       bcr::parse("record=16 variable=n key=0 page=512");
 
-  BtrieveDriver driver(new SqliteDatabase());
+  BtrieveDriver driver(std::make_unique<SqliteDatabase>());
   createAndOpen(description, "exists", driver);
 
   std::vector<uint8_t> buffer = bcr::toCreateBuffer(description, ".");

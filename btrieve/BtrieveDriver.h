@@ -51,8 +51,10 @@ class BtrieveDriver {
   // converted afresh after the old .DB is moved aside into
   // "CONVERTED DATABASES". Turn it off when something else keeps writing the
   // .DAT, as stock Btrieve does under the parity shim.
-  BtrieveDriver(SqlDatabase *sqlDatabase_, bool trackSourceFile_ = true)
-      : sqlDatabase(sqlDatabase_), trackSourceFile(trackSourceFile_) {}
+  BtrieveDriver(std::unique_ptr<SqlDatabase> sqlDatabase_,
+                bool trackSourceFile_ = true)
+      : sqlDatabase(std::move(sqlDatabase_)),
+        trackSourceFile(trackSourceFile_) {}
 
   BtrieveDriver(BtrieveDriver &&driver)
       : sqlDatabase(std::move(driver.sqlDatabase)),
@@ -151,14 +153,16 @@ class BtrieveDriver {
     std::unique_ptr<Query> query;
   };
 
-  void activate(Cursor *cursor) {
-    if (activeCursor == cursor) {
+  void activate(const std::shared_ptr<Cursor> &cursor) {
+    // a closed handle's Cursor is gone, so its state is simply dropped
+    std::shared_ptr<Cursor> active = activeCursor.lock();
+    if (active == cursor) {
       return;
     }
-    if (activeCursor != nullptr) {
-      activeCursor->position = sqlDatabase->getPosition();
-      activeCursor->currentRecord = sqlDatabase->hasCurrentRecord();
-      activeCursor->query = std::move(previousQuery);
+    if (active != nullptr) {
+      active->position = sqlDatabase->getPosition();
+      active->currentRecord = sqlDatabase->hasCurrentRecord();
+      active->query = std::move(previousQuery);
     }
     sqlDatabase->setPosition(cursor != nullptr ? cursor->position : 0);
     if (cursor == nullptr || !cursor->currentRecord) {
@@ -167,13 +171,6 @@ class BtrieveDriver {
     previousQuery =
         cursor != nullptr ? std::move(cursor->query) : std::unique_ptr<Query>();
     activeCursor = cursor;
-  }
-
-  // Called before a handle's Cursor is destroyed.
-  void release(Cursor *cursor) {
-    if (activeCursor == cursor) {
-      activeCursor = nullptr;
-    }
   }
 
  private:
@@ -190,7 +187,8 @@ class BtrieveDriver {
   bool trackSourceFile;
   std::unique_ptr<Query> previousQuery;
   std::basic_string<wchar_t> openedFilename;
-  Cursor *activeCursor = nullptr;
+  // Not owned: each handle owns its Cursor, which may be closed at any time.
+  std::weak_ptr<Cursor> activeCursor;
 };
 }  // namespace btrieve
 #endif

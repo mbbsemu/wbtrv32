@@ -4,6 +4,8 @@
 #include <stdint.h>
 
 #include <string>
+#include <utility>
+#include <variant>
 #include <vector>
 
 #include "ByteStringViewTraits.h"
@@ -11,150 +13,66 @@
 namespace btrieve {
 class BindableValue {
  public:
+  // in the order of the alternatives in value
   enum Type { Null, Integer, Double, Text, Blob };
 
-  BindableValue() : type(Type::Null) {}
+  BindableValue() = default;
 
-  BindableValue(int32_t value) : type(Type::Integer), int_value(value) {}
+  BindableValue(int32_t value) : value(int64_t{value}) {}
 
-  BindableValue(uint32_t value) : type(Type::Integer), int_value(value) {}
+  BindableValue(uint32_t value) : value(int64_t{value}) {}
 
-  BindableValue(int64_t value) : type(Type::Integer), int_value(value) {}
+  BindableValue(int64_t value) : value(value) {}
 
-  BindableValue(uint64_t value) : type(Type::Integer), int_value(value) {}
+  BindableValue(uint64_t value) : value(static_cast<int64_t>(value)) {}
 
-  BindableValue(double value) : type(Type::Double), double_value(value) {}
+  BindableValue(double value) : value(value) {}
 
-  BindableValue(const std::vector<uint8_t> &data)
-      : type(Type::Blob), blob_value(new std::vector<uint8_t>(data)) {}
+  BindableValue(const std::vector<uint8_t> &data) : value(data) {}
 
   BindableValue(const std::basic_string_view<uint8_t> data)
-      : type(Type::Blob),
-        blob_value(
-            new std::vector<uint8_t>(data.data(), data.data() + data.size())) {}
+      : value(std::vector<uint8_t>(data.begin(), data.end())) {}
 
   BindableValue(const char *str) {
-    if (str == nullptr) {
-      type = Type::Null;
-    } else {
-      type = Type::Text;
-      text_value = new std::string(str);
+    if (str != nullptr) {
+      value = std::string(str);
     }
   }
 
-  BindableValue(const std::string_view data)
-      : type(Type::Text), text_value(new std::string(data)) {}
+  BindableValue(const std::string_view data) : value(std::string(data)) {}
 
-  // deep copy
-  BindableValue(const BindableValue &value) : type(value.type) {
-    switch (value.type) {
-      case Type::Null:
-        break;
-      case Type::Integer:
-        int_value = value.int_value;
-        break;
-      case Type::Double:
-        double_value = value.double_value;
-        break;
-      case Type::Text:
-        text_value = new std::string(*value.text_value);
-        break;
-      case Type::Blob:
-        blob_value = new std::vector<uint8_t>(*value.blob_value);
-        break;
-    }
-  }
+  BindableValue(const BindableValue &) = default;
+  BindableValue &operator=(const BindableValue &) = default;
 
-  // move copy
-  BindableValue(BindableValue &&value) : type(value.type) {
-    switch (value.type) {
-      case Type::Null:
-        break;
-      case Type::Integer:
-        int_value = value.int_value;
-        value.int_value = -1;
-        break;
-      case Type::Double:
-        double_value = value.double_value;
-        value.double_value = -1;
-        break;
-      case Type::Text:
-        text_value = value.text_value;
-        value.text_value = NULL;
-        break;
-      case Type::Blob:
-        blob_value = value.blob_value;
-        value.blob_value = NULL;
-    }
+  // a moved-from value is Null
+  BindableValue(BindableValue &&other) noexcept
+      : value(std::exchange(other.value, std::monostate())) {}
 
-    value.type = Type::Null;
-  }
-
-  ~BindableValue() { freeResource(); }
-
-  BindableValue &operator=(BindableValue &&value) {
-    if (this == &value) {
-      return *this;
-    }
-
-    // release whatever *this currently holds before overwriting it --
-    // otherwise moving into an existing Text/Blob-holding instance leaks the
-    // std::string/std::vector it was pointing to.
-    freeResource();
-
-    type = value.type;
-    switch (value.type) {
-      case Type::Null:
-        break;
-      case Type::Integer:
-        int_value = value.int_value;
-        value.int_value = -1;
-        break;
-      case Type::Double:
-        double_value = value.double_value;
-        value.double_value = -1;
-        break;
-      case Type::Text:
-        text_value = value.text_value;
-        value.text_value = NULL;
-        break;
-      case Type::Blob:
-        blob_value = value.blob_value;
-        value.blob_value = NULL;
-    }
-
-    value.type = Type::Null;
+  BindableValue &operator=(BindableValue &&other) noexcept {
+    value = std::exchange(other.value, std::monostate());
     return *this;
   }
 
-  Type getType() const { return type; }
+  Type getType() const { return static_cast<Type>(value.index()); }
 
-  int64_t getIntegerValue() const { return int_value; }
+  int64_t getIntegerValue() const { return std::get<int64_t>(value); }
 
-  double getDoubleValue() const { return double_value; }
+  double getDoubleValue() const { return std::get<double>(value); }
 
-  const std::string &getStringValue() const { return *text_value; }
+  const std::string &getStringValue() const {
+    return std::get<std::string>(value);
+  }
 
-  const std::vector<uint8_t> &getBlobValue() const { return *blob_value; }
+  const std::vector<uint8_t> &getBlobValue() const {
+    return std::get<std::vector<uint8_t>>(value);
+  }
 
   bool isNull() const { return getType() == Type::Null; }
 
  private:
-  void freeResource() {
-    if (type == Type::Blob && blob_value != nullptr) {
-      delete blob_value;
-    } else if (type == Type::Text && text_value != nullptr) {
-      delete text_value;
-    }
-  }
-
-  Type type;
-  union {
-    int64_t int_value;
-    double double_value;
-    std::string *text_value;
-    std::vector<uint8_t> *blob_value;
-  };
+  std::variant<std::monostate, int64_t, double, std::string,
+               std::vector<uint8_t>>
+      value;
 };
 }  // namespace btrieve
 
