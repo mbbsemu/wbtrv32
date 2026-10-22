@@ -16,7 +16,8 @@ static const unsigned char DATA_NEGATIVE[] = {0xF1, 0xF2, 0xF3, 0xF4,
                                               0xF5, 0xF6, 0xF7, 0xF8};
 static const unsigned char DATA_POSITIVE[] = {0x1, 0x2, 0x3, 0x4,
                                               0x5, 0x6, 0x7, 0x8};
-static const char STRING_DATA[32] = "\x04Test";
+// 33 bytes: the non-Lstring cases skip the length byte and read up to 32
+static const char STRING_DATA[33] = "\x04Test";
 
 TEST(Key, SingleKeySegment) {
   KeyDefinition keyDefinition(0, 10, 0, KeyDataType::String, 0, false, 0, 0, 0,
