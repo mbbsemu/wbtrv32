@@ -299,7 +299,7 @@ TEST_F(wbtrv32Test, StatsDatabase) {
   EXPECT_EQ(lpFileSpec->pageSize, 4096);
   EXPECT_EQ(lpFileSpec->numberOfKeys, 4);
   EXPECT_EQ(lpFileSpec->fileVersion, 0);
-  EXPECT_EQ(lpFileSpec->recordCount, 4u);
+  EXPECT_EQ(+lpFileSpec->recordCount, 4u);
   EXPECT_EQ(lpFileSpec->fileFlags, 0);
   EXPECT_EQ(lpFileSpec->numExtraPointers, 0);
   EXPECT_EQ(lpFileSpec->physicalPageSize, 0);
@@ -311,7 +311,7 @@ TEST_F(wbtrv32Test, StatsDatabase) {
   EXPECT_EQ(lpKeySpec->length, 32);
   EXPECT_EQ(lpKeySpec->attributes, UseExtendedDataType | Duplicates);
   // every record is "Sysop"
-  EXPECT_EQ(lpKeySpec->uniqueKeys, 1u);
+  EXPECT_EQ(+lpKeySpec->uniqueKeys, 1u);
   EXPECT_EQ(lpKeySpec->extendedDataType, btrieve::KeyDataType::Zstring);
   EXPECT_EQ(lpKeySpec->nullValue, 0);
   EXPECT_EQ(lpKeySpec->reserved, 0);
@@ -322,7 +322,7 @@ TEST_F(wbtrv32Test, StatsDatabase) {
   EXPECT_EQ(lpKeySpec->position, 35);
   EXPECT_EQ(lpKeySpec->length, 4);
   EXPECT_EQ(lpKeySpec->attributes, UseExtendedDataType | Modifiable);
-  EXPECT_EQ(lpKeySpec->uniqueKeys, 4u);
+  EXPECT_EQ(+lpKeySpec->uniqueKeys, 4u);
   EXPECT_EQ(lpKeySpec->extendedDataType, btrieve::KeyDataType::Integer);
   EXPECT_EQ(lpKeySpec->nullValue, 0);
   EXPECT_EQ(lpKeySpec->reserved, 0);
@@ -334,7 +334,7 @@ TEST_F(wbtrv32Test, StatsDatabase) {
   EXPECT_EQ(lpKeySpec->length, 32);
   EXPECT_EQ(lpKeySpec->attributes,
             UseExtendedDataType | Modifiable | Duplicates);
-  EXPECT_EQ(lpKeySpec->uniqueKeys, 4u);
+  EXPECT_EQ(+lpKeySpec->uniqueKeys, 4u);
   EXPECT_EQ(lpKeySpec->extendedDataType, btrieve::KeyDataType::Zstring);
   EXPECT_EQ(lpKeySpec->nullValue, 0);
   EXPECT_EQ(lpKeySpec->reserved, 0);
@@ -345,7 +345,7 @@ TEST_F(wbtrv32Test, StatsDatabase) {
   EXPECT_EQ(lpKeySpec->position, 71);
   EXPECT_EQ(lpKeySpec->length, 4);
   EXPECT_EQ(lpKeySpec->attributes, UseExtendedDataType);
-  EXPECT_EQ(lpKeySpec->uniqueKeys, 4u);
+  EXPECT_EQ(+lpKeySpec->uniqueKeys, 4u);
   EXPECT_EQ(lpKeySpec->extendedDataType, btrieve::KeyDataType::AutoInc);
   EXPECT_EQ(lpKeySpec->nullValue, 0);
   EXPECT_EQ(lpKeySpec->reserved, 0);
@@ -383,7 +383,7 @@ TEST_F(wbtrv32Test, StatsV6DatabaseWithMultiSegmentKeys) {
   EXPECT_EQ(lpFileSpec->pageSize, 4096);
   EXPECT_EQ(lpFileSpec->numberOfKeys, 3);
   EXPECT_EQ(lpFileSpec->fileVersion, 0);
-  EXPECT_EQ(lpFileSpec->recordCount, 73u);
+  EXPECT_EQ(+lpFileSpec->recordCount, 73u);
   EXPECT_EQ(lpFileSpec->fileFlags, 0);
   EXPECT_EQ(lpFileSpec->numExtraPointers, 0);
   EXPECT_EQ(lpFileSpec->physicalPageSize, 0);
@@ -395,7 +395,7 @@ TEST_F(wbtrv32Test, StatsV6DatabaseWithMultiSegmentKeys) {
   EXPECT_EQ(lpKeySpec->length, 16);
   EXPECT_EQ(lpKeySpec->attributes,
             UseExtendedDataType | SegmentedKey | NumberedACS);
-  EXPECT_EQ(lpKeySpec->uniqueKeys, 73u);
+  EXPECT_EQ(+lpKeySpec->uniqueKeys, 73u);
   EXPECT_EQ(lpKeySpec->extendedDataType, btrieve::KeyDataType::Zstring);
   EXPECT_EQ(lpKeySpec->nullValue, 0);
   EXPECT_EQ(lpKeySpec->reserved, 0);
@@ -406,7 +406,7 @@ TEST_F(wbtrv32Test, StatsV6DatabaseWithMultiSegmentKeys) {
   EXPECT_EQ(lpKeySpec->position, 17);
   EXPECT_EQ(lpKeySpec->length, 16);
   EXPECT_EQ(lpKeySpec->attributes, UseExtendedDataType | NumberedACS);
-  EXPECT_EQ(lpKeySpec->uniqueKeys, 73u);
+  EXPECT_EQ(+lpKeySpec->uniqueKeys, 73u);
   EXPECT_EQ(lpKeySpec->extendedDataType, btrieve::KeyDataType::Zstring);
   EXPECT_EQ(lpKeySpec->nullValue, 0);
   EXPECT_EQ(lpKeySpec->reserved, 0);
@@ -418,7 +418,7 @@ TEST_F(wbtrv32Test, StatsV6DatabaseWithMultiSegmentKeys) {
   EXPECT_EQ(lpKeySpec->length, 16);
   EXPECT_EQ(lpKeySpec->attributes,
             UseExtendedDataType | NumberedACS | Duplicates);
-  EXPECT_EQ(lpKeySpec->uniqueKeys, 2u);
+  EXPECT_EQ(+lpKeySpec->uniqueKeys, 2u);
   EXPECT_EQ(lpKeySpec->extendedDataType, btrieve::KeyDataType::Zstring);
   EXPECT_EQ(lpKeySpec->nullValue, 0);
   EXPECT_EQ(lpKeySpec->reserved, 0);
@@ -430,7 +430,7 @@ TEST_F(wbtrv32Test, StatsV6DatabaseWithMultiSegmentKeys) {
   EXPECT_EQ(lpKeySpec->length, 16);
   EXPECT_EQ(lpKeySpec->attributes,
             UseExtendedDataType | NumberedACS | Duplicates);
-  EXPECT_EQ(lpKeySpec->uniqueKeys, 73u);
+  EXPECT_EQ(+lpKeySpec->uniqueKeys, 73u);
   EXPECT_EQ(lpKeySpec->extendedDataType, btrieve::KeyDataType::Zstring);
   EXPECT_EQ(lpKeySpec->nullValue, 0);
   EXPECT_EQ(lpKeySpec->reserved, 0);
@@ -491,7 +491,7 @@ TEST_F(wbtrv32Test, Delete) {
 
   wbtrv32::LPFILESPEC lpFileSpec =
       reinterpret_cast<wbtrv32::LPFILESPEC>(buffer);
-  ASSERT_EQ(lpFileSpec->recordCount, 4u);
+  ASSERT_EQ(+lpFileSpec->recordCount, 4u);
 
   // nothing is current straight after Open
   ASSERT_EQ(btrcall(btrieve::OperationCode::Delete, posBlock, nullptr, nullptr,
@@ -513,9 +513,12 @@ TEST_F(wbtrv32Test, Delete) {
             btrieve::BtrieveError::Success);
 
   lpFileSpec = reinterpret_cast<wbtrv32::LPFILESPEC>(buffer);
-  ASSERT_EQ(lpFileSpec->recordCount, 3u);
+  ASSERT_EQ(+lpFileSpec->recordCount, 3u);
 }
 
+// Fields of packed structs can be misaligned, so they're compared and stored
+// as copies (+field): gtest and std::vector take const T&, and binding a
+// reference to a misaligned field is undefined behaviour.
 #pragma pack(push, 1)
 typedef struct _tagRECORD {
   uint16_t unused;
@@ -557,9 +560,9 @@ TEST_F(wbtrv32Test, StepFirst) {
                     &dwDataBufferLength, nullptr, 0, 0),
             btrieve::BtrieveError::Success);
   ASSERT_STREQ(record.string1, "Sysop");
-  ASSERT_EQ(record.int1, 3444);
+  ASSERT_EQ(+record.int1, 3444);
   ASSERT_STREQ(record.string2, "3444");
-  ASSERT_EQ(record.int2, 1);
+  ASSERT_EQ(+record.int2, 1);
 
   dwDataBufferLength = sizeof(position);
   ASSERT_EQ(btrcall(btrieve::OperationCode::GetPosition, posBlock, &position,
@@ -577,9 +580,9 @@ TEST_F(wbtrv32Test, StepFirst) {
                     &dwDataBufferLength, nullptr, 0, 0),
             btrieve::BtrieveError::Success);
   ASSERT_STREQ(record.string1, "Sysop");
-  ASSERT_EQ(record.int1, 7776);
+  ASSERT_EQ(+record.int1, 7776);
   ASSERT_STREQ(record.string2, "7776");
-  ASSERT_EQ(record.int2, 2);
+  ASSERT_EQ(+record.int2, 2);
 
   dwDataBufferLength = sizeof(position);
   ASSERT_EQ(btrcall(btrieve::OperationCode::GetPosition, posBlock, &position,
@@ -607,8 +610,8 @@ TEST_F(wbtrv32Test, StepAfterOpen) {
   ASSERT_EQ(btrcall(btrieve::OperationCode::StepNext, posBlock, &record,
                     &dwDataBufferLength, nullptr, 0, 0),
             btrieve::BtrieveError::Success);
-  EXPECT_EQ(record.int1, 3444);
-  EXPECT_EQ(record.int2, 1);
+  EXPECT_EQ(+record.int1, 3444);
+  EXPECT_EQ(+record.int2, 1);
 
   ASSERT_EQ(btrcall(btrieve::OperationCode::Close, posBlock, nullptr, nullptr,
                     nullptr, 0, 0),
@@ -695,9 +698,9 @@ TEST_F(wbtrv32Test, StepLast) {
                     &dwDataBufferLength, nullptr, 0, 0),
             btrieve::BtrieveError::Success);
   ASSERT_STREQ(record.string1, "Sysop");
-  ASSERT_EQ(record.int1, -615634567);
+  ASSERT_EQ(+record.int1, -615634567);
   ASSERT_STREQ(record.string2, "stringValue");
-  ASSERT_EQ(record.int2, 4);
+  ASSERT_EQ(+record.int2, 4);
 
   dwDataBufferLength = sizeof(position);
   ASSERT_EQ(btrcall(btrieve::OperationCode::GetPosition, posBlock, &position,
@@ -715,9 +718,9 @@ TEST_F(wbtrv32Test, StepLast) {
                     &dwDataBufferLength, nullptr, 0, 0),
             btrieve::BtrieveError::Success);
   ASSERT_STREQ(record.string1, "Sysop");
-  ASSERT_EQ(record.int1, 1052234073);
+  ASSERT_EQ(+record.int1, 1052234073);
   ASSERT_STREQ(record.string2, "StringValue");
-  ASSERT_EQ(record.int2, 3);
+  ASSERT_EQ(+record.int2, 3);
 
   dwDataBufferLength = sizeof(position);
   ASSERT_EQ(btrcall(btrieve::OperationCode::GetPosition, posBlock, &position,
@@ -746,9 +749,9 @@ TEST_F(wbtrv32Test, GetDirectNoKeys) {
                     &record, &dwDataBufferLength, nullptr, 0, -1),
             btrieve::BtrieveError::Success);
   ASSERT_STREQ(record.string1, "Sysop");
-  ASSERT_EQ(record.int1, 3444);
+  ASSERT_EQ(+record.int1, 3444);
   ASSERT_STREQ(record.string2, "3444");
-  ASSERT_EQ(record.int2, 1);
+  ASSERT_EQ(+record.int2, 1);
   ASSERT_EQ(dwDataBufferLength, 74u);
 }
 
@@ -824,9 +827,9 @@ TEST_F(wbtrv32Test, GetDirectWithKey) {
   ASSERT_EQ(returnedKey, -615634567u);
 
   ASSERT_STREQ(record.string1, "Sysop");
-  ASSERT_EQ(record.int1, -615634567);
+  ASSERT_EQ(+record.int1, -615634567);
   ASSERT_STREQ(record.string2, "stringValue");
-  ASSERT_EQ(record.int2, 4);
+  ASSERT_EQ(+record.int2, 4);
 
   dwDataBufferLength = sizeof(record);
   ASSERT_EQ(btrcall(btrieve::OperationCode::AcquireNext, posBlock, &record,
@@ -836,9 +839,9 @@ TEST_F(wbtrv32Test, GetDirectWithKey) {
   ASSERT_EQ(returnedKey, 3444u);
 
   ASSERT_STREQ(record.string1, "Sysop");
-  ASSERT_EQ(record.int1, 3444);
+  ASSERT_EQ(+record.int1, 3444);
   ASSERT_STREQ(record.string2, "3444");
-  ASSERT_EQ(record.int2, 1);
+  ASSERT_EQ(+record.int2, 1);
 }
 
 TEST_F(wbtrv32Test, GetDirectWithKeyDataBufferOverrun) {
@@ -1001,9 +1004,9 @@ TEST_F(wbtrv32Test, Query) {
             btrieve::BtrieveError::Success);
 
   ASSERT_STREQ(record.string1, "Sysop");
-  ASSERT_EQ(record.int1, 7776);
+  ASSERT_EQ(+record.int1, 7776);
   ASSERT_STREQ(record.string2, "7776");
-  ASSERT_EQ(record.int2, 2);
+  ASSERT_EQ(+record.int2, 2);
 
   ASSERT_EQ(keyToSearch, 7776u);
 
@@ -1012,9 +1015,9 @@ TEST_F(wbtrv32Test, Query) {
             btrieve::BtrieveError::Success);
 
   ASSERT_STREQ(record.string1, "Sysop");
-  ASSERT_EQ(record.int1, 1052234073);
+  ASSERT_EQ(+record.int1, 1052234073);
   ASSERT_STREQ(record.string2, "StringValue");
-  ASSERT_EQ(record.int2, 3);
+  ASSERT_EQ(+record.int2, 3);
 
   ASSERT_EQ(keyToSearch, 1052234073u);
 }
@@ -1150,7 +1153,7 @@ TEST_F(wbtrv32Test, InsertNoKey) {
                     &dwDataBufferLength, nullptr, 0, 0),
             btrieve::BtrieveError::Success);
 
-  ASSERT_EQ(reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 5u);
+  ASSERT_EQ(+reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 5u);
 
   // requery just to make sure the data was inserted properly
   memset(&record, 0, sizeof(record));
@@ -1161,8 +1164,8 @@ TEST_F(wbtrv32Test, InsertNoKey) {
                     &record, &dwDataBufferLength, nullptr, 0, -1),
             btrieve::BtrieveError::Success);
 
-  ASSERT_EQ(record.int1, 10000);
-  ASSERT_EQ(record.int2, 5);
+  ASSERT_EQ(+record.int1, 10000);
+  ASSERT_EQ(+record.int2, 5);
   ASSERT_STREQ(record.string1, "Sysop");
   ASSERT_STREQ(record.string2, "whatever");
 }
@@ -1195,7 +1198,7 @@ TEST_F(wbtrv32Test, InsertBreaksConstraints) {
                     &dwDataBufferLength, nullptr, 0, 0),
             btrieve::BtrieveError::Success);
 
-  ASSERT_EQ(reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 4u);
+  ASSERT_EQ(+reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 4u);
 }
 
 TEST_F(wbtrv32Test, InsertWithKey) {
@@ -1229,7 +1232,7 @@ TEST_F(wbtrv32Test, InsertWithKey) {
                     &dwDataBufferLength, nullptr, 0, 0),
             btrieve::BtrieveError::Success);
 
-  ASSERT_EQ(reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 5u);
+  ASSERT_EQ(+reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 5u);
 
   memset(&record, 0, sizeof(record));
   dwDataBufferLength = sizeof(record);
@@ -1240,9 +1243,9 @@ TEST_F(wbtrv32Test, InsertWithKey) {
   ASSERT_EQ(*reinterpret_cast<int32_t*>(key), -615634567);
 
   ASSERT_STREQ(record.string1, "Sysop");
-  ASSERT_EQ(record.int1, -615634567);
+  ASSERT_EQ(+record.int1, -615634567);
   ASSERT_STREQ(record.string2, "stringValue");
-  ASSERT_EQ(record.int2, 4);
+  ASSERT_EQ(+record.int2, 4);
 }
 
 TEST_F(wbtrv32Test, InsertWithInvalidKey) {
@@ -1274,7 +1277,7 @@ TEST_F(wbtrv32Test, InsertWithInvalidKey) {
                     &dwDataBufferLength, nullptr, 0, 0),
             btrieve::BtrieveError::Success);
 
-  ASSERT_EQ(reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 4u);
+  ASSERT_EQ(+reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 4u);
 }
 
 TEST_F(wbtrv32Test, InsertWithKeyBufferTooShort) {
@@ -1306,7 +1309,7 @@ TEST_F(wbtrv32Test, InsertWithKeyBufferTooShort) {
                     &dwDataBufferLength, nullptr, 0, 0),
             btrieve::BtrieveError::Success);
 
-  ASSERT_EQ(reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 4u);
+  ASSERT_EQ(+reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 4u);
 }
 
 // Regression tests for a bug where Upsert() (wbtrv32.cpp) never updated the
@@ -1481,7 +1484,7 @@ TEST_F(wbtrv32Test, InsertNoKeyReadOnly) {
                     &dwDataBufferLength, nullptr, 0, 0),
             btrieve::BtrieveError::Success);
 
-  ASSERT_EQ(reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 4u);
+  ASSERT_EQ(+reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 4u);
 
   // requery just to make sure the data is readable in readonly mode
   memset(&record, 0, sizeof(record));
@@ -1492,8 +1495,8 @@ TEST_F(wbtrv32Test, InsertNoKeyReadOnly) {
                     &record, &dwDataBufferLength, nullptr, 0, -1),
             btrieve::BtrieveError::Success);
 
-  ASSERT_EQ(record.int1, -615634567);
-  ASSERT_EQ(record.int2, 4);
+  ASSERT_EQ(+record.int1, -615634567);
+  ASSERT_EQ(+record.int2, 4);
   ASSERT_STREQ(record.string1, "Sysop");
   ASSERT_STREQ(record.string2, "stringValue");
 }
@@ -1531,7 +1534,7 @@ TEST_F(wbtrv32Test, UpdateNoKey) {
                     &dwDataBufferLength, nullptr, 0, 0),
             btrieve::BtrieveError::Success);
 
-  ASSERT_EQ(reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 4u);
+  ASSERT_EQ(+reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 4u);
 
   // requery just to make sure the data was inserted properly
   memset(&record, 0, sizeof(record));
@@ -1542,8 +1545,8 @@ TEST_F(wbtrv32Test, UpdateNoKey) {
                     &record, &dwDataBufferLength, nullptr, 0, -1),
             btrieve::BtrieveError::Success);
 
-  ASSERT_EQ(record.int1, -7000);
-  ASSERT_EQ(record.int2, 4);
+  ASSERT_EQ(+record.int1, -7000);
+  ASSERT_EQ(+record.int2, 4);
   ASSERT_STREQ(record.string1, "Sysop");
   ASSERT_STREQ(record.string2, "stringValue");
 }
@@ -1610,7 +1613,7 @@ TEST_F(wbtrv32Test, UpdateWithKey) {
                     &dwDataBufferLength, nullptr, 0, 0),
             btrieve::BtrieveError::Success);
 
-  ASSERT_EQ(reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 4u);
+  ASSERT_EQ(+reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 4u);
 
   // the Update positioned key 1 on the updated record
   memset(&record, 0, sizeof(record));
@@ -1622,9 +1625,9 @@ TEST_F(wbtrv32Test, UpdateWithKey) {
   ASSERT_EQ(*reinterpret_cast<int32_t*>(key), 3444);
 
   ASSERT_STREQ(record.string1, "Sysop");
-  ASSERT_EQ(record.int1, 3444);
+  ASSERT_EQ(+record.int1, 3444);
   ASSERT_STREQ(record.string2, "3444");
-  ASSERT_EQ(record.int2, 1);
+  ASSERT_EQ(+record.int2, 1);
 
   // requery just to make sure the data was inserted properly
   memset(&record, 0, sizeof(record));
@@ -1635,8 +1638,8 @@ TEST_F(wbtrv32Test, UpdateWithKey) {
                     &record, &dwDataBufferLength, nullptr, 0, -1),
             btrieve::BtrieveError::Success);
 
-  ASSERT_EQ(record.int1, -7000);
-  ASSERT_EQ(record.int2, 4);
+  ASSERT_EQ(+record.int1, -7000);
+  ASSERT_EQ(+record.int2, 4);
   ASSERT_STREQ(record.string1, "Sysop");
   ASSERT_STREQ(record.string2, "stringValue");
 }
@@ -1677,7 +1680,7 @@ TEST_F(wbtrv32Test, UpdateWithInvalidKey) {
                     &dwDataBufferLength, nullptr, 0, 0),
             btrieve::BtrieveError::Success);
 
-  ASSERT_EQ(reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 4u);
+  ASSERT_EQ(+reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 4u);
 
   // requery to make sure the data was updated
   memset(&record, 0, sizeof(record));
@@ -1688,8 +1691,8 @@ TEST_F(wbtrv32Test, UpdateWithInvalidKey) {
                     &record, &dwDataBufferLength, nullptr, 0, -1),
             btrieve::BtrieveError::Success);
 
-  ASSERT_EQ(record.int1, -7000);
-  ASSERT_EQ(record.int2, 4);
+  ASSERT_EQ(+record.int1, -7000);
+  ASSERT_EQ(+record.int2, 4);
   ASSERT_STREQ(record.string1, "Sysop");
   ASSERT_STREQ(record.string2, "stringValue");
 }
@@ -1728,7 +1731,7 @@ TEST_F(wbtrv32Test, UpdateKeyBufferTooShort) {
                     &dwDataBufferLength, nullptr, 0, 0),
             btrieve::BtrieveError::Success);
 
-  ASSERT_EQ(reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 4u);
+  ASSERT_EQ(+reinterpret_cast<wbtrv32::LPFILESPEC>(buffer)->recordCount, 4u);
 
   // requery just to make sure the data wasn't updated
   memset(&record, 0, sizeof(record));
@@ -1739,8 +1742,8 @@ TEST_F(wbtrv32Test, UpdateKeyBufferTooShort) {
                     &record, &dwDataBufferLength, nullptr, 0, -1),
             btrieve::BtrieveError::Success);
 
-  ASSERT_EQ(record.int1, -615634567);
-  ASSERT_EQ(record.int2, 4);
+  ASSERT_EQ(+record.int1, -615634567);
+  ASSERT_EQ(+record.int2, 4);
   ASSERT_STREQ(record.string1, "Sysop");
   ASSERT_STREQ(record.string2, "stringValue");
 }
@@ -1878,8 +1881,8 @@ TEST_F(wbtrv32Test, UpdateSucceedsWithNonAsciiNonModifiableKey) {
             btrieve::BtrieveError::Success);
 
   ASSERT_EQ(memcmp(fetched.name, record.name, sizeof(record.name)), 0);
-  ASSERT_EQ(fetched.key1, record.key1);
-  ASSERT_EQ(fetched.key2, record.key2);
+  ASSERT_EQ(+fetched.key1, +record.key1);
+  ASSERT_EQ(+fetched.key2, +record.key2);
 
   // Update key_2 to a different value. key_0 (name) is left completely
   // untouched, so this should succeed even though key_0 is non-modifiable.
@@ -1899,8 +1902,8 @@ TEST_F(wbtrv32Test, UpdateSucceedsWithNonAsciiNonModifiableKey) {
             btrieve::BtrieveError::Success);
 
   ASSERT_EQ(memcmp(verify.name, record.name, sizeof(record.name)), 0);
-  ASSERT_EQ(verify.key1, record.key1);
-  ASSERT_EQ(verify.key2, 999);
+  ASSERT_EQ(+verify.key1, +record.key1);
+  ASSERT_EQ(+verify.key2, 999);
 }
 
 // Lstring keys are length-prefixed and can legitimately contain a 0x00 byte
@@ -2910,7 +2913,7 @@ TEST_F(wbtrv32Test, StepNextExtendedFilters) {
     EXPECT_EQ(run(buffer), btrieve::BtrieveError::EndOfFile);
     std::vector<int32_t> expected;
     for (const auto &r : all) {
-      if (r.int1 > 0) expected.push_back(r.int1);
+      if (r.int1 > 0) expected.push_back(+r.int1);
     }
     EXPECT_EQ(repliedInts(buffer), expected);
   }
@@ -2937,7 +2940,7 @@ TEST_F(wbtrv32Test, StepNextExtendedFilters) {
     auto buffer = d.finish(1, {{4, int1Offset}}, 4096);
     EXPECT_EQ(run(buffer), btrieve::BtrieveError::Success);  // got the 1 wanted
     ASSERT_EQ(repliedInts(buffer).size(), 1u);
-    EXPECT_EQ(repliedInts(buffer)[0], all.front().int1);
+    EXPECT_EQ(repliedInts(buffer)[0], +all.front().int1);
   }
 
   // a broken descriptor
@@ -2969,7 +2972,7 @@ TEST_F(wbtrv32Test, StepNextExtendedFilters) {
     DWORD statLength = sizeof(stat);
     btrcall(btrieve::OperationCode::Stat, posBlock, stat, &statLength, nullptr,
             0, 0);
-    EXPECT_EQ(reinterpret_cast<wbtrv32::LPFILESPEC>(stat)->recordCount, 6u);
+    EXPECT_EQ(+reinterpret_cast<wbtrv32::LPFILESPEC>(stat)->recordCount, 6u);
   }
 
   btrcall(btrieve::OperationCode::Close, posBlock, nullptr, nullptr, nullptr, 0,
@@ -2994,7 +2997,7 @@ TEST_F(wbtrv32Test, GetNextExtendedFollowsTheKeyPath) {
   int status = btrcall(btrieve::OperationCode::AcquireFirst, posBlock, &record,
                        &length, key, sizeof(key), 1);
   while (status == btrieve::BtrieveError::Success) {
-    keyOrder.push_back(record.int1);
+    keyOrder.push_back(+record.int1);
     length = sizeof(record);
     status = btrcall(btrieve::OperationCode::AcquireNext, posBlock, &record,
                      &length, key, sizeof(key), 1);
@@ -3530,7 +3533,7 @@ TEST_F(wbtrv32Test, InsertReturnsAssignedAutoincrementValue) {
             btrieve::BtrieveError::Success);
 
   // the asset holds autoincrement values 1-4
-  EXPECT_EQ(record.int2, 5);
+  EXPECT_EQ(+record.int2, 5);
 
   dwDataBufferLength = sizeof(record);
   EXPECT_EQ(btrcall(btrieve::OperationCode::Update, posBlock, &record,
