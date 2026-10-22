@@ -9,12 +9,12 @@
 #include <mutex>
 
 #include "absl/base/log_severity.h"
+#include "absl/base/no_destructor.h"
 #include "absl/log/globals.h"
-#include "absl/log/initialize.h"
 #include "absl/log/log.h"
 #include "absl/log/log_entry.h"
 #include "absl/log/log_sink.h"
-#include "absl/log/log_sink_registry.h"
+#include "absl/time/time.h"
 #include "btrieve/BtrieveDriver.h"
 #include "btrieve/ErrorCode.h"
 #include "btrieve/OperationCode.h"
@@ -72,27 +72,72 @@ struct OpenHandle {
 
 static std::unordered_map<std::basic_string<wchar_t>, OpenHandle> _openFiles;
 
-// Sends Abseil's log messages to wbtrv32.log.
-class FileLogSink final : public absl::LogSink {
+// Writes log messages to wbtrv32.log and, on Windows, to an attached
+// debugger.
+class LogFileSink final : public absl::LogSink {
  public:
-  explicit FileLogSink(FILE *file) : file_(file) {}
-  ~FileLogSink() override { fclose(file_); }
+  void open(FILE *file) { file_ = file; }
+
+  void close() {
+    if (file_ != nullptr) {
+      fclose(file_);
+      file_ = nullptr;
+    }
+  }
 
   void Send(const absl::LogEntry &entry) override {
-    const absl::string_view line = entry.text_message_with_prefix();
-    // one call, so lines from different threads don't interleave
-    fprintf(file_, "%.*s\r\n", static_cast<int>(line.size()), line.data());
-    fflush(file_);
+    // Abseil's own prefix needs absl::InitializeLog() for a readable time
+    // (see processAttach()), so this one uses the C library's local time
+    const time_t seconds = absl::ToTimeT(entry.timestamp());
+    struct tm local = {};
+#ifdef WIN32
+    localtime_s(&local, &seconds);
+#else
+    localtime_r(&seconds, &local);
+#endif
+    const absl::string_view file = entry.source_basename();
+    char prefix[128];
+    snprintf(prefix, sizeof(prefix),
+             "%c %04d-%02d-%02d %02d:%02d:%02d.%06d %d %.*s:%d] ",
+             absl::LogSeverityName(entry.log_severity())[0],
+             local.tm_year + 1900, local.tm_mon + 1, local.tm_mday,
+             local.tm_hour, local.tm_min, local.tm_sec,
+             static_cast<int>(absl::ToUnixMicros(entry.timestamp()) % 1000000),
+             static_cast<int>(entry.tid()), static_cast<int>(file.size()),
+             file.data(), entry.source_line());
+    const absl::string_view message = entry.text_message();
+
+    if (file_ != nullptr) {
+      // one call, so lines from different threads don't interleave
+      fprintf(file_, "%s%.*s\r\n", prefix, static_cast<int>(message.size()),
+              message.data());
+      fflush(file_);
+    }
+#ifdef WIN32
+    if (IsDebuggerPresent()) {
+      OutputDebugStringA(
+          (std::string(prefix) + std::string(message) + "\r\n").c_str());
+    }
+#endif
   }
 
  private:
-  FILE *file_;
+  FILE *file_ = nullptr;
 };
 
-// A plain pointer, deleted only by processDetach(): a static object with a
-// destructor would be destroyed at exit before the Linux .so destructor below
-// runs processDetach(), which would then close the log a second time.
-static FileLogSink *_logSink = nullptr;
+// Never destroyed, so the Linux .so destructor below can still close the log
+// after static objects are gone; and it lives in the library, not the heap,
+// so unloading the library frees it.
+static LogFileSink &logSink() {
+  static absl::NoDestructor<LogFileSink> sink;
+  return *sink;
+}
+
+// Abseil's LOG and VLOG, sent to logSink() alone: see processAttach().
+// WBTRV32_LOG takes an absl::LogSeverity, not LOG's INFO or ERROR: a macro
+// argument is expanded before LOG sees it, and windows.h defines ERROR.
+#define WBTRV32_LOG(severity) LOG(LEVEL(severity)).ToSinkOnly(&logSink())
+#define WBTRV32_VLOG(level) VLOG(level).ToSinkOnly(&logSink())
 
 static int readLogLevel() {
 #ifdef WIN32
@@ -136,9 +181,10 @@ static void logVersionStamp(int logLevel) {
     GetModuleFileNameA(self, library, ARRAYSIZE(library));
   }
 #endif
-  LOG(INFO) << "wbtrv32 " << WBTRV32_VERSION_STR << " (built " << __DATE__
-            << " " << __TIME__ << ") " << library << " loaded by " << program
-            << ", log level " << logLevel;
+  WBTRV32_LOG(absl::LogSeverity::kInfo)
+      << "wbtrv32 " << WBTRV32_VERSION_STR << " (built " << __DATE__ << " "
+      << __TIME__ << ") " << library << " loaded by " << program
+      << ", log level " << logLevel;
 }
 
 #ifndef WIN32
@@ -166,22 +212,18 @@ void wbtrv32::processAttach() {
 
   const int logLevel = readLogLevel();
 
-  // We're a guest in someone else's process: log only to our own file (and,
-  // through Abseil's own sink, to an attached Windows debugger), never to the
-  // host's stderr.
-  absl::InitializeLog();
-  absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfinity);
-
+  // We're a guest in someone else's process, so every message goes to
+  // logSink() alone (WBTRV32_LOG), never to Abseil's global sinks, which
+  // include the host's stderr. That also lets us skip absl::InitializeLog()
+  // and absl::AddLogSink(): both keep allocations for the life of the
+  // process, which would leak each time this library is unloaded.
   if (logLevel != LogOff) {
 #ifdef WIN32
     FILE *file = _wfsopen(L"wbtrv32.log", L"ab", _SH_DENYWR);
 #else
     FILE *file = fopen("/tmp/wbtrv32.log", "ab");
 #endif  // WIN32
-    if (file != nullptr) {
-      _logSink = new FileLogSink(file);
-      absl::AddLogSink(_logSink);
-    }
+    logSink().open(file);
     // before the level below is set, so it's never filtered out
     absl::SetMinLogLevel(absl::LogSeverityAtLeast::kInfo);
     logVersionStamp(logLevel);
@@ -195,13 +237,7 @@ void wbtrv32::processAttach() {
   absl::SetGlobalVLogLevel(logLevel >= LogEverything ? 1 : 0);
 }
 
-void wbtrv32::processDetach() {
-  if (_logSink) {
-    absl::RemoveLogSink(_logSink);
-    delete _logSink;
-    _logSink = nullptr;
-  }
-}
+void wbtrv32::processDetach() { logSink().close(); }
 
 // Btrieve transactions span every file the client writes until End or Abort.
 // The Major BBS is a single client on a single thread, so there is at most one.
@@ -369,8 +405,8 @@ static BtrieveError Open(BtrieveCommand &command) {
       reinterpret_cast<const char *>(command.lpKeyBuffer);
   auto openMode = static_cast<OpenMode>(command.keyNumber);
 
-  VLOG(1) << logPrefix(command) << "Attempting to open " << lpszFilename
-          << " with openMode " << static_cast<int>(openMode);
+  WBTRV32_VLOG(1) << logPrefix(command) << "Attempting to open " << lpszFilename
+                  << " with openMode " << static_cast<int>(openMode);
 
   resolveFileName(lpszFilename, fullPathFileName, ARRAYSIZE(fullPathFileName));
 #ifdef WIN32
@@ -1763,9 +1799,9 @@ extern "C" WBTRV32_EXPORT int __stdcall BTRCALL(WORD wOperation,
   } catch (const BtrieveException &ex) {
     // make sure we don't leak the exception back to our caller
     error = ex.getError();
-    LOG(ERROR) << logPrefix(btrieveCommand)
-               << toString(btrieveCommand.operation)
-               << " failed: " << ex.getErrorMessage();
+    WBTRV32_LOG(absl::LogSeverity::kError)
+        << logPrefix(btrieveCommand) << toString(btrieveCommand.operation)
+        << " failed: " << ex.getErrorMessage();
   } catch (...) {
     // BtrieveException doesn't derive from std::exception, so a stray
     // std::exception (e.g. std::out_of_range from a malformed record) would
@@ -1784,10 +1820,10 @@ extern "C" WBTRV32_EXPORT int __stdcall BTRCALL(WORD wOperation,
   // Abseil only drops a message below the minimum level after building it,
   // so check first rather than look up the file name for nothing
   if (error != BtrieveError::Success && severity >= absl::MinLogLevel()) {
-    LOG(LEVEL(severity)) << logPrefix(btrieveCommand) << "handled "
-        << toString(btrieveCommand.operation) << " [key "
-        << static_cast<int>(btrieveCommand.keyNumber) << "], returned "
-        << errorToString(error);
+    WBTRV32_LOG(severity) << logPrefix(btrieveCommand) << "handled "
+                          << toString(btrieveCommand.operation) << " [key "
+                          << static_cast<int>(btrieveCommand.keyNumber)
+                          << "], returned " << errorToString(error);
   }
 
   return error;

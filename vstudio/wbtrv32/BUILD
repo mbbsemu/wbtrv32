@@ -7,19 +7,25 @@ TEST_SRCS = glob(["*_test.cc"])
 
 cc_library(
   name = "libwbtrv32",
-  srcs = ["bad_data.cc", "framework.cc", "wbtrv32.cpp", "wbtrv32_version.h"],
+  srcs = ["bad_data.cc", "framework.cc", "wbtrv32.cpp", "wbtrv32_version.h"] +
+    select({
+      # DllMain runs processAttach()/processDetach() on Windows; elsewhere a
+      # constructor/destructor in wbtrv32.cpp does
+      "@platforms//os:windows": ["dllmain.cpp"],
+      "//conditions:default": [],
+    }),
   hdrs = ["bad_data.h", "framework.h", "wbtrv32.h"],
   visibility = ["//test:__pkg__", "//util:__pkg__"],
   deps = [
     "//btrieve",
     "//btrieve:sqlite_database",
     "@abseil-cpp//absl/base:log_severity",
+    "@abseil-cpp//absl/base:no_destructor",
     "@abseil-cpp//absl/log",
     "@abseil-cpp//absl/log:globals",
-    "@abseil-cpp//absl/log:initialize",
     "@abseil-cpp//absl/log:log_entry",
     "@abseil-cpp//absl/log:log_sink",
-    "@abseil-cpp//absl/log:log_sink_registry",
+    "@abseil-cpp//absl/time",
   ],
 )
 
