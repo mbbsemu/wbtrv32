@@ -53,6 +53,8 @@ const char* errorToString(BtrieveError errorCode) {
     HANDLE_ERROR_CODE(IncorrectDescriptor);
     HANDLE_ERROR_CODE(IncorrectFieldOffset);
     HANDLE_ERROR_CODE(IncompatibleMode);
+    HANDLE_ERROR_CODE(ChunkOffsetTooBig);
+    HANDLE_ERROR_CODE(CannotGetNextChunk);
 
     default:
       static char buf[16];

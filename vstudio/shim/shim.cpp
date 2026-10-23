@@ -19,6 +19,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "..\..\btrieve\OperationCode.h"
 
@@ -97,6 +98,9 @@ const char* opName(WORD op) {
     case Stop: return "Stop";
     case Unlock: return "Unlock";
     case SetOwner: return "SetOwner";
+    case ContinuousOperation: return "ContinuousOperation";
+    case StatExtended: return "StatExtended";
+    case LoginLogout: return "LoginLogout";
     case StepFirst: return "StepFirst";
     case StepLast: return "StepLast";
     case StepPrevious: return "StepPrevious";
@@ -115,7 +119,8 @@ const char* opName(WORD op) {
   }
 }
 
-// operations whose data buffer holds a record on success
+// operations whose data buffer holds a record (or, for Get Direct/Chunk and
+// Stat Extended, other data to compare) on success
 bool returnsRecord(WORD op) {
   switch (op) {
     case AcquireEqual:
@@ -132,6 +137,7 @@ bool returnsRecord(WORD op) {
     case StepLast:
     case StepNext:
     case StepPrevious:
+    case StatExtended:
       return true;
     default:
       return false;
@@ -287,6 +293,135 @@ DWORD safeCopy(BYTE* dst, const void* src, DWORD length) {
   }
 }
 
+// Get Direct/Chunk subfunctions (see GetDirectChunk in wbtrv32.cpp)
+const DWORD kRandomChunkIndirect = 0x80000001;
+const DWORD kRectangleChunkIndirect = 0x80000003;
+const DWORD kNextInRecordBias = 0x40000000;
+
+// An indirect Get Direct/Chunk writes each chunk to an address its descriptor
+// names, in the caller's memory, so the comparative side's copy of the
+// descriptor is pointed at buffers of the shim's own instead. The caller then
+// sees only the authoritative result, and the two can be compared.
+class IndirectChunks {
+ public:
+  // Redirects the destinations in data, the comparative side's copy of the
+  // data buffer. False if they're too large to mirror.
+  bool redirect(BYTE* data, DWORD length) {
+    // more than a record could ever fill
+    const uint64_t kMaxMirrored = 16 * 1024 * 1024;
+    const DWORD kMaxRows = 65536;
+    // position, subfunction, number of chunks or rows
+    const DWORD kHeader = 3 * sizeof(DWORD);
+
+    DWORD subfunction, count;
+    if (length < kHeader) {
+      return true;
+    }
+    memcpy(&subfunction, data + 4, sizeof(subfunction));
+    memcpy(&count, data + 8, sizeof(count));
+    subfunction &= ~kNextInRecordBias;
+
+    if (subfunction == kRandomChunkIndirect) {
+      // offset, length, destination
+      const DWORD entry = 2 * sizeof(DWORD) + sizeof(BYTE*);
+      // a descriptor that doesn't fit is refused before anything is written
+      if (count > (length - kHeader) / entry) {
+        return true;
+      }
+      uint64_t total = 0;
+      for (DWORD i = 0; i < count; ++i) {
+        DWORD chunkLength;
+        memcpy(&chunkLength, data + kHeader + i * entry + sizeof(DWORD),
+               sizeof(chunkLength));
+        total += chunkLength;
+      }
+      if (total > kMaxMirrored) {
+        return false;
+      }
+      scratch.resize(static_cast<size_t>(total));
+      DWORD offset = 0;
+      for (DWORD i = 0; i < count; ++i) {
+        BYTE* field = data + kHeader + i * entry;
+        Row row;
+        memcpy(&row.length, field + sizeof(DWORD), sizeof(row.length));
+        memcpy(&row.authoritative, field + 2 * sizeof(DWORD),
+               sizeof(row.authoritative));
+        row.comparativeOffset = offset;
+        BYTE* comparative = scratch.data() + offset;
+        memcpy(field + 2 * sizeof(DWORD), &comparative, sizeof(comparative));
+        rows.push_back(row);
+        offset += row.length;
+      }
+    } else if (subfunction == kRectangleChunkIndirect) {
+      // offset, bytes per row, distance between rows, user data, application
+      // distance between rows
+      const DWORD userDataAt = kHeader + 3 * sizeof(DWORD);
+      const DWORD applicationDistanceAt = userDataAt + sizeof(BYTE*);
+      if (length < applicationDistanceAt + sizeof(DWORD)) {
+        return true;
+      }
+      DWORD bytesPerRow, applicationDistance;
+      const BYTE* userData;
+      memcpy(&bytesPerRow, data + kHeader + sizeof(DWORD),
+             sizeof(bytesPerRow));
+      memcpy(&userData, data + userDataAt, sizeof(userData));
+      memcpy(&applicationDistance, data + applicationDistanceAt,
+             sizeof(applicationDistance));
+      if (count > kMaxRows ||
+          uint64_t{count} * bytesPerRow > kMaxMirrored) {
+        return false;
+      }
+      // the comparative side's rows are packed one after another
+      scratch.resize(static_cast<size_t>(count) * bytesPerRow);
+      for (DWORD i = 0; i < count; ++i) {
+        rows.push_back(
+            Row{userData + static_cast<size_t>(i) * applicationDistance,
+                i * bytesPerRow, bytesPerRow});
+      }
+      BYTE* comparative = scratch.data();
+      memcpy(data + userDataAt, &comparative, sizeof(comparative));
+      memcpy(data + applicationDistanceAt, &bytesPerRow, sizeof(bytesPerRow));
+    }
+    return true;
+  }
+
+  bool empty() const { return rows.empty(); }
+
+  // The first chunk or row whose bytes differ, over the bytes both sides
+  // read, or -1. Chunks are read in order, each whole but the last.
+  long firstDifference(DWORD authoritativeLength,
+                       DWORD comparativeLength) const {
+    DWORD remaining = min(authoritativeLength, comparativeLength);
+    for (size_t i = 0; i < rows.size() && remaining > 0; ++i) {
+      const DWORD length = min(rows[i].length, remaining);
+      if (memcmp(rows[i].authoritative,
+                 scratch.data() + rows[i].comparativeOffset, length) != 0) {
+        return static_cast<long>(i);
+      }
+      remaining -= length;
+    }
+    return -1;
+  }
+
+  void logDifference(long chunk) const {
+    const Row& row = rows[chunk];
+    hexLine("authoritative", row.authoritative, 0, row.length);
+    hexLine("comparative  ", scratch.data() + row.comparativeOffset, 0,
+            row.length);
+  }
+
+ private:
+  struct Row {
+    // where the caller asked for it, and the authoritative side put it
+    const BYTE* authoritative;
+    // where the comparative side put it, in scratch
+    DWORD comparativeOffset;
+    DWORD length;
+  };
+  std::vector<Row> rows;
+  std::vector<BYTE> scratch;
+};
+
 #pragma pack(push, 1)
 struct StatFileSpec {
   WORD recordLength;
@@ -412,6 +547,9 @@ extern "C" int __stdcall BTRCALL(WORD wOperation, LPVOID lpPositionBlock,
   }
   const char* filename =
       posBlock != nullptr && *posBlock->filename ? posBlock->filename : "-";
+  // Get Direct/Chunk is Get Direct with key number -2
+  const bool chunks = op == GetDirectChunkOrRecord && sbKeyNumber == -2;
+  const char* name = chunks ? "GetDirectChunk" : opName(op);
 
   // the comparative side gets private copies of every in/out buffer
   // Btrieve uses only the low word of the data length; The Major BBS leaves
@@ -429,7 +567,7 @@ extern "C" int __stdcall BTRCALL(WORD wOperation, LPVOID lpPositionBlock,
     if (readable < inLength) {
       logLine("SHORTBUF %s (op %u, key %d) [%s] data length %lu declared, "
               "only %lu readable",
-              opName(op), wOperation, sbKeyNumber, filename, inLength,
+              name, wOperation, sbKeyNumber, filename, inLength,
               readable);
     }
   }
@@ -457,8 +595,17 @@ extern "C" int __stdcall BTRCALL(WORD wOperation, LPVOID lpPositionBlock,
       ++opStats.unmappedPositions;
       logLine("UNMAPPED %s [%s] position %lu not seen via GetPosition; "
               "comparative call skipped",
-              opName(op), filename, position);
+              name, filename, position);
     }
+  }
+
+  IndirectChunks indirectChunks;
+  if (chunks && comparativeData && !skipComparative &&
+      !indirectChunks.redirect(comparativeData.get(), inLength)) {
+    skipComparative = true;
+    logLine("UNCOMPARED %s [%s] indirect chunks too large to mirror; "
+            "comparative call skipped",
+            name, filename);
   }
 
   auto callComparative = [&]() {
@@ -489,9 +636,14 @@ extern "C" int __stdcall BTRCALL(WORD wOperation, LPVOID lpPositionBlock,
     }
   }
 
+  // Get Direct/Chunk returns what it read so far with status 22 and 103 too
+  const bool returnsData =
+      responseAuthoritative == 0 ||
+      (chunks && (responseAuthoritative == 22 || responseAuthoritative == 103));
+
   if (trace) {
     logLine("%-20s op %3u key %2d [%s] auth %d comp %d len %lu/%lu",
-            opName(op), wOperation, sbKeyNumber, filename,
+            name, wOperation, sbKeyNumber, filename,
             responseAuthoritative, responseComparative,
             lpdwDataBufferLength ? *lpdwDataBufferLength : 0,
             comparativeLength);
@@ -502,7 +654,7 @@ extern "C" int __stdcall BTRCALL(WORD wOperation, LPVOID lpPositionBlock,
       ++opStats.statusMismatches;
       logLine("STATUS   %s (op %u, key %d) [%s] authoritative %d, "
               "comparative %d",
-              opName(op), wOperation, sbKeyNumber, filename,
+              name, wOperation, sbKeyNumber, filename,
               responseAuthoritative, responseComparative);
     } else if (responseAuthoritative == 0 && op == GetPosition &&
                posBlock != nullptr && comparativeData &&
@@ -516,7 +668,24 @@ extern "C" int __stdcall BTRCALL(WORD wOperation, LPVOID lpPositionBlock,
       compareStat(filename, static_cast<const BYTE*>(lpDataBuffer),
                   *lpdwDataBufferLength, comparativeData.get(),
                   comparativeLength, inLength, opStats);
-    } else if (responseAuthoritative == 0 && returnsRecord(op) &&
+    } else if (returnsData && !indirectChunks.empty() &&
+               lpdwDataBufferLength != nullptr) {
+      // the data buffer still holds the descriptor; what was read is wherever
+      // the descriptor sent it
+      const DWORD authLength = *lpdwDataBufferLength;
+      const long chunk =
+          indirectChunks.firstDifference(authLength, comparativeLength);
+      if (authLength != comparativeLength || chunk != -1) {
+        ++opStats.dataMismatches;
+        logLine("DATA     %s (op %u, key %d) [%s] length %lu vs %lu, "
+                "first difference in chunk %ld",
+                name, wOperation, sbKeyNumber, filename, authLength,
+                comparativeLength, chunk);
+        if (chunk != -1) {
+          indirectChunks.logDifference(chunk);
+        }
+      }
+    } else if (returnsData && returnsRecord(op) &&
                lpdwDataBufferLength != nullptr && comparativeData) {
       const DWORD authLength = *lpdwDataBufferLength;
       const BYTE* authData = static_cast<const BYTE*>(lpDataBuffer);
@@ -532,7 +701,7 @@ extern "C" int __stdcall BTRCALL(WORD wOperation, LPVOID lpPositionBlock,
         ++opStats.dataMismatches;
         logLine("DATA     %s (op %u, key %d) [%s] length %lu vs %lu, "
                 "first difference at %ld",
-                opName(op), wOperation, sbKeyNumber, filename, authLength,
+                name, wOperation, sbKeyNumber, filename, authLength,
                 comparativeLength, diff == MAXDWORD ? -1L : (long)diff);
         const DWORD from = diff == MAXDWORD ? 0 : diff & ~15UL;
         hexLine("authoritative", authData, from, min(authLength, inLength));

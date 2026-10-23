@@ -9,7 +9,7 @@ load(":nuget_package.bzl", "nuget_package")
 # to refresh the checked-in header the Visual Studio build reads; Bazel
 # builds use this value directly, and //vstudio/wbtrv32:version_test fails
 # if the checked-in copy is stale.
-VERSION = "1.1.0"
+VERSION = "1.1.1"
 
 version_header(
     name = "wbtrv32_version",

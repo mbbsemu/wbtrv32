@@ -53,6 +53,10 @@ key-only file or a Get operation on a data only file */
   IncorrectDescriptor = 62,
   IncorrectFieldOffset = 65,
   IncompatibleMode = 88,
+  // Get Direct/Chunk: a chunk begins beyond the end of the record
+  ChunkOffsetTooBig = 103,
+  // Get Direct/Chunk: next-in-record with no position within the record
+  CannotGetNextChunk = 106,
 };
 
 const char* errorToString(BtrieveError error);

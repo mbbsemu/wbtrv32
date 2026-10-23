@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <mutex>
+#include <optional>
 
 #include "absl/base/log_severity.h"
 #include "absl/base/no_destructor.h"
@@ -63,6 +64,10 @@ struct OpenHandle {
   // false if the file has an owner and this handle was opened without the
   // owner name (only possible where the owner allows read-only access)
   bool ownerRights = true;
+  // Btrieve's intrarecord currency: the record the last Get Direct/Chunk read
+  // from and the offset just past the last byte it returned, where a
+  // next-in-record chunk read carries on
+  std::optional<std::pair<unsigned int, uint32_t>> chunkCurrency;
 
   OpenHandle(std::shared_ptr<BtrieveDriver> driver_, OpenMode mode_)
       : driver(std::move(driver_)),
@@ -734,6 +739,202 @@ static BtrieveError GetDirectRecord(BtrieveCommand &command) {
   return copyRecordToDataBuffer(command, record.second.getData());
 }
 
+// Get Direct/Chunk subfunctions, from the second field of the data buffer
+static constexpr uint32_t kRandomChunkDirect = 0x80000000;
+static constexpr uint32_t kRandomChunkIndirect = 0x80000001;
+static constexpr uint32_t kRectangleChunkDirect = 0x80000002;
+static constexpr uint32_t kRectangleChunkIndirect = 0x80000003;
+// added to any of them: each chunk starts at the intrarecord currency rather
+// than the offset in its descriptor
+static constexpr uint32_t kNextInRecordBias = 0x40000000;
+
+// One piece of a record a Get Direct/Chunk reads.
+struct Chunk {
+  // wide enough that a far rectangle row lands past the record, not wraps
+  uint64_t offset;
+  uint32_t length;
+  // where an indirect descriptor wants it; direct chunks fill the data buffer
+  // one after another instead
+  uint8_t *destination;
+};
+
+// Get Direct/Chunk (23 with key number -2): reads pieces of the record at a
+// physical position. The data buffer holds the record's position, a
+// subfunction and the descriptor of the chunks. Each chunk has an offset and
+// a length, given one by one (random) or as rows a fixed distance apart
+// (rectangle). The chunks go into the data buffer, packed from offset 0 over
+// the descriptor (direct), or to the address each names (indirect). The data
+// buffer length returned counts every byte read, wherever it went.
+//
+// The record becomes the current one; logical currency is left alone.
+static BtrieveError GetDirectChunk(BtrieveCommand &command) {
+  OpenHandle *handle = findHandle(command.lpPositionBlock);
+  auto btrieveDriver = getOpenDatabase(command.lpPositionBlock);
+  if (btrieveDriver == nullptr) {
+    return BtrieveError::FileNotOpen;
+  }
+
+  uint8_t *const buffer = reinterpret_cast<uint8_t *>(command.lpDataBuffer);
+  const DWORD bufferLength = *command.lpdwDataBufferLength;
+  // the descriptor is read before any chunk is written, as a direct read
+  // overwrites it
+  size_t descriptorLength = 0;
+  auto readField = [&](void *field, size_t length) {
+    if (descriptorLength + length > bufferLength) {
+      return false;
+    }
+    memcpy(field, buffer + descriptorLength, length);
+    descriptorLength += length;
+    return true;
+  };
+
+  uint32_t position, subfunction, count;
+  if (!readField(&position, sizeof(position)) ||
+      !readField(&subfunction, sizeof(subfunction)) ||
+      !readField(&count, sizeof(count))) {
+    return BtrieveError::DataBufferLengthOverrun;
+  }
+
+  const bool nextInRecord = (subfunction & kNextInRecordBias) != 0;
+  subfunction &= ~kNextInRecordBias;
+  const bool indirect = subfunction == kRandomChunkIndirect ||
+                        subfunction == kRectangleChunkIndirect;
+
+  // User Data is a pointer of the caller's width: 4 bytes in a 32-bit
+  // process, 8 in a 64-bit one
+  std::vector<Chunk> randomChunks;
+  struct {
+    uint32_t offset, bytesPerRow, distanceBetweenRows;
+    uint8_t *userData;
+    uint32_t applicationDistanceBetweenRows;
+  } rectangle = {};
+
+  switch (subfunction) {
+    case kRandomChunkDirect:
+    case kRandomChunkIndirect:
+      for (uint32_t i = 0; i < count; ++i) {
+        uint32_t offset;
+        Chunk chunk;
+        if (!readField(&offset, sizeof(offset)) ||
+            !readField(&chunk.length, sizeof(chunk.length)) ||
+            !readField(&chunk.destination, sizeof(chunk.destination))) {
+          return BtrieveError::DataBufferLengthOverrun;
+        }
+        chunk.offset = offset;
+        randomChunks.push_back(chunk);
+      }
+      break;
+    case kRectangleChunkDirect:
+    case kRectangleChunkIndirect:
+      if (!readField(&rectangle.offset, sizeof(rectangle.offset)) ||
+          !readField(&rectangle.bytesPerRow, sizeof(rectangle.bytesPerRow)) ||
+          !readField(&rectangle.distanceBetweenRows,
+                     sizeof(rectangle.distanceBetweenRows)) ||
+          !readField(&rectangle.userData, sizeof(rectangle.userData)) ||
+          !readField(&rectangle.applicationDistanceBetweenRows,
+                     sizeof(rectangle.applicationDistanceBetweenRows))) {
+        return BtrieveError::DataBufferLengthOverrun;
+      }
+      break;
+    default:
+      return BtrieveError::IncorrectDescriptor;
+  }
+
+  // there must be at least one chunk or row
+  if (count == 0) {
+    return BtrieveError::IncorrectDescriptor;
+  }
+
+  auto record = btrieveDriver->getRecord(position);
+  if (!record.first) {
+    return BtrieveError::InvalidRecordAddress;
+  }
+  const std::vector<uint8_t> &data = record.second.getData();
+
+  // next-in-record carries on within the record the last chunk read was
+  // from, and only while it is still the current one
+  uint32_t nextOffset = 0;
+  if (nextInRecord) {
+    if (!handle->chunkCurrency || handle->chunkCurrency->first != position ||
+        !btrieveDriver->hasCurrentRecord() ||
+        btrieveDriver->getPosition() != position) {
+      return BtrieveError::CannotGetNextChunk;
+    }
+    nextOffset = handle->chunkCurrency->second;
+  }
+
+  btrieveDriver->setPosition(position);
+  handle->chunkCurrency.reset();
+
+  const bool random = subfunction == kRandomChunkDirect ||
+                      subfunction == kRandomChunkIndirect;
+  const uint32_t rectangleOffset =
+      nextInRecord ? nextOffset : rectangle.offset;
+  auto chunkAt = [&](uint32_t i) {
+    if (random) {
+      Chunk chunk = randomChunks[i];
+      if (nextInRecord) {
+        chunk.offset = nextOffset;
+      }
+      return chunk;
+    }
+    return Chunk{
+        rectangleOffset + uint64_t{i} * rectangle.distanceBetweenRows,
+        rectangle.bytesPerRow,
+        rectangle.userData +
+            size_t{i} * rectangle.applicationDistanceBetweenRows};
+  };
+
+  BtrieveError error = BtrieveError::Success;
+  DWORD retrieved = 0;
+  for (uint32_t i = 0; i < count; ++i) {
+    const Chunk chunk = chunkAt(i);
+    if (chunk.offset >= data.size()) {
+      error = BtrieveError::ChunkOffsetTooBig;
+      break;
+    }
+
+    // a chunk running past the end of the record is cut short there, and
+    // ends the read without an error
+    const uint32_t inRecord = static_cast<uint32_t>(
+        std::min<uint64_t>(chunk.length, data.size() - chunk.offset));
+    uint32_t length = inRecord;
+
+    uint8_t *destination;
+    if (indirect) {
+      // writing over the descriptor is refused, as Btrieve does
+      const uintptr_t start = reinterpret_cast<uintptr_t>(chunk.destination);
+      const uintptr_t descriptor = reinterpret_cast<uintptr_t>(buffer);
+      if (start < descriptor + descriptorLength &&
+          descriptor < start + length) {
+        error = BtrieveError::IncorrectDescriptor;
+        break;
+      }
+      destination = chunk.destination;
+    } else {
+      // direct chunks are packed into the data buffer, which may fill first
+      destination = buffer + retrieved;
+      length = std::min<uint32_t>(length, bufferLength - retrieved);
+    }
+
+    memcpy(destination, data.data() + chunk.offset, length);
+    retrieved += length;
+    nextOffset = static_cast<uint32_t>(chunk.offset + length);
+    handle->chunkCurrency = std::make_pair(position, nextOffset);
+
+    if (length < inRecord) {
+      error = BtrieveError::DataBufferLengthOverrun;
+      break;
+    }
+    if (inRecord < chunk.length) {
+      break;
+    }
+  }
+
+  *command.lpdwDataBufferLength = retrieved;
+  return error;
+}
+
 static BtrieveError Query(BtrieveCommand &command) {
   auto btrieveDriver = getOpenDatabase(command.lpPositionBlock);
   if (btrieveDriver == nullptr) {
@@ -903,6 +1104,63 @@ static BtrieveError Unlock(const BtrieveCommand &command) {
     return BtrieveError::FileNotOpen;
   }
 
+  return BtrieveError::Success;
+}
+
+// Continuous Operation (42): key number 0 puts files in backup mode, 1 takes
+// every file out of it and 2 the files named. Nothing is done: an SQLite
+// database stays consistent while it's written. A backup taken this way must
+// still copy each database's -wal file with it, or use SQLite's own backup.
+static BtrieveError ContinuousOperation(const BtrieveCommand &command) {
+  if (command.keyNumber < 0 || command.keyNumber > 2) {
+    return BtrieveError::InvalidKeyNumber;
+  }
+  return BtrieveError::Success;
+}
+
+// Stat Extended (65): the data buffer starts with the signature "ExSt" and a
+// subfunction. Only subfunction 1, the listing of a file's extension files,
+// is answered, and a file here never has any: one file, no extensions.
+static BtrieveError StatExtended(BtrieveCommand &command) {
+  static constexpr char kSignature[4] = {'E', 'x', 'S', 't'};
+  static constexpr uint32_t kExtensionFiles = 1;
+  // signature, subfunction, namespace, max files, first file sequence
+  static constexpr DWORD kExtensionFilesDescriptorLength = 20;
+
+  if (getOpenDatabase(command.lpPositionBlock) == nullptr) {
+    return BtrieveError::FileNotOpen;
+  }
+  if (command.keyNumber != 0) {
+    return BtrieveError::InvalidKeyNumber;
+  }
+
+  uint8_t *const buffer = reinterpret_cast<uint8_t *>(command.lpDataBuffer);
+  if (*command.lpdwDataBufferLength < sizeof(kSignature) + sizeof(uint32_t)) {
+    return BtrieveError::DataBufferLengthOverrun;
+  }
+  uint32_t subfunction;
+  memcpy(&subfunction, buffer + sizeof(kSignature), sizeof(subfunction));
+  if (memcmp(buffer, kSignature, sizeof(kSignature)) != 0 ||
+      subfunction != kExtensionFiles) {
+    return BtrieveError::IncorrectDescriptor;
+  }
+  if (*command.lpdwDataBufferLength < kExtensionFilesDescriptorLength) {
+    return BtrieveError::DataBufferLengthOverrun;
+  }
+
+  // number of files, number of extension file names that follow
+  const uint32_t result[2] = {1, 0};
+  memcpy(buffer, result, sizeof(result));
+  *command.lpdwDataBufferLength = sizeof(result);
+  return BtrieveError::Success;
+}
+
+// Login/Logout (78): key number 0 logs in to a database server and 1 logs
+// out. There's no server, so there's nothing to do either way.
+static BtrieveError LoginLogout(const BtrieveCommand &command) {
+  if (command.keyNumber != 0 && command.keyNumber != 1) {
+    return BtrieveError::InvalidOperation;
+  }
   return BtrieveError::Success;
 }
 
@@ -1694,8 +1952,10 @@ static BtrieveError handle(BtrieveCommand &command) {
       return ::Query(command);
     case OperationCode::GetPosition:
       return ::GetPosition(command);
+    // key number -2 asks for chunks of the record rather than all of it
     CASE_WITH_RECORD_LOCK(OperationCode::GetDirectChunkOrRecord):
-      return ::GetDirectRecord(command);
+      return command.keyNumber == -2 ? ::GetDirectChunk(command)
+                                     : ::GetDirectRecord(command);
     case OperationCode::Update:
       JoinTransaction(command);
       return ::Upsert(command, [](BtrieveDriver *driver,
@@ -1741,6 +2001,12 @@ static BtrieveError handle(BtrieveCommand &command) {
       return ::Stop(command);
     case OperationCode::Create:
       return ::Create(command);
+    case OperationCode::ContinuousOperation:
+      return ::ContinuousOperation(command);
+    case OperationCode::StatExtended:
+      return ::StatExtended(command);
+    case OperationCode::LoginLogout:
+      return ::LoginLogout(command);
     case OperationCode::Unlock:
       return ::Unlock(command);
     CASE_WITH_RECORD_LOCK(OperationCode::BeginTransaction):

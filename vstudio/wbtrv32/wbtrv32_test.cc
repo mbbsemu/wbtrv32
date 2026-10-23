@@ -985,6 +985,426 @@ TEST_F(wbtrv32Test, GetDirectWithKey_KeyBufferTooShort) {
       btrieve::BtrieveError::KeyBufferTooShort);
 }
 
+// Builds the data buffer of a Get Direct/Chunk: the record's position, the
+// subfunction and the number of chunks or rows, then the descriptor's fields.
+class ChunkDescriptor {
+ public:
+  static constexpr uint32_t RandomDirect = 0x80000000;
+  static constexpr uint32_t RandomIndirect = 0x80000001;
+  static constexpr uint32_t RectangleDirect = 0x80000002;
+  static constexpr uint32_t RectangleIndirect = 0x80000003;
+  static constexpr uint32_t NextInRecord = 0x40000000;
+
+  ChunkDescriptor(uint32_t position, uint32_t subfunction, uint32_t count) {
+    add(position).add(subfunction).add(count);
+  }
+
+  template <typename T>
+  ChunkDescriptor& add(T value) {
+    const uint8_t* bytes = reinterpret_cast<const uint8_t*>(&value);
+    data.insert(data.end(), bytes, bytes + sizeof(value));
+    return *this;
+  }
+
+  // a random chunk: its offset, its length and, for indirect, where it goes
+  ChunkDescriptor& chunk(uint32_t offset, uint32_t length,
+                         void* destination = nullptr) {
+    return add(offset).add(length).add(destination);
+  }
+
+  // the rest of a rectangle, after its number of rows
+  ChunkDescriptor& rectangle(uint32_t offset, uint32_t bytesPerRow,
+                             uint32_t distanceBetweenRows,
+                             void* userData = nullptr,
+                             uint32_t applicationDistanceBetweenRows = 0) {
+    return add(offset)
+        .add(bytesPerRow)
+        .add(distanceBetweenRows)
+        .add(userData)
+        .add(applicationDistanceBetweenRows);
+  }
+
+  std::vector<uint8_t> data;
+};
+
+class wbtrv32ChunkTest : public wbtrv32Test {
+ public:
+  virtual void SetUp() override {
+    wbtrv32Test::SetUp();
+
+    auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+    ASSERT_FALSE(mbbsEmuDb.empty());
+    ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr, nullptr,
+                      const_cast<LPVOID>(reinterpret_cast<LPCVOID>(
+                          toStdString(mbbsEmuDb.c_str()).c_str())),
+                      -1, 0),
+              btrieve::BtrieveError::Success);
+  }
+
+ protected:
+  // Runs a Get Direct/Chunk with descriptor in buffer, the data buffer
+  // length being bufferLength, or all of buffer when 0.
+  int getChunks(const ChunkDescriptor& descriptor, DWORD bufferLength = 0,
+                WORD operation = btrieve::OperationCode::GetDirectChunkOrRecord) {
+    memset(buffer, 0xCC, sizeof(buffer));
+    memcpy(buffer, descriptor.data.data(), descriptor.data.size());
+    length = bufferLength != 0 ? bufferLength : sizeof(buffer);
+    return btrcall(operation, posBlock, buffer, &length, nullptr, 0, -2);
+  }
+
+  int32_t int32At(size_t offset) const {
+    int32_t value;
+    memcpy(&value, buffer + offset, sizeof(value));
+    return value;
+  }
+
+  // record 1 of MBBSEMU.DB is "Sysop" at 2, 3444 at 34, "3444" at 38 and 1
+  // at 70; see RECORD
+  uint8_t buffer[256];
+  DWORD length;
+};
+
+TEST_F(wbtrv32ChunkTest, RandomDirect) {
+  ASSERT_EQ(getChunks(ChunkDescriptor(1, ChunkDescriptor::RandomDirect, 3)
+                          .chunk(2, 5)
+                          .chunk(34, 4)
+                          .chunk(70, 4)),
+            btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(length, 13u);
+  EXPECT_EQ(memcmp(buffer, "Sysop", 5), 0);
+  EXPECT_EQ(int32At(5), 3444);
+  EXPECT_EQ(int32At(9), 1);
+}
+
+TEST_F(wbtrv32ChunkTest, RandomIndirect) {
+  char name[6] = {};
+  int32_t int1 = 0, int2 = 0;
+  ASSERT_EQ(getChunks(ChunkDescriptor(1, ChunkDescriptor::RandomIndirect, 3)
+                          .chunk(2, 5, name)
+                          .chunk(34, 4, &int1)
+                          .chunk(70, 4, &int2)),
+            btrieve::BtrieveError::Success);
+
+  // the length counts the bytes read, though none went to the data buffer
+  ASSERT_EQ(length, 13u);
+  EXPECT_STREQ(name, "Sysop");
+  EXPECT_EQ(int1, 3444);
+  EXPECT_EQ(int2, 1);
+}
+
+TEST_F(wbtrv32ChunkTest, RectangleDirect) {
+  // two rows of 4 bytes, 36 apart: int1 and int2
+  ASSERT_EQ(getChunks(ChunkDescriptor(1, ChunkDescriptor::RectangleDirect, 2)
+                          .rectangle(34, 4, 36)),
+            btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(length, 8u);
+  EXPECT_EQ(int32At(0), 3444);
+  EXPECT_EQ(int32At(4), 1);
+}
+
+TEST_F(wbtrv32ChunkTest, RectangleIndirect) {
+  // the rows land 8 bytes apart in memory
+  int32_t rows[4] = {};
+  ASSERT_EQ(getChunks(ChunkDescriptor(1, ChunkDescriptor::RectangleIndirect, 2)
+                          .rectangle(34, 4, 36, rows, 8)),
+            btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(length, 8u);
+  EXPECT_EQ(rows[0], 3444);
+  EXPECT_EQ(rows[1], 0);
+  EXPECT_EQ(rows[2], 1);
+}
+
+// The next-in-record bias reads on from where the last chunk read stopped,
+// ignoring the offsets in the descriptor.
+TEST_F(wbtrv32ChunkTest, NextInRecord) {
+  ASSERT_EQ(getChunks(ChunkDescriptor(1, ChunkDescriptor::RandomDirect, 1)
+                          .chunk(2, 32)),
+            btrieve::BtrieveError::Success);
+  ASSERT_EQ(length, 32u);
+  EXPECT_STREQ(reinterpret_cast<char*>(buffer), "Sysop");
+
+  ASSERT_EQ(getChunks(ChunkDescriptor(1,
+                                      ChunkDescriptor::RandomDirect |
+                                          ChunkDescriptor::NextInRecord,
+                                      2)
+                          .chunk(1000, 4)
+                          .chunk(1000, 32)),
+            btrieve::BtrieveError::Success);
+  ASSERT_EQ(length, 36u);
+  EXPECT_EQ(int32At(0), 3444);
+  EXPECT_STREQ(reinterpret_cast<char*>(buffer + 4), "3444");
+
+  // a rectangle starts its first row there too
+  ASSERT_EQ(getChunks(ChunkDescriptor(1,
+                                      ChunkDescriptor::RectangleDirect |
+                                          ChunkDescriptor::NextInRecord,
+                                      1)
+                          .rectangle(0, 4, 4)),
+            btrieve::BtrieveError::Success);
+  ASSERT_EQ(length, 4u);
+  EXPECT_EQ(int32At(0), 1);
+
+  // the whole record has been read
+  ASSERT_EQ(getChunks(ChunkDescriptor(1,
+                                      ChunkDescriptor::RandomDirect |
+                                          ChunkDescriptor::NextInRecord,
+                                      1)
+                          .chunk(0, 1)),
+            btrieve::BtrieveError::ChunkOffsetTooBig);
+}
+
+// Next-in-record needs a chunk read from the same record, still current.
+TEST_F(wbtrv32ChunkTest, NextInRecordWithoutIntrarecordCurrency) {
+  const auto next =
+      ChunkDescriptor(1,
+                      ChunkDescriptor::RandomDirect |
+                          ChunkDescriptor::NextInRecord,
+                      1)
+          .chunk(0, 4);
+
+  // nothing read yet
+  EXPECT_EQ(getChunks(next), btrieve::BtrieveError::CannotGetNextChunk);
+
+  // a chunk read from another record
+  ASSERT_EQ(getChunks(ChunkDescriptor(4, ChunkDescriptor::RandomDirect, 1)
+                          .chunk(0, 4)),
+            btrieve::BtrieveError::Success);
+  EXPECT_EQ(getChunks(next), btrieve::BtrieveError::CannotGetNextChunk);
+
+  // a chunk read from this record, but another one made current since
+  ASSERT_EQ(getChunks(ChunkDescriptor(1, ChunkDescriptor::RandomDirect, 1)
+                          .chunk(0, 4)),
+            btrieve::BtrieveError::Success);
+  RECORD record;
+  DWORD recordLength = sizeof(record);
+  *reinterpret_cast<uint32_t*>(&record) = 4;
+  ASSERT_EQ(btrcall(btrieve::OperationCode::GetDirectChunkOrRecord, posBlock,
+                    &record, &recordLength, nullptr, 0, -1),
+            btrieve::BtrieveError::Success);
+  EXPECT_EQ(getChunks(next), btrieve::BtrieveError::CannotGetNextChunk);
+}
+
+// A chunk running past the end of the record is cut short there, and the
+// read stops after it without an error.
+TEST_F(wbtrv32ChunkTest, ChunkPastEndOfRecordIsTruncated) {
+  ASSERT_EQ(getChunks(ChunkDescriptor(1, ChunkDescriptor::RandomDirect, 3)
+                          .chunk(2, 5)
+                          .chunk(70, 100)
+                          .chunk(34, 4)),
+            btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(length, 9u);
+  EXPECT_EQ(memcmp(buffer, "Sysop", 5), 0);
+  EXPECT_EQ(int32At(5), 1);
+}
+
+// A chunk starting past the end of the record ends the read with status 103,
+// keeping the chunks read before it.
+TEST_F(wbtrv32ChunkTest, ChunkOffsetTooBig) {
+  ASSERT_EQ(getChunks(ChunkDescriptor(1, ChunkDescriptor::RandomDirect, 3)
+                          .chunk(2, 5)
+                          .chunk(74, 1)
+                          .chunk(34, 4)),
+            btrieve::BtrieveError::ChunkOffsetTooBig);
+
+  ASSERT_EQ(length, 5u);
+  EXPECT_EQ(memcmp(buffer, "Sysop", 5), 0);
+
+  // as does a rectangle's row
+  ASSERT_EQ(getChunks(ChunkDescriptor(1, ChunkDescriptor::RectangleDirect, 3)
+                          .rectangle(34, 4, 36)),
+            btrieve::BtrieveError::ChunkOffsetTooBig);
+  ASSERT_EQ(length, 8u);
+}
+
+// Direct chunks that overflow the data buffer fill it and return status 22.
+TEST_F(wbtrv32ChunkTest, DataBufferTooShort) {
+  const auto descriptor =
+      ChunkDescriptor(1, ChunkDescriptor::RandomDirect, 1).chunk(0, 74);
+  const DWORD bufferLength = static_cast<DWORD>(descriptor.data.size());
+
+  ASSERT_EQ(getChunks(descriptor, bufferLength),
+            btrieve::BtrieveError::DataBufferLengthOverrun);
+  ASSERT_EQ(length, bufferLength);
+  EXPECT_STREQ(reinterpret_cast<char*>(buffer + 2), "Sysop");
+  EXPECT_EQ(buffer[bufferLength], 0xCC);
+
+  // or the descriptor doesn't fit at all
+  ASSERT_EQ(getChunks(descriptor, bufferLength - 1),
+            btrieve::BtrieveError::DataBufferLengthOverrun);
+}
+
+TEST_F(wbtrv32ChunkTest, IncorrectDescriptor) {
+  // an unknown subfunction
+  EXPECT_EQ(getChunks(ChunkDescriptor(1, 0x80000004, 1).chunk(0, 4)),
+            btrieve::BtrieveError::IncorrectDescriptor);
+  // no chunks
+  EXPECT_EQ(getChunks(ChunkDescriptor(1, ChunkDescriptor::RandomDirect, 0)),
+            btrieve::BtrieveError::IncorrectDescriptor);
+  // a chunk that would overwrite the descriptor
+  ChunkDescriptor overwrites(1, ChunkDescriptor::RandomIndirect, 1);
+  overwrites.chunk(0, 4, buffer + 4);
+  EXPECT_EQ(getChunks(overwrites), btrieve::BtrieveError::IncorrectDescriptor);
+}
+
+TEST_F(wbtrv32ChunkTest, InvalidRecordAddress) {
+  for (uint32_t position : {0u, 5u}) {
+    EXPECT_EQ(getChunks(ChunkDescriptor(position,
+                                        ChunkDescriptor::RandomDirect, 1)
+                            .chunk(0, 4)),
+              btrieve::BtrieveError::InvalidRecordAddress);
+  }
+}
+
+// The record read becomes the current one, but the logical currency of a
+// key path is untouched.
+TEST_F(wbtrv32ChunkTest, Currency) {
+  RECORD record;
+  DWORD recordLength = sizeof(record);
+  uint32_t key, firstKey, secondKey;
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::AcquireFirst, posBlock, &record,
+                    &recordLength, &firstKey, sizeof(firstKey), 1),
+            btrieve::BtrieveError::Success);
+  recordLength = sizeof(record);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::AcquireNext, posBlock, &record,
+                    &recordLength, &secondKey, sizeof(secondKey), 1),
+            btrieve::BtrieveError::Success);
+
+  recordLength = sizeof(record);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::AcquireFirst, posBlock, &record,
+                    &recordLength, &key, sizeof(key), 1),
+            btrieve::BtrieveError::Success);
+  ASSERT_EQ(key, firstKey);
+  uint32_t firstPosition = 0;
+  DWORD positionLength = sizeof(firstPosition);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::GetPosition, posBlock,
+                    &firstPosition, &positionLength, nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
+
+  const uint32_t otherPosition = firstPosition == 3 ? 2 : 3;
+  ASSERT_EQ(getChunks(ChunkDescriptor(otherPosition,
+                                      ChunkDescriptor::RandomDirect, 1)
+                          .chunk(0, 4)),
+            btrieve::BtrieveError::Success);
+
+  uint32_t position = 0;
+  positionLength = sizeof(position);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::GetPosition, posBlock, &position,
+                    &positionLength, nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
+  EXPECT_EQ(position, otherPosition);
+
+  recordLength = sizeof(record);
+  ASSERT_EQ(btrcall(btrieve::OperationCode::AcquireNext, posBlock, &record,
+                    &recordLength, &key, sizeof(key), 1),
+            btrieve::BtrieveError::Success);
+  EXPECT_EQ(key, secondKey);
+}
+
+// Record lock biases are accepted, as they are for every read.
+TEST_F(wbtrv32ChunkTest, RecordLockBias) {
+  ASSERT_EQ(
+      getChunks(
+          ChunkDescriptor(1, ChunkDescriptor::RandomDirect, 1).chunk(34, 4), 0,
+          btrieve::OperationCode::GetDirectChunkOrRecord_SingleWaitRecordLock),
+      btrieve::BtrieveError::Success);
+  EXPECT_EQ(int32At(0), 3444);
+}
+
+// Continuous Operation has nothing to do, but its key number is checked.
+TEST_F(wbtrv32Test, ContinuousOperation) {
+  char names[] = "MBBSEMU.DAT";
+  for (CHAR keyNumber : {0, 1, 2}) {
+    DWORD length = keyNumber == 1 ? 0 : sizeof(names);
+    EXPECT_EQ(btrcall(btrieve::OperationCode::ContinuousOperation, nullptr,
+                      names, &length, nullptr, 0, keyNumber),
+              btrieve::BtrieveError::Success);
+  }
+  DWORD length = 0;
+  EXPECT_EQ(btrcall(btrieve::OperationCode::ContinuousOperation, nullptr,
+                    nullptr, &length, nullptr, 0, 3),
+            btrieve::BtrieveError::InvalidKeyNumber);
+}
+
+// Stat Extended lists a file's extension files, of which there are none.
+TEST_F(wbtrv32Test, StatExtended) {
+  auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
+  ASSERT_FALSE(mbbsEmuDb.empty());
+
+  uint8_t buffer[64];
+  auto descriptor = [&](uint32_t subfunction) {
+    const uint32_t fields[] = {subfunction, 0, 32, 0};
+    memcpy(buffer, "ExSt", 4);
+    memcpy(buffer + 4, fields, sizeof(fields));
+  };
+  DWORD length = sizeof(buffer);
+
+  descriptor(1);
+  EXPECT_EQ(btrcall(btrieve::OperationCode::StatExtended, posBlock, buffer,
+                    &length, nullptr, 0, 0),
+            btrieve::BtrieveError::FileNotOpen);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::Open, posBlock, nullptr, nullptr,
+                    const_cast<LPVOID>(reinterpret_cast<LPCVOID>(
+                        toStdString(mbbsEmuDb.c_str()).c_str())),
+                    -1, 0),
+            btrieve::BtrieveError::Success);
+
+  ASSERT_EQ(btrcall(btrieve::OperationCode::StatExtended, posBlock, buffer,
+                    &length, nullptr, 0, 0),
+            btrieve::BtrieveError::Success);
+  ASSERT_EQ(length, 8u);
+  uint32_t result[2];
+  memcpy(result, buffer, sizeof(result));
+  EXPECT_EQ(result[0], 1u);  // files
+  EXPECT_EQ(result[1], 0u);  // extension file names returned
+
+  // the key number must be 0
+  descriptor(1);
+  length = sizeof(buffer);
+  EXPECT_EQ(btrcall(btrieve::OperationCode::StatExtended, posBlock, buffer,
+                    &length, nullptr, 0, 1),
+            btrieve::BtrieveError::InvalidKeyNumber);
+
+  // the descriptor must fit
+  length = 19;
+  EXPECT_EQ(btrcall(btrieve::OperationCode::StatExtended, posBlock, buffer,
+                    &length, nullptr, 0, 0),
+            btrieve::BtrieveError::DataBufferLengthOverrun);
+
+  // only subfunction 1 is answered
+  descriptor(4);
+  length = sizeof(buffer);
+  EXPECT_EQ(btrcall(btrieve::OperationCode::StatExtended, posBlock, buffer,
+                    &length, nullptr, 0, 0),
+            btrieve::BtrieveError::IncorrectDescriptor);
+
+  // and the signature must be there
+  descriptor(1);
+  buffer[0] = 'e';
+  length = sizeof(buffer);
+  EXPECT_EQ(btrcall(btrieve::OperationCode::StatExtended, posBlock, buffer,
+                    &length, nullptr, 0, 0),
+            btrieve::BtrieveError::IncorrectDescriptor);
+}
+
+// Login and Logout succeed with nothing to log in to.
+TEST_F(wbtrv32Test, LoginLogout) {
+  char uri[] = "btrv://user@host/db?pwd=secret";
+  for (CHAR keyNumber : {0, 1}) {
+    EXPECT_EQ(btrcall(btrieve::OperationCode::LoginLogout, nullptr, nullptr,
+                      nullptr, uri, sizeof(uri), keyNumber),
+              btrieve::BtrieveError::Success);
+  }
+  EXPECT_EQ(btrcall(btrieve::OperationCode::LoginLogout, nullptr, nullptr,
+                    nullptr, uri, sizeof(uri), 2),
+            btrieve::BtrieveError::InvalidOperation);
+}
+
 TEST_F(wbtrv32Test, Query) {
   auto mbbsEmuDb = tempPath->copyToTempPath("assets/MBBSEMU.DB");
   ASSERT_FALSE(mbbsEmuDb.empty());
