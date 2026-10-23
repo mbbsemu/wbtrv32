@@ -75,6 +75,8 @@ Originally developed as part of [The Major BBS Emulation Project](https://github
 - **Logging**:
     - Problems go to `wbtrv32.log` in the current directory (`/tmp/wbtrv32.log` outside Windows), after a first line naming the build and the program that loaded it. Logging uses the [Abseil logging library](https://abseil.io/docs/cpp/guides/logging); each line starts with its severity (`I`nfo, `W`arning, `E`rror), local date and time, thread and source line, e.g. `W 2026-10-22 11:08:37.573535 4242 wbtrv32.cpp:1788] [C:\BBSV10\BBSUSR.DAT]: handled Update [key 0], returned DuplicateKeyValue`. With a debugger attached on Windows, lines also go to its output window.
     - Set how much with `LogLevel=` under `[wbtrv32]` in `wbtrv32.ini` in the current directory, or the `WBTRV32_LOGLEVEL` environment variable, which wins: `0` nothing, `1` problems only (the default), `2` every non-zero status, including the routine key not found (4), end of file (9) and short buffer (22), `3` every open as well.
+- **Debugging**:
+    - On Windows, `DebugAttach=1` under `[wbtrv32]` in `wbtrv32.ini`, or the `WBTRV32_DEBUGATTACH=1` environment variable, pops up a message box when the DLL loads, so you can attach a debugger before it does anything else.
 - **Creating Databases from Description Files**:
     - `create_database` is the equivalent of `butil -create`: it reads a Btrieve [description file](https://docs.actian.com/psql/psqlv13/index.html#page/advops%2Fdescfile.htm) (`.BCR`) and issues a Btrieve Create through wbtrv32, producing an empty `.db` database.
     - ```

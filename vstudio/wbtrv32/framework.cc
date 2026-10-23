@@ -1,6 +1,46 @@
 #include "framework.h"
 
+#include <algorithm>
+#include <cctype>
+#include <cstdlib>
+#include <string>
+
 #include "btrieve/Text.h"
+
+int wbtrv32::readSetting(const char *name, int defaultValue, int minimum,
+                         int maximum) {
+  std::string environmentName = "WBTRV32_";
+  for (const char *c = name; *c != 0; ++c) {
+    environmentName +=
+        static_cast<char>(toupper(static_cast<unsigned char>(*c)));
+  }
+#ifdef WIN32
+  // as in trackSourceFiles() (wbtrv32.cpp), the CRT's getenv copy may miss a
+  // value set with SetEnvironmentVariable
+  char fromEnvironment[16];
+  const DWORD length =
+      GetEnvironmentVariableA(environmentName.c_str(), fromEnvironment,
+                              ARRAYSIZE(fromEnvironment));
+  if (length > 0 && length < ARRAYSIZE(fromEnvironment)) {
+    return std::clamp(atoi(fromEnvironment), minimum, maximum);
+  }
+
+  // GetPrivateProfileInt looks in the Windows directory unless given a path
+  char iniPath[MAX_PATH];
+  if (GetFullPathNameA("wbtrv32.ini", ARRAYSIZE(iniPath), iniPath, nullptr) !=
+      0) {
+    return std::clamp(static_cast<int>(GetPrivateProfileIntA(
+                          "wbtrv32", name, defaultValue, iniPath)),
+                      minimum, maximum);
+  }
+#else
+  const char *fromEnvironment = getenv(environmentName.c_str());
+  if (fromEnvironment != nullptr && *fromEnvironment != 0) {
+    return std::clamp(atoi(fromEnvironment), minimum, maximum);
+  }
+#endif
+  return defaultValue;
+}
 
 #ifdef WIN32
 

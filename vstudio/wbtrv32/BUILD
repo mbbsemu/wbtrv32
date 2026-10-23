@@ -7,21 +7,23 @@ TEST_SRCS = glob(["*_test.cc"])
 
 cc_library(
   name = "libwbtrv32",
-  srcs = ["bad_data.cc", "framework.cc", "wbtrv32.cpp", "wbtrv32_version.h"] +
+  srcs = ["bad_data.cc", "framework.cc", "logging.cc", "wbtrv32.cpp",
+    "wbtrv32_version.h"] +
     select({
       # DllMain runs processAttach()/processDetach() on Windows; elsewhere a
       # constructor/destructor in wbtrv32.cpp does
       "@platforms//os:windows": ["dllmain.cpp"],
       "//conditions:default": [],
     }),
-  hdrs = ["bad_data.h", "framework.h", "wbtrv32.h"],
+  hdrs = ["bad_data.h", "framework.h", "logging.h", "wbtrv32.h"],
   # On the library, so the DLL and everything else linking it get them.
-  # CoCreateGuid/StringFromGUID2 (framework.cc) live in ole32.dll; MSVC
-  # pulls in ole32.lib implicitly via $(CoreLibraryDependencies), which
-  # Bazel has no equivalent of, so link it explicitly. Abseil's stack trace
-  # symbolizer needs dbghelp.dll, which its BUILD files only link for MSVC.
+  # CoCreateGuid/StringFromGUID2 (framework.cc) live in ole32.dll, and
+  # MessageBoxW (DebugAttach) in user32.dll; MSVC pulls in both implicitly
+  # via $(CoreLibraryDependencies), which Bazel has no equivalent of, so link
+  # them explicitly. Abseil's stack trace symbolizer needs dbghelp.dll, which
+  # its BUILD files only link for MSVC.
   linkopts = select({
-    "@platforms//os:windows": ["-lole32", "-ldbghelp"],
+    "@platforms//os:windows": ["-lole32", "-luser32", "-ldbghelp"],
     "//conditions:default": [],
   }),
   visibility = ["//test:__pkg__", "//util:__pkg__"],
