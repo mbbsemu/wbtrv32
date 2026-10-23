@@ -9,7 +9,7 @@ int main(int argc, const char **argv) {
     printf("Opening %s\n", argv[i]);
 
     try {
-      uint recordCount = 0;
+      unsigned int recordCount = 0;
       database.parseDatabase(
           btrieve::toWideString(argv[i]).c_str(), []() { return true; },
           [&recordCount](const std::basic_string_view<uint8_t> record) {
@@ -17,7 +17,7 @@ int main(int argc, const char **argv) {
             return btrieve::BtrieveDatabase::LoadRecordResult::COUNT;
           });
 
-      printf("Successfully read all %d records from %s\n", recordCount,
+      printf("Successfully read all %u records from %s\n", recordCount,
              argv[i]);
 
       for (auto &key : database.getKeys()) {

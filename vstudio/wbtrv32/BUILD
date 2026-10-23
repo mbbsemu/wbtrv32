@@ -15,6 +15,15 @@ cc_library(
       "//conditions:default": [],
     }),
   hdrs = ["bad_data.h", "framework.h", "wbtrv32.h"],
+  # On the library, so the DLL and everything else linking it get them.
+  # CoCreateGuid/StringFromGUID2 (framework.cc) live in ole32.dll; MSVC
+  # pulls in ole32.lib implicitly via $(CoreLibraryDependencies), which
+  # Bazel has no equivalent of, so link it explicitly. Abseil's stack trace
+  # symbolizer needs dbghelp.dll, which its BUILD files only link for MSVC.
+  linkopts = select({
+    "@platforms//os:windows": ["-lole32", "-ldbghelp"],
+    "//conditions:default": [],
+  }),
   visibility = ["//test:__pkg__", "//util:__pkg__"],
   deps = [
     "//btrieve",
@@ -56,17 +65,9 @@ cc_shared_library(
   # Not needed (and not valid) for the zig-cc toolchains (windows-gnu and
   # macos-none), which link their C++ runtime in statically by default.
   user_link_flags = select({
-    # CoCreateGuid/StringFromGUID2 (framework.cc) live in ole32.dll; MSVC
-    # pulls in ole32.lib implicitly via $(CoreLibraryDependencies), which
-    # Bazel has no equivalent of, so link it explicitly.
     # zig's linker takes the compiled .res directly, like MSVC's link.exe.
-    # Abseil's stack trace symbolizer needs dbghelp.dll, which its BUILD
-    # files only link for MSVC.
-    "@platforms//os:windows": [
-      "-lole32",
-      "-ldbghelp",
-      "$(location :wbtrv32_res)",
-    ],
+    # ole32 and dbghelp come from libwbtrv32's linkopts.
+    "@platforms//os:windows": ["$(location :wbtrv32_res)"],
     "@platforms//os:macos": [],
     # wbtrv32.lds does wbtrv32.def's job on Linux.
     "//conditions:default": [
@@ -104,11 +105,6 @@ cc_test(
   name = "tests",
   srcs = TEST_SRCS + ["framework.h","wbtrv32.h"],
   data = ["//assets:test_dats", ":wbtrv32"],
-  # CoCreateGuid/StringFromGUID2, as for the DLL itself
-  linkopts = select({
-    "@platforms//os:windows": ["-lole32"],
-    "//conditions:default": [],
-  }),
   deps = [
     ":libwbtrv32",
     "//btrieve",
