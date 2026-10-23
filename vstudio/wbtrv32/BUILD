@@ -84,11 +84,20 @@ windows_resource(
   hdrs = ["//nuget:wbtrv32_version"],
 )
 
+# The shell scripts below run on the build machine. Built for Windows, they'd
+# need Bazel's native launcher, which only compiles with MSVC, so skip them
+# there (e.g. bazel build --config=windows_amd64 //...).
+NOT_WINDOWS = select({
+  "@platforms//os:windows": ["@platforms//:incompatible"],
+  "//conditions:default": [],
+})
+
 # The Visual Studio build can't read //nuget:BUILD, so it compiles wbtrv32.rc
 # against a checked-in copy of the generated header. Refresh it with
 #   bazel run //vstudio/wbtrv32:update_version
 sh_binary(
   name = "update_version",
+  target_compatible_with = NOT_WINDOWS,
   srcs = ["//tools:update_version.sh"],
   args = ["$(rootpath //nuget:wbtrv32_version)", "vstudio/wbtrv32/wbtrv32_version.h"],
   data = ["//nuget:wbtrv32_version"],
@@ -96,6 +105,7 @@ sh_binary(
 
 sh_test(
   name = "version_test",
+  target_compatible_with = NOT_WINDOWS,
   srcs = ["//tools:version_test.sh"],
   args = ["$(rootpath //nuget:wbtrv32_version)", "$(rootpath wbtrv32_version.h)"],
   data = ["//nuget:wbtrv32_version", "wbtrv32_version.h"],
