@@ -5,6 +5,14 @@ namespace btrieve {
 bool FileExists(const wchar_t *file);
 }
 
+namespace wbtrv32 {
+// The integer setting `name` (e.g. LogLevel), clamped to [minimum, maximum]:
+// from the WBTRV32_<NAME> environment variable if set, else from the
+// [wbtrv32] section of wbtrv32.ini in the current directory (Windows only),
+// else defaultValue.
+int readSetting(const char *name, int defaultValue, int minimum, int maximum);
+}  // namespace wbtrv32
+
 #ifdef WIN32
 
 #define WIN32_LEAN_AND_MEAN  // Exclude rarely-used stuff from Windows headers

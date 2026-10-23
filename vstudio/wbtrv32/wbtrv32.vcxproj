@@ -201,12 +201,14 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="framework.h" />
+    <ClInclude Include="logging.h" />
     <ClInclude Include="wbtrv32.h" />
     <ClInclude Include="wbtrv32_version.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="dllmain.cpp" />
     <ClCompile Include="framework.cc" />
+    <ClCompile Include="logging.cc" />
     <ClCompile Include="wbtrv32.cpp" />
   </ItemGroup>
   <ItemGroup>
