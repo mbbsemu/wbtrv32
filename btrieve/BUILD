@@ -34,6 +34,12 @@ cc_library(
   name = "testbase",
   srcs = TESTBASE_SRCS,
   hdrs = ["TestBase.h"],
+  # CoCreateGuid/StringFromGUID2 live in ole32.dll, which MSVC links
+  # implicitly and Bazel doesn't
+  linkopts = select({
+    "@platforms//os:windows": ["-lole32"],
+    "//conditions:default": [],
+  }),
   visibility = ["//visibility:public"],
   testonly = True,
   deps = [
