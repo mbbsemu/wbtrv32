@@ -180,8 +180,8 @@ class BtrieveDatabase {
 
   // Finds each v6 PAT pair by its sequence number, normally every
   // pageLength / 4 pages from page 2 but moved along by any stray pages in the
-  // file, or by the 4096 bytes Btrieve 6.15 leaves before PAT pair 31, and
-  // fills patOffsets.
+  // file, or by the 4096 bytes Btrieve 6.x leaves before PAT pair 31, and
+  // fills patOffsets with every pair on disk.
   void locatePATs(FILE *f);
 
   // Maps a v6 physical page number to its byte offset in the file: a page

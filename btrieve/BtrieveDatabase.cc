@@ -803,20 +803,22 @@ uint32_t BtrieveDatabase::patEntryPage(const uint8_t* entry) const {
                                                            : withoutHigh;
 }
 
-// Btrieve 6.15, growing a v6 file past 30 PAT pairs, leaves this many bytes
-// ahead of PAT pair 31 whatever the page length, so with a page length that
-// doesn't divide it every page from there on is off the page grid. Files it
-// has grown to 72 PAT pairs show no second gap.
+// Btrieve 6.x, growing a file past 30 PAT pairs, leaves this many bytes ahead
+// of PAT pair 31 whatever the page length, so with a page length that doesn't
+// divide it every page from there on is off the page grid. Novell's "NetWare
+// 4.11: Btrieve Installation and Operation" (100-003597-001 A, 1999), p. 261,
+// "Estimating File Size" step 9: "Add an additional 4,096 bytes to the size of
+// the file if the file uses more than 30 PAT pages. Btrieve uses these
+// additional bytes internally." In files Btrieve 6.15 grew, the gap comes
+// after 30 PAT pairs, not pages, and there is no second one through 72 pairs.
 static constexpr uint32_t kGapBeforePAT31 = 4096;
 
+// Page lengths are multiples of this, so a stray page or a gap is too.
+static constexpr uint32_t kPageLengthUnit = 512;
+
 void BtrieveDatabase::locatePATs(FILE* f) {
-  const uint32_t pagesPerRegion = pageLength / 4u;
-  const uint32_t pagesPerPAT = pagesPerRegion - 2u;
   const uint64_t regionLength =
-      static_cast<uint64_t>(pagesPerRegion) * pageLength;
-  // logical pages 1 .. pageCount - 1, pagesPerPAT to each PAT
-  const uint32_t patCount =
-      pageCount > 1 ? (pageCount - 2) / pagesPerPAT + 1 : 1;
+      static_cast<uint64_t>(pageLength / 4u) * pageLength;
 
   // true if a PAT pair carrying sequence number n starts at offset
   auto isPATPair = [&](uint64_t offset, uint32_t n) {
@@ -844,9 +846,9 @@ void BtrieveDatabase::locatePATs(FILE* f) {
     if (n == 31 && isPATPair(expected + kGapBeforePAT31, n)) {
       return expected + kGapBeforePAT31;
     }
-    // stray pages ahead of the PAT pair
-    for (uint64_t offset = expected + pageLength;
-         offset + 2u * pageLength <= fileLength; offset += pageLength) {
+    // stray pages ahead of the PAT pair, which needn't be pageLength long
+    for (uint64_t offset = expected + kPageLengthUnit;
+         offset + 2u * pageLength <= fileLength; offset += kPageLengthUnit) {
       if (isPATPair(offset, n)) {
         return offset;
       }
@@ -854,9 +856,12 @@ void BtrieveDatabase::locatePATs(FILE* f) {
     return 0;
   };
 
+  // Every PAT pair on disk, not only those the FCR's page count accounts for:
+  // shadow copies of pages can sit in physical regions past them, headed by
+  // PAT pairs of their own.
   patOffsets.clear();
   uint64_t expected = 2u * pageLength;
-  for (uint32_t n = 1; n <= patCount; ++n) {
+  for (uint32_t n = 1; expected + 2u * pageLength <= fileLength; ++n) {
     const uint64_t offset = findPATPair(expected, n);
     if (offset == 0) {
       break;
@@ -898,8 +903,8 @@ void BtrieveDatabase::buildV6PageMap(FILE* f) {
       static_cast<uint64_t>(pageLength / 4u) * pageLength;
   uint8_t header[6];
   // Each PAT pair heads a region of pageLength / 4 pages, read from where the
-  // pair is, since stray pages or Btrieve 6.15's gap before PAT 31 can move
-  // it off the page grid. The last region runs to the end of the file. Pages
+  // pair is, since stray pages or Btrieve's gap before PAT 31 can move it off
+  // the page grid. The last region runs to the end of the file. Pages
   // 0 and 1, the FCR pair, are in no region.
   for (size_t region = 0; region < patOffsets.size(); ++region) {
     const uint64_t regionEnd =
