@@ -1,5 +1,7 @@
 #include "BtrieveDatabase.h"
 
+#include <algorithm>
+#include <cstdlib>
 #include <filesystem>
 #include <functional>
 #include <fstream>
@@ -326,6 +328,205 @@ TEST(BtrieveDatabase, IgnoresV6DataPagesThePATHasFreed) {
       });
 
   EXPECT_EQ(loadAllRecords(dat), original);
+}
+
+// Builds a v6 file laid out the way Btrieve 6.15 lays one out: the FCR pair at
+// physical pages 0 and 1, PAT pair n (from 1) at physical page
+// 2 + (n - 1) * pageLength / 4 mapping the pageLength / 4 - 2 pages after it,
+// and the records packed into data pages, the first and last data pages of
+// every PAT's region taken first. Has no keys.
+static std::vector<char> buildV6File(uint16_t pageLength, uint32_t patPairs,
+                                     const std::vector<std::string> &records) {
+  const uint16_t recordLength = static_cast<uint16_t>(records.at(0).size());
+  const uint16_t physicalRecordLength = recordLength + 2;  // + usage count
+  const uint32_t pagesPerRegion = pageLength / 4u;
+  const uint32_t pagesPerPAT = pagesPerRegion - 2u;
+  const size_t recordsPerPage = (pageLength - 6u) / physicalRecordLength;
+  const size_t dataPages =
+      (records.size() + recordsPerPage - 1) / recordsPerPage;
+  EXPECT_LE(dataPages, static_cast<size_t>(patPairs) * pagesPerPAT);
+
+  std::vector<char> file(
+      static_cast<size_t>(2 + patPairs * pagesPerRegion) * pageLength, 0);
+  auto put16 = [&file](size_t at, uint16_t value) {
+    file[at] = static_cast<char>(value & 0xFF);
+    file[at + 1] = static_cast<char>(value >> 8);
+  };
+  auto putHighLow = [&put16](size_t at, uint32_t value) {
+    put16(at, static_cast<uint16_t>(value >> 16));
+    put16(at + 2, static_cast<uint16_t>(value & 0xFFFF));
+  };
+  // a page header or PAT entry: [high][type][low][mid] page number
+  auto putPageRef = [&file](size_t at, uint32_t page, char type) {
+    file[at] = static_cast<char>(page >> 16);
+    file[at + 1] = type;
+    file[at + 2] = static_cast<char>(page & 0xFF);
+    file[at + 3] = static_cast<char>((page >> 8) & 0xFF);
+  };
+
+  // the FCR, the same in both copies
+  const uint32_t pageCount = patPairs * pagesPerPAT + 1;
+  for (size_t fcr = 0; fcr < 2u * pageLength; fcr += pageLength) {
+    file[fcr] = 'F';
+    file[fcr + 1] = 'C';
+    file[fcr + 4] = 1;  // usage count
+    put16(fcr + 0x8, pageLength);
+    putHighLow(fcr + 0x10, 0xFFFFFFFF);  // no deleted records
+    put16(fcr + 0x16, recordLength);
+    put16(fcr + 0x18, physicalRecordLength);
+    putHighLow(fcr + 0x1A, static_cast<uint32_t>(records.size()));
+    putHighLow(fcr + 0x26, pageCount);
+  }
+
+  // both copies of each PAT; the first, with the higher usage count, is live
+  for (uint32_t n = 1; n <= patPairs; ++n) {
+    const size_t pat = static_cast<size_t>(2 + (n - 1) * pagesPerRegion) *
+                       pageLength;
+    for (size_t copy = 0; copy < 2; ++copy) {
+      const size_t page = pat + copy * pageLength;
+      file[page] = 'P';
+      file[page + 1] = 'P';
+      put16(page + 2, static_cast<uint16_t>(n));
+      file[page + 4] = copy == 0 ? 1 : 0;
+    }
+  }
+
+  for (size_t d = 0; d < dataPages; ++d) {
+    // region d % patPairs; its first data slot, its last, its second, ...
+    const uint32_t region = static_cast<uint32_t>(d % patPairs);
+    const uint32_t nth = static_cast<uint32_t>(d / patPairs);
+    const uint32_t slot = nth % 2 == 0 ? nth / 2 : pagesPerPAT - 1 - nth / 2;
+    const uint32_t logicalPage = region * pagesPerPAT + slot + 1;
+    const uint32_t physicalPage = 2 + region * pagesPerRegion + 2 + slot;
+
+    const size_t pat = static_cast<size_t>(2 + region * pagesPerRegion) *
+                       pageLength;
+    putPageRef(pat + 8 + slot * 4, physicalPage, 'D');
+    putPageRef(pat + pageLength + 8 + slot * 4, physicalPage, 'D');
+
+    const size_t page = static_cast<size_t>(physicalPage) * pageLength;
+    putPageRef(page, logicalPage, 'D');
+    file[page + 4] = 1;  // usage count, with the data page bit
+    file[page + 5] = static_cast<char>(0x80);
+    for (size_t r = 0; r < recordsPerPage; ++r) {
+      const size_t record = d * recordsPerPage + r;
+      if (record >= records.size()) {
+        break;
+      }
+      const size_t at = page + 6 + r * physicalRecordLength;
+      file[at + 1] = 1;  // record usage count
+      std::copy(records[record].begin(), records[record].end(),
+                file.begin() + at + 2);
+    }
+  }
+
+  return file;
+}
+
+// Btrieve 6.15, growing a v6 file past 30 PAT pairs, leaves 4096 bytes (not a
+// page) ahead of PAT pair 31, so every page from there on sits 4096 bytes
+// further into the file.
+static void insertGapBeforePAT31(std::vector<char> &file, uint16_t pageLength) {
+  const size_t gapAt = static_cast<size_t>(2 + 30 * (pageLength / 4u)) *
+                       pageLength;
+  ASSERT_LT(gapAt, file.size());
+  file.insert(file.begin() + gapAt, 4096, static_cast<char>(0xCC));
+}
+
+static std::filesystem::path writeTempFile(const char *name,
+                                           const std::vector<char> &bytes) {
+  std::filesystem::path dat(testing::TempDir());
+  dat /= name;
+  std::ofstream out(dat, std::ios::binary | std::ios::trunc);
+  out.write(bytes.data(), bytes.size());
+  return dat;
+}
+
+// Expects the same records in any order, without printing thousands of them
+// when they differ.
+static void expectSameRecords(std::vector<std::string> actual,
+                              std::vector<std::string> expected) {
+  ASSERT_EQ(actual.size(), expected.size());
+  std::sort(actual.begin(), actual.end());
+  std::sort(expected.begin(), expected.end());
+  EXPECT_TRUE(actual == expected) << "same number of records, not the same";
+}
+
+// Loads a v6 file with 32 PAT pairs and pageLength byte pages, first as built
+// and then with Btrieve 6.15's gap ahead of PAT pair 31, and expects every
+// record back from both.
+static void expectAllRecordsAcrossGapBeforePAT31(uint16_t pageLength) {
+  const uint32_t patPairs = 32;
+  const uint16_t recordLength = 100;
+  const size_t recordsPerPage = (pageLength - 6u) / (recordLength + 2u);
+  std::vector<std::string> records;
+  // the first and last data page of each PAT's region
+  for (size_t i = 0; i < 2 * patPairs * recordsPerPage; ++i) {
+    std::string record = "page length " + std::to_string(pageLength) +
+                         " record " + std::to_string(i);
+    record.resize(recordLength, static_cast<char>('A' + i % 26));
+    records.push_back(record);
+  }
+  std::vector<char> file = buildV6File(pageLength, patPairs, records);
+
+  const std::string name = "PAT31-" + std::to_string(pageLength);
+  const auto plain = writeTempFile((name + ".DAT").c_str(), file);
+  expectSameRecords(loadAllRecords(plain), records);
+
+  insertGapBeforePAT31(file, pageLength);
+  const auto gapped = writeTempFile((name + "-GAP.DAT").c_str(), file);
+  BtrieveDatabase database;
+  std::vector<std::string> loaded;
+  database.parseDatabase(
+      toWideString(gapped).c_str(), []() { return true; },
+      [&loaded](std::basic_string_view<uint8_t> record) {
+        loaded.emplace_back(reinterpret_cast<const char *>(record.data()),
+                            record.size());
+        return BtrieveDatabase::LoadRecordResult::COUNT;
+      });
+  expectSameRecords(loaded, records);
+  EXPECT_EQ(database.getConversionWarning(), "");
+
+  std::filesystem::remove(plain);
+  std::filesystem::remove(gapped);
+}
+
+// 4096 bytes is not a whole number of 1536 byte pages: PAT pair 31 starts
+// 1024 bytes past a page boundary.
+TEST(BtrieveDatabase, LoadsV6PagesPastTheGapBeforePAT31With1536BytePages) {
+  expectAllRecordsAcrossGapBeforePAT31(1536);
+}
+
+// With 512 byte pages the gap is 8 whole pages.
+TEST(BtrieveDatabase, LoadsV6PagesPastTheGapBeforePAT31With512BytePages) {
+  expectAllRecordsAcrossGapBeforePAT31(512);
+}
+
+// MajorMUD's rooms file, WCCMP001.VIR (1536 byte pages), is the case that
+// matters: once Btrieve 6.15 has rewritten it as a v6 file it has about 70
+// PAT pairs, and every room past the gap before PAT 31 was lost. It is too
+// big to keep in assets, so this runs only when WBTRV32_WCCMP001 names a copy
+// of the file shipped in MBBSEmu's WCCMMUD 1.11p module (a v5 file), e.g.
+// bazel test //btrieve:tests --test_env=WBTRV32_WCCMP001=/path/WCCMP001.VIR
+TEST(BtrieveDatabase, LoadsWCCMP001RebuiltAsV6WithTheGapBeforePAT31) {
+  const char *source = getenv("WBTRV32_WCCMP001");
+  if (source == nullptr || !std::filesystem::exists(source)) {
+    GTEST_SKIP() << "set WBTRV32_WCCMP001 to the path of WCCMP001.VIR";
+  }
+
+  const auto rooms = loadAllRecords(source);
+  ASSERT_EQ(rooms.size(), 26720u);
+
+  const uint16_t pageLength = 1536;
+  const uint32_t pagesPerPAT = pageLength / 4u - 2u;
+  const uint32_t patPairs =
+      static_cast<uint32_t>((rooms.size() + pagesPerPAT - 1) / pagesPerPAT);
+  std::vector<char> file = buildV6File(pageLength, patPairs, rooms);
+  insertGapBeforePAT31(file, pageLength);
+  const auto dat = writeTempFile("WCCMP001-V6.DAT", file);
+
+  expectSameRecords(loadAllRecords(dat), rooms);
+  std::filesystem::remove(dat);
 }
 
 TEST(BtrieveDatabase, LoadsMultiAcsDatV6) {
