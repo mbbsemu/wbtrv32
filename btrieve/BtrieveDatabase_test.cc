@@ -527,6 +527,57 @@ TEST(BtrieveDatabase, LoadsWCCMP001RebuiltAsV6WithTheGapBeforePAT31) {
 
   expectSameRecords(loadAllRecords(dat), rooms);
   std::filesystem::remove(dat);
+
+  // and Btrieve 6.15's own copy of the file holds the same rooms
+  expectSameRecords(loadAllRecords("assets/WCCMP001.FULL.DAT"), rooms);
+}
+
+// Loads a file Btrieve 6.15 wrote itself and expects every record the file's
+// header says it holds, each recordLength bytes and no two the same.
+static void expectAllRecordsOfBtrieve615File(const char *path,
+                                             uint16_t pageLength,
+                                             unsigned int recordLength,
+                                             unsigned int recordCount) {
+  BtrieveDatabase database;
+  std::vector<std::string> records;
+  database.parseDatabase(
+      toWideString(path).c_str(), []() { return true; },
+      [&records](std::basic_string_view<uint8_t> record) {
+        records.emplace_back(reinterpret_cast<const char *>(record.data()),
+                             record.size());
+        return BtrieveDatabase::LoadRecordResult::COUNT;
+      });
+
+  EXPECT_EQ(database.getPageLength(), pageLength);
+  EXPECT_EQ(database.getRecordCount(), recordCount);
+  EXPECT_EQ(database.getConversionWarning(), "");
+  ASSERT_EQ(records.size(), recordCount);
+  for (const auto &record : records) {
+    ASSERT_EQ(record.size(), recordLength);
+  }
+  std::sort(records.begin(), records.end());
+  EXPECT_EQ(std::adjacent_find(records.begin(), records.end()), records.end())
+      << "a record was loaded twice";
+}
+
+// WCCMP001.FULL.DAT and WCCMSG.FULL.DAT are Btrieve 6.15's own files (the
+// W32MKDE.EXE workstation engine with WBTRV32.DLL, as Nightmare Redux ships
+// them): a clone of WCCMMUD 1.11p's WCCMP001.VIR and WCCMSG.VIR, with every
+// record of the original inserted. Both grew past 30 PAT pairs, so both have
+// the 4096-byte gap ahead of PAT pair 31. They hold the same records as the
+// shipped files, in a different order.
+
+// MajorMUD's rooms: 1536 byte pages, so everything past the gap (about
+// 17.7 MB in) is off the page grid. Without reading past it only 11,226 of
+// the 26,720 rooms load.
+TEST(BtrieveDatabase, LoadsBtrieve615GrownRoomsFile) {
+  expectAllRecordsOfBtrieve615File("assets/WCCMP001.FULL.DAT", 1536, 1528,
+                                   26720);
+}
+
+// MajorMUD's messages: 512 byte pages, so the gap is 8 whole pages.
+TEST(BtrieveDatabase, LoadsBtrieve615GrownMessagesFile) {
+  expectAllRecordsOfBtrieve615File("assets/WCCMSG.FULL.DAT", 512, 253, 3867);
 }
 
 TEST(BtrieveDatabase, LoadsMultiAcsDatV6) {

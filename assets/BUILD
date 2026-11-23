@@ -13,6 +13,8 @@ filegroup(
         "VARIABLE.BCR",
         "VARIABLE.DAT",
         "WCCACMS2.DAT",
+        "WCCMP001.FULL.DAT",
+        "WCCMSG.FULL.DAT",
         "WGSMENU2.DAT",
     ],
 )
