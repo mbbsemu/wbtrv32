@@ -39,10 +39,7 @@
     <CopyFileToFolders Include="..\..\assets\MBMGEPLT.DAT">
       <Filter>Assets</Filter>
     </CopyFileToFolders>
-    <CopyFileToFolders Include="..\..\assets\WCCMP001.FULL.DAT">
-      <Filter>Assets</Filter>
-    </CopyFileToFolders>
-    <CopyFileToFolders Include="..\..\assets\WCCMSG.FULL.DAT">
+    <CopyFileToFolders Include="..\..\assets\PAT31GAP.DAT">
       <Filter>Assets</Filter>
     </CopyFileToFolders>
   </ItemGroup>

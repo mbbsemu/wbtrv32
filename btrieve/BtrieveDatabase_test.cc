@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstddef>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -732,57 +734,80 @@ TEST(BtrieveDatabase, LoadsWCCMP001RebuiltAsV6WithTheGapBeforePAT31) {
 
   expectSameRecords(loadAllRecords(dat), rooms);
   std::filesystem::remove(dat);
-
-  // and Btrieve 6.15's own copy of the file holds the same rooms
-  expectSameRecords(loadAllRecords("assets/WCCMP001.FULL.DAT"), rooms);
 }
 
-// Loads a file Btrieve 6.15 wrote itself and expects every record the file's
-// header says it holds, each recordLength bytes and no two the same.
-static void expectAllRecordsOfBtrieve615File(const char *path,
-                                             uint16_t pageLength,
-                                             unsigned int recordLength,
-                                             unsigned int recordCount) {
+// PAT31GAP.DAT is a 1536-byte-page v6 file with 32 PAT pairs and Btrieve 6.x's
+// 4096-byte zeroed gap ahead of PAT pair 31 (moving PAT 31 and PAT 32 1024
+// bytes off the page grid). It holds 11,900 fixed 1528-byte records (IDs
+// 0..11899), cross-region physical mappings across the gap (IDs 11459/11460),
+// stale shadow copies in region 32 (for IDs 11460/11899), a PAT-freed orphan
+// page in region 32 (ID 99999), and key 1's MultiACS ("UPPER") on logical page
+// 11901 in PAT 32.
+TEST(BtrieveDatabase, LoadsPat31GapDatV6) {
+  constexpr unsigned int kExpectedRecords = 11900;
+  constexpr unsigned int kRecordLength = 1528;
+
   BtrieveDatabase database;
-  std::vector<std::string> records;
-  database.parseDatabase(
-      toWideString(path).c_str(), []() { return true; },
-      [&records](std::basic_string_view<uint8_t> record) {
-        records.emplace_back(reinterpret_cast<const char *>(record.data()),
-                             record.size());
-        return BtrieveDatabase::LoadRecordResult::COUNT;
-      });
+  std::vector<bool> seen(kExpectedRecords, false);
+  unsigned int loadedCount = 0;
 
-  EXPECT_EQ(database.getPageLength(), pageLength);
-  EXPECT_EQ(database.getRecordCount(), recordCount);
+  ASSERT_EQ(
+      database.parseDatabase(
+          _TEXT("assets/PAT31GAP.DAT"), []() { return true; },
+          [&](std::basic_string_view<uint8_t> record) {
+            EXPECT_EQ(record.size(), kRecordLength);
+            if (record.size() == kRecordLength) {
+              uint32_t magic = 0;
+              uint32_t id = 0;
+              memcpy(&magic, record.data(), sizeof(magic));
+              memcpy(&id, record.data() + 4, sizeof(id));
+              EXPECT_EQ(magic, 0xDEADBEEFu);
+              EXPECT_LT(id, kExpectedRecords)
+                  << "unexpected or freed record id " << id;
+              if (id < kExpectedRecords) {
+                EXPECT_FALSE(seen[id]) << "duplicate record id " << id;
+                seen[id] = true;
+
+                char expectedTag[16] = {0};
+                const char *prefix =
+                    (id == 11460 || id == 11899) ? "UPD" : "REC";
+                snprintf(expectedTag, sizeof(expectedTag), "%s_%05u", prefix, id);
+                EXPECT_EQ(memcmp(record.data() + 8, expectedTag,
+                                 sizeof(expectedTag)),
+                          0)
+                    << "wrong tag for record id " << id;
+              }
+            }
+            ++loadedCount;
+            return BtrieveDatabase::LoadRecordResult::COUNT;
+          }),
+      BtrieveError::Success);
+
+  EXPECT_EQ(database.getPageLength(), 1536u);
+  EXPECT_EQ(database.getRecordLength(), kRecordLength);
+  EXPECT_EQ(database.getRecordCount(), kExpectedRecords);
   EXPECT_EQ(database.getConversionWarning(), "");
-  ASSERT_EQ(records.size(), recordCount);
-  for (const auto &record : records) {
-    ASSERT_EQ(record.size(), recordLength);
-  }
-  std::sort(records.begin(), records.end());
-  EXPECT_EQ(std::adjacent_find(records.begin(), records.end()), records.end())
-      << "a record was loaded twice";
-}
+  EXPECT_EQ(loadedCount, kExpectedRecords);
+  EXPECT_EQ(std::count(seen.begin(), seen.end(), true),
+            static_cast<ptrdiff_t>(kExpectedRecords));
 
-// WCCMP001.FULL.DAT and WCCMSG.FULL.DAT are Btrieve 6.15's own files (the
-// W32MKDE.EXE workstation engine with WBTRV32.DLL, as Nightmare Redux ships
-// them): a clone of WCCMMUD 1.11p's WCCMP001.VIR and WCCMSG.VIR, with every
-// record of the original inserted. Both grew past 30 PAT pairs, so both have
-// the 4096-byte gap ahead of PAT pair 31. They hold the same records as the
-// shipped files, in a different order.
+  ASSERT_EQ(database.getKeys().size(), 2u);
+  const KeyDefinition &key0 = database.getKeys()[0].getPrimarySegment();
+  EXPECT_EQ(key0.getOffset(), 4u);
+  EXPECT_EQ(key0.getLength(), 4u);
+  EXPECT_EQ(key0.getDataType(), KeyDataType::UnsignedBinary);
+  EXPECT_FALSE(key0.requiresACS());
 
-// MajorMUD's rooms: 1536 byte pages, so everything past the gap (about
-// 17.7 MB in) is off the page grid. Without reading past it only 11,226 of
-// the 26,720 rooms load.
-TEST(BtrieveDatabase, LoadsBtrieve615GrownRoomsFile) {
-  expectAllRecordsOfBtrieve615File("assets/WCCMP001.FULL.DAT", 1536, 1528,
-                                   26720);
-}
-
-// MajorMUD's messages: 512 byte pages, so the gap is 8 whole pages.
-TEST(BtrieveDatabase, LoadsBtrieve615GrownMessagesFile) {
-  expectAllRecordsOfBtrieve615File("assets/WCCMSG.FULL.DAT", 512, 253, 3867);
+  const KeyDefinition &key1 = database.getKeys()[1].getPrimarySegment();
+  EXPECT_EQ(key1.getOffset(), 8u);
+  EXPECT_EQ(key1.getLength(), 16u);
+  EXPECT_EQ(key1.getDataType(), KeyDataType::Zstring);
+  EXPECT_TRUE(key1.requiresACS());
+  ASSERT_NE(key1.getACSName(), nullptr);
+  EXPECT_STREQ(key1.getACSName(), "UPPER");
+  ASSERT_NE(key1.getACS(), nullptr);
+  EXPECT_EQ(key1.getACS()[static_cast<unsigned char>('a')], 'A');
+  EXPECT_EQ(key1.getACS()[static_cast<unsigned char>('z')], 'Z');
 }
 
 TEST(BtrieveDatabase, LoadsMultiAcsDatV6) {

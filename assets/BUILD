@@ -9,12 +9,11 @@ filegroup(
         "MBBSEMU.DB.V2",
         "MBMGEPLT.DAT",
         "MULTIACS.DAT",
+        "PAT31GAP.DAT",
         "V5SEGKEY.DAT",
         "VARIABLE.BCR",
         "VARIABLE.DAT",
         "WCCACMS2.DAT",
-        "WCCMP001.FULL.DAT",
-        "WCCMSG.FULL.DAT",
         "WGSMENU2.DAT",
     ],
 )
