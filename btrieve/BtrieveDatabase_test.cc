@@ -1,5 +1,11 @@
 #include "BtrieveDatabase.h"
 
+#include <algorithm>
+#include <cctype>
+#include <cstddef>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <functional>
 #include <fstream>
@@ -326,6 +332,482 @@ TEST(BtrieveDatabase, IgnoresV6DataPagesThePATHasFreed) {
       });
 
   EXPECT_EQ(loadAllRecords(dat), original);
+}
+
+// A v6 file for buildV6File to write, laid out the way Btrieve 6.x lays one
+// out: the FCR pair at physical pages 0 and 1, then PAT pair n (from 0) at
+// physical page 2 + n * pageLength / 4, mapping pageLength / 4 - 2 logical
+// pages, and the pages after it up to the next pair its region.
+struct V6File {
+  uint16_t pageLength;
+  // the PAT pairs written to the file
+  uint32_t patPairs;
+  // fixed-length records, packed into the data pages in turn
+  std::vector<std::string> records;
+  struct Page {
+    uint32_t logicalPage;
+    uint32_t physicalPage;
+  };
+  std::vector<Page> dataPages;
+  // An alternate collating sequence: a page of its own, used by a key of its
+  // own (key i uses acs[i], whose table is acsTable(i)).
+  struct ACS {
+    std::string name;
+    Page page;
+  };
+  std::vector<ACS> acs;
+  // the FCR's page count; 0 for one past the last logical page the PAT pairs
+  // map
+  uint32_t pageCount = 0;
+
+  uint32_t pagesPerRegion() const { return pageLength / 4u; }
+  uint32_t pagesPerPAT() const { return pagesPerRegion() - 2u; }
+  size_t recordsPerPage() const {
+    return (pageLength - 6u) / (records.at(0).size() + 2u);
+  }
+  // the page slot (from 0) of PAT pair region (from 0) maps, and where that
+  // slot's page is, after the PAT pair
+  Page page(uint32_t region, uint32_t slot) const {
+    return Page{region * pagesPerPAT() + slot + 1,
+                2 + region * pagesPerRegion() + 2 + slot};
+  }
+};
+
+// Key i's ACS: case-insensitive, with the letters rotated by i so each key's
+// differs. Byte 0 maps to itself, as in real ACSs: it follows the 8-byte name.
+static std::vector<uint8_t> acsTable(size_t key) {
+  std::vector<uint8_t> table(256);
+  for (size_t b = 0; b < table.size(); ++b) {
+    table[b] = static_cast<uint8_t>(b);
+    if (isalpha(static_cast<int>(b))) {
+      table[b] = static_cast<uint8_t>('A' + (toupper(static_cast<int>(b)) -
+                                             'A' + key) % 26);
+    }
+  }
+  return table;
+}
+
+// Writes spec as Btrieve would: its records, and for each ACS a key over 10
+// bytes of the record from offset 10 * i. No gap before PAT pair 31: see
+// insertGapBeforePAT31.
+static std::vector<char> buildV6File(const V6File &spec) {
+  const uint16_t pageLength = spec.pageLength;
+  const uint16_t recordLength =
+      static_cast<uint16_t>(spec.records.at(0).size());
+  const uint16_t physicalRecordLength = recordLength + 2;  // + usage count
+  const size_t recordsPerPage = spec.recordsPerPage();
+  EXPECT_GE(spec.dataPages.size() * recordsPerPage, spec.records.size());
+  EXPECT_LE(spec.acs.size() * 10u, recordLength);
+
+  std::vector<char> file(
+      static_cast<size_t>(2 + spec.patPairs * spec.pagesPerRegion()) *
+          pageLength,
+      0);
+  auto put16 = [&file](size_t at, uint16_t value) {
+    file[at] = static_cast<char>(value & 0xFF);
+    file[at + 1] = static_cast<char>(value >> 8);
+  };
+  auto putHighLow = [&put16](size_t at, uint32_t value) {
+    put16(at, static_cast<uint16_t>(value >> 16));
+    put16(at + 2, static_cast<uint16_t>(value & 0xFFFF));
+  };
+  // a page header or PAT entry: [high][type][low][mid] page number
+  auto putPageRef = [&file](size_t at, uint32_t page, char type) {
+    file[at] = static_cast<char>(page >> 16);
+    file[at + 1] = type;
+    file[at + 2] = static_cast<char>(page & 0xFF);
+    file[at + 3] = static_cast<char>((page >> 8) & 0xFF);
+  };
+  auto pageAt = [pageLength](uint32_t physicalPage) {
+    return static_cast<size_t>(physicalPage) * pageLength;
+  };
+  // both copies of the PAT entry for page, the first copy live
+  auto putPATEntry = [&](V6File::Page page, char type) {
+    const uint32_t region = (page.logicalPage - 1) / spec.pagesPerPAT();
+    const uint32_t slot = (page.logicalPage - 1) % spec.pagesPerPAT();
+    const size_t pat = pageAt(2 + region * spec.pagesPerRegion());
+    putPageRef(pat + 8 + slot * 4, page.physicalPage, type);
+    putPageRef(pat + pageLength + 8 + slot * 4, page.physicalPage, type);
+  };
+
+  // the FCR, the same in both copies
+  const uint32_t pageCount = spec.pageCount != 0
+                                 ? spec.pageCount
+                                 : spec.patPairs * spec.pagesPerPAT() + 1;
+  const uint16_t keys = static_cast<uint16_t>(spec.acs.size());
+  const size_t kat = 0x180;            // the key attribute table
+  const size_t keyDefinitions = 0x1A0;  // 0x1E bytes each
+  for (size_t fcr = 0; fcr < 2u * pageLength; fcr += pageLength) {
+    file[fcr] = 'F';
+    file[fcr + 1] = 'C';
+    file[fcr + 4] = 1;  // usage count
+    put16(fcr + 0x8, pageLength);
+    putHighLow(fcr + 0x10, 0xFFFFFFFF);  // no deleted records
+    put16(fcr + 0x14, keys);
+    put16(fcr + 0x16, recordLength);
+    put16(fcr + 0x18, physicalRecordLength);
+    putHighLow(fcr + 0x1A, static_cast<uint32_t>(spec.records.size()));
+    putHighLow(fcr + 0x26, pageCount);
+    file[fcr + 0x76] = static_cast<char>(keys);
+    put16(fcr + 0x78, static_cast<uint16_t>(kat));
+    for (uint16_t k = 0; k < keys; ++k) {
+      const size_t definition = keyDefinitions + k * 0x1E;
+      put16(fcr + kat + k * 2, static_cast<uint16_t>(definition));
+      put16(fcr + definition + 0x8,
+            Duplicates | MultipleACS | UseExtendedDataType);
+      put16(fcr + definition + 0x14, 10 * k + 2);  // + the usage count
+      put16(fcr + definition + 0x16, 10);
+      const uint32_t acsPage = spec.acs[k].page.logicalPage;
+      file[fcr + definition + 0x19] = static_cast<char>(acsPage >> 16);
+      put16(fcr + definition + 0x1A, static_cast<uint16_t>(acsPage & 0xFFFF));
+      file[fcr + definition + 0x1C] = static_cast<char>(KeyDataType::String);
+    }
+  }
+
+  for (uint32_t n = 0; n < spec.patPairs; ++n) {
+    const size_t pat = pageAt(2 + n * spec.pagesPerRegion());
+    for (size_t copy = 0; copy < 2; ++copy) {
+      const size_t page = pat + copy * pageLength;
+      file[page] = 'P';
+      file[page + 1] = 'P';
+      put16(page + 2, static_cast<uint16_t>(n + 1));
+      file[page + 4] = copy == 0 ? 1 : 0;  // usage count
+    }
+  }
+
+  for (size_t k = 0; k < spec.acs.size(); ++k) {
+    const auto &acs = spec.acs[k];
+    putPATEntry(acs.page, 'A');
+    const size_t page = pageAt(acs.page.physicalPage);
+    putPageRef(page, acs.page.logicalPage, 'A');
+    file[page + 6] = static_cast<char>(0xAC);
+    std::string name = acs.name;
+    name.resize(8, ' ');
+    std::copy(name.begin(), name.end(), file.begin() + page + 7);
+    const auto table = acsTable(k);
+    std::copy(table.begin(), table.end(), file.begin() + page + 0xF);
+  }
+
+  for (size_t d = 0; d < spec.dataPages.size(); ++d) {
+    const auto &dataPage = spec.dataPages[d];
+    putPATEntry(dataPage, 'D');
+    const size_t page = pageAt(dataPage.physicalPage);
+    putPageRef(page, dataPage.logicalPage, 'D');
+    file[page + 4] = 1;  // usage count, with the data page bit
+    file[page + 5] = static_cast<char>(0x80);
+    for (size_t r = 0; r < recordsPerPage; ++r) {
+      const size_t record = d * recordsPerPage + r;
+      if (record >= spec.records.size()) {
+        break;
+      }
+      const size_t at = page + 6 + r * physicalRecordLength;
+      file[at + 1] = 1;  // record usage count
+      std::copy(spec.records[record].begin(), spec.records[record].end(),
+                file.begin() + at + 2);
+    }
+  }
+
+  return file;
+}
+
+// count distinct 100-byte records
+static std::vector<std::string> numberedRecords(uint16_t pageLength,
+                                                size_t count) {
+  std::vector<std::string> records;
+  for (size_t i = 0; i < count; ++i) {
+    std::string record = "page length " + std::to_string(pageLength) +
+                         " record " + std::to_string(i);
+    record.resize(100, static_cast<char>('A' + i % 26));
+    records.push_back(record);
+  }
+  return records;
+}
+
+// A V6File with patPairs PAT pairs and pageLength byte pages, holding count
+// 100-byte records on pages spread over every PAT's region: the first data
+// slot of each region, then the last, then the second, ...
+static V6File spreadOverPATs(uint16_t pageLength, uint32_t patPairs,
+                             size_t count) {
+  V6File spec{pageLength, patPairs, numberedRecords(pageLength, count)};
+  const size_t dataPages =
+      (count + spec.recordsPerPage() - 1) / spec.recordsPerPage();
+  EXPECT_LE(dataPages, static_cast<size_t>(patPairs) * spec.pagesPerPAT());
+  for (size_t d = 0; d < dataPages; ++d) {
+    const uint32_t region = static_cast<uint32_t>(d % patPairs);
+    const uint32_t nth = static_cast<uint32_t>(d / patPairs);
+    const uint32_t slot =
+        nth % 2 == 0 ? nth / 2 : spec.pagesPerPAT() - 1 - nth / 2;
+    spec.dataPages.push_back(spec.page(region, slot));
+  }
+  return spec;
+}
+
+// Btrieve 6.x, growing a file past 30 PAT pairs, leaves 4096 bytes (not a
+// page) ahead of PAT pair 31, so every page from there on sits 4096 bytes
+// further into the file.
+static void insertGapBeforePAT31(std::vector<char> &file, uint16_t pageLength) {
+  const size_t gapAt = static_cast<size_t>(2 + 30 * (pageLength / 4u)) *
+                       pageLength;
+  ASSERT_LT(gapAt, file.size());
+  file.insert(file.begin() + gapAt, 4096, static_cast<char>(0xCC));
+}
+
+static std::filesystem::path writeTempFile(const std::string &name,
+                                           const std::vector<char> &bytes) {
+  std::filesystem::path dat(testing::TempDir());
+  dat /= name;
+  std::ofstream out(dat, std::ios::binary | std::ios::trunc);
+  out.write(bytes.data(), bytes.size());
+  return dat;
+}
+
+// Expects the same records in any order, without printing thousands of them
+// when they differ.
+static void expectSameRecords(std::vector<std::string> actual,
+                              std::vector<std::string> expected) {
+  ASSERT_EQ(actual.size(), expected.size());
+  std::sort(actual.begin(), actual.end());
+  std::sort(expected.begin(), expected.end());
+  EXPECT_TRUE(actual == expected) << "same number of records, not the same";
+}
+
+// Loads spec, built, first as is and then with the gap ahead of PAT pair 31,
+// and expects every record and every key's ACS back from both.
+static void expectAllOfV6FileAcrossGapBeforePAT31(const V6File &spec,
+                                                  const std::string &name) {
+  std::vector<char> file = buildV6File(spec);
+  for (const bool gap : {false, true}) {
+    SCOPED_TRACE(gap ? "with the gap" : "without the gap");
+    if (gap) {
+      insertGapBeforePAT31(file, spec.pageLength);
+    }
+    const auto dat = writeTempFile(name + (gap ? "-GAP.DAT" : ".DAT"), file);
+
+    BtrieveDatabase database;
+    std::vector<std::string> loaded;
+    database.parseDatabase(
+        toWideString(dat).c_str(), []() { return true; },
+        [&loaded](std::basic_string_view<uint8_t> record) {
+          loaded.emplace_back(reinterpret_cast<const char *>(record.data()),
+                              record.size());
+          return BtrieveDatabase::LoadRecordResult::COUNT;
+        });
+    std::filesystem::remove(dat);
+
+    expectSameRecords(loaded, spec.records);
+    EXPECT_EQ(database.getConversionWarning(), "");
+    ASSERT_EQ(database.getKeys().size(), spec.acs.size());
+    for (size_t k = 0; k < spec.acs.size(); ++k) {
+      const Key &key = database.getKeys()[k];
+      EXPECT_STREQ(key.getACSName(), spec.acs[k].name.c_str()) << "key " << k;
+      const auto table = acsTable(k);
+      ASSERT_NE(key.getACS(), nullptr) << "key " << k;
+      EXPECT_EQ(memcmp(key.getACS(), table.data(), table.size()), 0)
+          << "key " << k;
+    }
+  }
+}
+
+// 32 PAT pairs, records on the first and last data page of each PAT's region
+static void expectRecordsAcrossGapBeforePAT31(uint16_t pageLength) {
+  V6File probe{pageLength, 32, {std::string(100, ' ')}};
+  const V6File spec =
+      spreadOverPATs(pageLength, 32, 2 * 32 * probe.recordsPerPage());
+  expectAllOfV6FileAcrossGapBeforePAT31(
+      spec, "PAT31-" + std::to_string(pageLength));
+}
+
+// 4096 bytes is not a whole number of 1536 byte pages: PAT pair 31 starts
+// 1024 bytes past a page boundary.
+TEST(BtrieveDatabase, LoadsV6PagesPastTheGapBeforePAT31With1536BytePages) {
+  expectRecordsAcrossGapBeforePAT31(1536);
+}
+
+// With 512 byte pages the gap is 8 whole pages.
+TEST(BtrieveDatabase, LoadsV6PagesPastTheGapBeforePAT31With512BytePages) {
+  expectRecordsAcrossGapBeforePAT31(512);
+}
+
+// Pages other than data and variable pages, such as ACS pages, are found
+// through the PAT, which can point from one PAT's region into another's: past
+// the gap, back across it, and within the regions past it.
+static void expectACSPagesAcrossGapBeforePAT31(uint16_t pageLength) {
+  V6File spec = spreadOverPATs(pageLength, 32, 64);
+  spec.acs = {
+      // a logical page PAT pair 1 maps, on a page past the gap
+      {"UPWARD",
+       {spec.page(0, 10).logicalPage, spec.page(31, 10).physicalPage}},
+      // one PAT pair 32 maps, on a page before the gap
+      {"DOWNWARD",
+       {spec.page(31, 11).logicalPage, spec.page(29, 10).physicalPage}},
+      // one PAT pair 31 maps, on a page in PAT pair 32's region
+      {"PAST", {spec.page(30, 10).logicalPage, spec.page(31, 11).physicalPage}},
+  };
+  expectAllOfV6FileAcrossGapBeforePAT31(
+      spec, "PAT31-ACS-" + std::to_string(pageLength));
+}
+
+TEST(BtrieveDatabase, LoadsV6ACSPagesAcrossTheGapBeforePAT31With1536BytePages) {
+  expectACSPagesAcrossGapBeforePAT31(1536);
+}
+
+TEST(BtrieveDatabase, LoadsV6ACSPagesAcrossTheGapBeforePAT31With512BytePages) {
+  expectACSPagesAcrossGapBeforePAT31(512);
+}
+
+// The FCR's page count covers logical pages, but shadow paging puts their
+// current copies on any free physical page, so the file can run into physical
+// regions past the last PAT pair the page count implies, each still headed by
+// a PAT pair. Here the page count implies 30 PAT pairs, and pages that the
+// last two of them map, and the ACS, sit past the gap, in the regions of PAT
+// pairs 31 and 32.
+static void expectPagesInRegionsPastThePageCount(uint16_t pageLength) {
+  V6File spec{pageLength, 32, {std::string(100, ' ')}};
+  spec.pageCount = 30 * spec.pagesPerPAT() + 1;
+  for (uint32_t region = 0; region < 30; ++region) {
+    const uint32_t physicalRegion = region < 28 ? region : region + 2;
+    spec.dataPages.push_back({spec.page(region, 0).logicalPage,
+                              spec.page(physicalRegion, 0).physicalPage});
+  }
+  spec.records = numberedRecords(
+      pageLength, spec.dataPages.size() * spec.recordsPerPage());
+  spec.acs = {{"SPILLED",
+               {spec.page(0, 10).logicalPage, spec.page(31, 10).physicalPage}}};
+  expectAllOfV6FileAcrossGapBeforePAT31(
+      spec, "PAT31-SPILL-" + std::to_string(pageLength));
+}
+
+TEST(BtrieveDatabase, LoadsV6PagesBeyondThePageCountWith1536BytePages) {
+  expectPagesInRegionsPastThePageCount(1536);
+}
+
+TEST(BtrieveDatabase, LoadsV6PagesBeyondThePageCountWith512BytePages) {
+  expectPagesInRegionsPastThePageCount(512);
+}
+
+// Stray bytes ahead of a PAT pair needn't be whole pages: page lengths are
+// multiples of 512, so 512 stray bytes can move a pair of 1536-byte pages off
+// the page grid as the gap before PAT pair 31 does.
+TEST(BtrieveDatabase, LoadsV6PagesPastStrayBytesThatArentAWholePage) {
+  const uint16_t pageLength = 1536;
+  const V6File spec = spreadOverPATs(pageLength, 8, 2 * 8 * 14);
+  std::vector<char> file = buildV6File(spec);
+  // ahead of PAT pair 5
+  file.insert(file.begin() + (2 + 4 * spec.pagesPerRegion()) * pageLength, 512,
+              static_cast<char>(0xCC));
+  const auto dat = writeTempFile("STRAY512.DAT", file);
+  expectSameRecords(loadAllRecords(dat), spec.records);
+  std::filesystem::remove(dat);
+}
+
+// MajorMUD's rooms file, WCCMP001.VIR (1536 byte pages), is the case that
+// matters: once Btrieve 6.15 has rewritten it as a v6 file it has about 70
+// PAT pairs, and every room past the gap before PAT 31 was lost. The shipped
+// file is 44 MB and not in assets, so this runs only when WBTRV32_WCCMP001
+// names a copy of it from MBBSEmu's WCCMMUD 1.11p module (a v5 file), e.g.
+// bazel test //btrieve:tests --test_env=WBTRV32_WCCMP001=/path/WCCMP001.VIR
+TEST(BtrieveDatabase, LoadsWCCMP001RebuiltAsV6WithTheGapBeforePAT31) {
+  const char *source = getenv("WBTRV32_WCCMP001");
+  if (source == nullptr || !std::filesystem::exists(source)) {
+#ifdef GTEST_SKIP
+    GTEST_SKIP() << "set WBTRV32_WCCMP001 to the path of WCCMP001.VIR";
+#else
+    // googletest before 1.10, as the MSBuild build uses, has no GTEST_SKIP
+    return;
+#endif
+  }
+
+  const auto rooms = loadAllRecords(source);
+  ASSERT_EQ(rooms.size(), 26720u);
+
+  const uint16_t pageLength = 1536;
+  V6File spec{pageLength, 0, rooms};
+  spec.patPairs = static_cast<uint32_t>(
+      (rooms.size() + spec.pagesPerPAT() - 1) / spec.pagesPerPAT());
+  for (uint32_t d = 0; d < rooms.size(); ++d) {
+    spec.dataPages.push_back(spec.page(d / spec.pagesPerPAT(),
+                                       d % spec.pagesPerPAT()));
+  }
+  std::vector<char> file = buildV6File(spec);
+  insertGapBeforePAT31(file, pageLength);
+  const auto dat = writeTempFile("WCCMP001-V6.DAT", file);
+
+  expectSameRecords(loadAllRecords(dat), rooms);
+  std::filesystem::remove(dat);
+}
+
+// PAT31GAP.DAT is a 1536-byte-page v6 file with 32 PAT pairs and Btrieve 6.x's
+// 4096-byte zeroed gap ahead of PAT pair 31 (moving PAT 31 and PAT 32 1024
+// bytes off the page grid). It holds 11,900 fixed 1528-byte records (IDs
+// 0..11899), cross-region physical mappings across the gap (IDs 11459/11460),
+// stale shadow copies in region 32 (for IDs 11460/11899), a PAT-freed orphan
+// page in region 32 (ID 99999), and key 1's MultiACS ("UPPER") on logical page
+// 11901 in PAT 32.
+TEST(BtrieveDatabase, LoadsPat31GapDatV6) {
+  constexpr unsigned int kExpectedRecords = 11900;
+  constexpr unsigned int kRecordLength = 1528;
+
+  BtrieveDatabase database;
+  std::vector<bool> seen(kExpectedRecords, false);
+  unsigned int loadedCount = 0;
+
+  ASSERT_EQ(
+      database.parseDatabase(
+          _TEXT("assets/PAT31GAP.DAT"), []() { return true; },
+          [&](std::basic_string_view<uint8_t> record) {
+            EXPECT_EQ(record.size(), kRecordLength);
+            if (record.size() == kRecordLength) {
+              uint32_t magic = 0;
+              uint32_t id = 0;
+              memcpy(&magic, record.data(), sizeof(magic));
+              memcpy(&id, record.data() + 4, sizeof(id));
+              EXPECT_EQ(magic, 0xDEADBEEFu);
+              EXPECT_LT(id, kExpectedRecords)
+                  << "unexpected or freed record id " << id;
+              if (id < kExpectedRecords) {
+                EXPECT_FALSE(seen[id]) << "duplicate record id " << id;
+                seen[id] = true;
+
+                char expectedTag[16] = {0};
+                const char *prefix =
+                    (id == 11460 || id == 11899) ? "UPD" : "REC";
+                snprintf(expectedTag, sizeof(expectedTag), "%s_%05u", prefix, id);
+                EXPECT_EQ(memcmp(record.data() + 8, expectedTag,
+                                 sizeof(expectedTag)),
+                          0)
+                    << "wrong tag for record id " << id;
+              }
+            }
+            ++loadedCount;
+            return BtrieveDatabase::LoadRecordResult::COUNT;
+          }),
+      BtrieveError::Success);
+
+  EXPECT_EQ(database.getPageLength(), 1536u);
+  EXPECT_EQ(database.getRecordLength(), kRecordLength);
+  EXPECT_EQ(database.getRecordCount(), kExpectedRecords);
+  EXPECT_EQ(database.getConversionWarning(), "");
+  EXPECT_EQ(loadedCount, kExpectedRecords);
+  EXPECT_EQ(std::count(seen.begin(), seen.end(), true),
+            static_cast<ptrdiff_t>(kExpectedRecords));
+
+  ASSERT_EQ(database.getKeys().size(), 2u);
+  const KeyDefinition &key0 = database.getKeys()[0].getPrimarySegment();
+  EXPECT_EQ(key0.getOffset(), 4u);
+  EXPECT_EQ(key0.getLength(), 4u);
+  EXPECT_EQ(key0.getDataType(), KeyDataType::UnsignedBinary);
+  EXPECT_FALSE(key0.requiresACS());
+
+  const KeyDefinition &key1 = database.getKeys()[1].getPrimarySegment();
+  EXPECT_EQ(key1.getOffset(), 8u);
+  EXPECT_EQ(key1.getLength(), 16u);
+  EXPECT_EQ(key1.getDataType(), KeyDataType::Zstring);
+  EXPECT_TRUE(key1.requiresACS());
+  ASSERT_NE(key1.getACSName(), nullptr);
+  EXPECT_STREQ(key1.getACSName(), "UPPER");
+  ASSERT_NE(key1.getACS(), nullptr);
+  EXPECT_EQ(key1.getACS()[static_cast<unsigned char>('a')], 'A');
+  EXPECT_EQ(key1.getACS()[static_cast<unsigned char>('z')], 'Z');
 }
 
 TEST(BtrieveDatabase, LoadsMultiAcsDatV6) {

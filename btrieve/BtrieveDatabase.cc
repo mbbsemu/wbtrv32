@@ -241,7 +241,7 @@ void BtrieveDatabase::loadRecords(
   if (v6) {
     for (const auto& [logicalPage, page] : v6Pages) {
       if (page.type == 'D') {
-        dataPageOffsets.push_back(page.physicalPage * pageLength);
+        dataPageOffsets.push_back(page.fileOffset);
       }
     }
   } else {
@@ -369,11 +369,11 @@ bool BtrieveDatabase::loadPAT(FILE* f, std::string& acsName,
   uint8_t* pat1 = reinterpret_cast<uint8_t*>(alloca(pageLength * 2));
   uint8_t* pat2 = pat1 + pageLength;  // pat2 is sequentially after pat1
 
-  if (patPages.empty()) {
+  if (patOffsets.empty()) {
     throw BtrieveException(BtrieveError::NotBtrieveFile,
                            "PAT1 table is invalid");
   }
-  fseek_s(f, patPages[0] * pageLength, SEEK_SET);  // normally the third page
+  fseek_s(f, patOffsets[0], SEEK_SET);  // normally the third page
   fread_s(pat1, pageLength * 2, f);
 
   if (pat1[0] != 'P' || pat1[1] != 'P') {
@@ -403,7 +403,7 @@ bool BtrieveDatabase::loadPAT(FILE* f, std::string& acsName,
 
     if (type == 'A') {
       loadACSAtPhysicalOffset(f, acsName, acs,
-                              toFilePage(pageNumber) * pageLength);
+                              static_cast<uint32_t>(toFileOffset(pageNumber)));
     }
 
     if (type != 0 && type != 'A' && type != 'D' && type != 'E' && type != 'V') {
@@ -732,7 +732,7 @@ int32_t BtrieveDatabase::lookupPATEntry(FILE* f, int32_t logicalPage,
   if (auto it = v6Pages.find(static_cast<uint32_t>(logicalPage));
       it != v6Pages.end()) {
     outType = it->second.type;
-    return static_cast<int32_t>(it->second.physicalPage * pageLength);
+    return static_cast<int32_t>(it->second.fileOffset);
   }
 
   // go through the PAT
@@ -750,7 +750,7 @@ int32_t BtrieveDatabase::lookupPATEntry(FILE* f, int32_t logicalPage,
     logicalPage -= pagesPerPAT;
     ++pat;
   }
-  if (pat >= patPages.size()) {
+  if (pat >= patOffsets.size()) {
     outType = 0xFF;
     return -1;
   }
@@ -758,8 +758,8 @@ int32_t BtrieveDatabase::lookupPATEntry(FILE* f, int32_t logicalPage,
   uint8_t* pat1 = reinterpret_cast<uint8_t*>(alloca(pageLength * 2));
   uint8_t* pat2 = pat1 + pageLength;
 
-  const uint32_t physicalOffset = patPages[pat] * pageLength;
-  if (physicalOffset + pageLength * 2 > fileLength) {
+  const uint32_t physicalOffset = patOffsets[pat];
+  if (static_cast<uint64_t>(physicalOffset) + pageLength * 2u > fileLength) {
     // we overflowed, this is junk
     outType = 0xFF;
     return -1;
@@ -787,65 +787,103 @@ int32_t BtrieveDatabase::lookupPATEntry(FILE* f, int32_t logicalPage,
   uint8_t* entry = activePat + (logicalPage * 4) + 4;
   outType = entry[1];  // type byte is at position 1 in the 4-byte entry
 
-  const uint32_t filePage = toFilePage(patEntryPage(entry));
+  const uint64_t fileOffset = toFileOffset(patEntryPage(entry));
   // type 0 is an unallocated entry
-  if (outType == 0 ||
-      (static_cast<uint64_t>(filePage) + 1) * pageLength > fileLength) {
+  if (outType == 0 || fileOffset + pageLength > fileLength) {
     return -1;
   }
 
-  return static_cast<int32_t>(filePage * pageLength);
+  return static_cast<int32_t>(fileOffset);
 }
 
 uint32_t BtrieveDatabase::patEntryPage(const uint8_t* entry) const {
   const uint32_t withoutHigh = (entry[3] << 8) | entry[2];
   const uint32_t withHigh = (entry[0] << 16) | withoutHigh;
-  return (static_cast<uint64_t>(toFilePage(withHigh)) + 1) * pageLength <=
-                 fileLength
-             ? withHigh
-             : withoutHigh;
+  return toFileOffset(withHigh) + pageLength <= fileLength ? withHigh
+                                                           : withoutHigh;
 }
+
+// Btrieve 6.x, growing a file past 30 PAT pairs, leaves this many bytes ahead
+// of PAT pair 31 whatever the page length, so with a page length that doesn't
+// divide it every page from there on is off the page grid. Novell's "NetWare
+// 4.11: Btrieve Installation and Operation" (100-003597-001 A, 1999), p. 261,
+// "Estimating File Size" step 9: "Add an additional 4,096 bytes to the size of
+// the file if the file uses more than 30 PAT pages. Btrieve uses these
+// additional bytes internally." In files Btrieve 6.15 grew, the gap comes
+// after 30 PAT pairs, not pages, and there is no second one through 72 pairs.
+static constexpr uint32_t kGapBeforePAT31 = 4096;
+
+// Page lengths are multiples of this, so a stray page or a gap is too.
+static constexpr uint32_t kPageLengthUnit = 512;
 
 void BtrieveDatabase::locatePATs(FILE* f) {
-  const uint32_t pagesPerRegion = pageLength / 4u;
-  const uint32_t pagesPerPAT = pagesPerRegion - 2u;
-  const uint32_t filePages = fileLength / pageLength;
-  // logical pages 1 .. pageCount - 1, pagesPerPAT to each PAT
-  const uint32_t patCount =
-      pageCount > 1 ? (pageCount - 2) / pagesPerPAT + 1 : 1;
+  const uint64_t regionLength =
+      static_cast<uint64_t>(pageLength / 4u) * pageLength;
 
-  // true if page is a PAT page carrying sequence number n
-  auto isPATPage = [&](uint32_t page, uint32_t n) {
-    uint8_t header[4];
-    fseek_s(f, page * pageLength, SEEK_SET);
-    fread_s(header, sizeof(header), f);
-    return header[0] == 'P' && header[1] == 'P' && toUint16(header + 2) == n;
-  };
-
-  patPages.clear();
-  uint32_t expected = 2;
-  for (uint32_t n = 1; n <= patCount; ++n) {
-    for (uint32_t page = expected; page + 1 < filePages; ++page) {
-      if (isPATPage(page, n) && isPATPage(page + 1, n)) {
-        patPages.push_back(page);
-        break;
+  // true if a PAT pair carrying sequence number n starts at offset
+  auto isPATPair = [&](uint64_t offset, uint32_t n) {
+    if (offset + 2u * pageLength > fileLength) {
+      return false;
+    }
+    for (uint64_t page = offset; page < offset + 2u * pageLength;
+         page += pageLength) {
+      uint8_t header[4];
+      fseek_s(f, static_cast<long>(page), SEEK_SET);
+      fread_s(header, sizeof(header), f);
+      if (header[0] != 'P' || header[1] != 'P' || toUint16(header + 2) != n) {
+        return false;
       }
     }
-    if (patPages.size() != n) {
+    return true;
+  };
+
+  // where PAT pair n is, looking no earlier than expected; 0 if not found (no
+  // PAT pair can start at 0, the FCR's place)
+  auto findPATPair = [&](uint64_t expected, uint32_t n) -> uint64_t {
+    if (isPATPair(expected, n)) {
+      return expected;
+    }
+    if (n == 31 && isPATPair(expected + kGapBeforePAT31, n)) {
+      return expected + kGapBeforePAT31;
+    }
+    // stray pages ahead of the PAT pair, which needn't be pageLength long
+    for (uint64_t offset = expected + kPageLengthUnit;
+         offset + 2u * pageLength <= fileLength; offset += kPageLengthUnit) {
+      if (isPATPair(offset, n)) {
+        return offset;
+      }
+    }
+    return 0;
+  };
+
+  // Every PAT pair on disk, not only those the FCR's page count accounts for:
+  // shadow copies of pages can sit in physical regions past them, headed by
+  // PAT pairs of their own.
+  patOffsets.clear();
+  uint64_t expected = 2u * pageLength;
+  for (uint32_t n = 1; expected + 2u * pageLength <= fileLength; ++n) {
+    const uint64_t offset = findPATPair(expected, n);
+    if (offset == 0) {
       break;
     }
-    expected = patPages.back() + pagesPerRegion;
+    patOffsets.push_back(static_cast<uint32_t>(offset));
+    expected = offset + regionLength;
   }
 }
 
-uint32_t BtrieveDatabase::toFilePage(uint32_t physicalPage) const {
+uint64_t BtrieveDatabase::toFileOffset(uint32_t physicalPage) const {
   const uint32_t pagesPerRegion = pageLength / 4u;
-  if (physicalPage < 2 || patPages.empty()) {
-    return physicalPage;
+  const uint64_t offset = static_cast<uint64_t>(physicalPage) * pageLength;
+  if (physicalPage < 2 || patOffsets.empty()) {
+    return offset;
   }
   const size_t region = std::min<size_t>((physicalPage - 2) / pagesPerRegion,
-                                         patPages.size() - 1);
-  return physicalPage + patPages[region] - (2 + region * pagesPerRegion);
+                                         patOffsets.size() - 1);
+  // where the region's PAT pair would be with nothing ahead of it;
+  // locatePATs never looks earlier than that, so the shift isn't negative
+  const uint64_t unshifted =
+      (2u + static_cast<uint64_t>(region) * pagesPerRegion) * pageLength;
+  return offset + (patOffsets[region] - unshifted);
 }
 
 // Btrieve 6 never edits a page in place: it writes the new version to a free
@@ -861,29 +899,41 @@ uint32_t BtrieveDatabase::toFilePage(uint32_t physicalPage) const {
 void BtrieveDatabase::buildV6PageMap(FILE* f) {
   v6Pages.clear();
 
-  const uint32_t filePages = fileLength / pageLength;
+  const uint64_t regionLength =
+      static_cast<uint64_t>(pageLength / 4u) * pageLength;
   uint8_t header[6];
-  // pages 0 and 1 are the FCR shadow pair
-  for (uint32_t physicalPage = 2; physicalPage < filePages; ++physicalPage) {
-    fseek_s(f, physicalPage * pageLength, SEEK_SET);
-    fread_s(header, sizeof(header), f);
+  // Each PAT pair heads a region of pageLength / 4 pages, read from where the
+  // pair is, since stray pages or Btrieve's gap before PAT 31 can move it off
+  // the page grid. The last region runs to the end of the file. Pages
+  // 0 and 1, the FCR pair, are in no region.
+  for (size_t region = 0; region < patOffsets.size(); ++region) {
+    const uint64_t regionEnd =
+        region + 1 < patOffsets.size()
+            ? std::min<uint64_t>(patOffsets[region] + regionLength, fileLength)
+            : fileLength;
+    for (uint64_t offset = patOffsets[region]; offset + pageLength <= regionEnd;
+         offset += pageLength) {
+      fseek_s(f, static_cast<long>(offset), SEEK_SET);
+      fread_s(header, sizeof(header), f);
 
-    const uint8_t type = header[1];
-    if ((header[0] == 'P' && header[1] == 'P') || (type != 'D' && type != 'V')) {
-      continue;
-    }
+      const uint8_t type = header[1];
+      if ((header[0] == 'P' && header[1] == 'P') ||
+          (type != 'D' && type != 'V')) {
+        continue;
+      }
 
-    const uint32_t logicalPage =
-        (header[0] << 16) | (header[3] << 8) | header[2];
-    const uint16_t usageCount = toUint16(header + 4) & 0x7FFF;
+      const uint32_t logicalPage =
+          (header[0] << 16) | (header[3] << 8) | header[2];
+      const uint16_t usageCount = toUint16(header + 4) & 0x7FFF;
+      const V6Page page{static_cast<uint32_t>(offset), type, usageCount};
 
-    auto [it, inserted] = v6Pages.try_emplace(
-        logicalPage, V6Page{physicalPage, type, usageCount});
-    // Highest usage count wins. Not a wrap-aware comparison: a page's first
-    // copy can sit at 0 next to a live copy tens of thousands of writes
-    // ahead, which wrap-aware ordering would mistake for the newer one.
-    if (!inserted && usageCount > it->second.usageCount) {
-      it->second = V6Page{physicalPage, type, usageCount};
+      auto [it, inserted] = v6Pages.try_emplace(logicalPage, page);
+      // Highest usage count wins. Not a wrap-aware comparison: a page's first
+      // copy can sit at 0 next to a live copy tens of thousands of writes
+      // ahead, which wrap-aware ordering would mistake for the newer one.
+      if (!inserted && usageCount > it->second.usageCount) {
+        it->second = page;
+      }
     }
   }
 
@@ -893,8 +943,8 @@ void BtrieveDatabase::buildV6PageMap(FILE* f) {
   std::unordered_set<uint32_t> allocated;
   const uint32_t entriesPerPAT = (pageLength / 4u) - 2u;
   std::vector<uint8_t> pat(pageLength * 2);
-  for (size_t n = 0; n < patPages.size(); ++n) {
-    fseek_s(f, patPages[n] * pageLength, SEEK_SET);
+  for (size_t n = 0; n < patOffsets.size(); ++n) {
+    fseek_s(f, patOffsets[n], SEEK_SET);
     fread_s(pat.data(), pat.size(), f);
     const uint8_t* pat1 = pat.data();
     const uint8_t* pat2 = pat1 + pageLength;
